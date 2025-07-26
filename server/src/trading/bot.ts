@@ -1,7 +1,7 @@
 import { bingxClient } from '../services/bingxClient';
 import { wsManager } from '../services/websocket';
 import { SignalGenerator } from './signalGenerator';
-import { TechnicalIndicators } from '../indicators/technicalIndicators';
+// import { TechnicalIndicators } from '../indicators/technicalIndicators';
 import { logger } from '../utils/logger';
 import Trade from '../models/Trade';
 import { EventEmitter } from 'events';
