@@ -104,7 +104,7 @@ export const api = {
     endDate?: string
   }): Promise<PaginatedResponse<Trade>> {
     const response = await axiosInstance.get('/trading/trades/history', { params })
-    return response
+    return response.data
   },
 
   async getTradingStats(period?: string): Promise<{
