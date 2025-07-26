@@ -250,6 +250,7 @@ export class TradingBot extends EventEmitter {
           signalReason: signal.reason,
           indicators: signal.indicators,
           commissionAsset: 'USDT',
+          commission: 0,
           executedQty: 0,
           avgPrice: 0,
           realizedPnl: 0
