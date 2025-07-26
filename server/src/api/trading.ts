@@ -9,7 +9,7 @@ import { Op } from 'sequelize';
 const router = Router();
 
 // Get bot status
-router.get('/bot/status', asyncHandler(async (req: Request, res: Response) => {
+router.get('/bot/status', asyncHandler(async (_req: Request, res: Response) => {
   const bot = getTradingBot();
   const status = bot.getStatus();
   
@@ -35,7 +35,7 @@ router.get('/bot/status', asyncHandler(async (req: Request, res: Response) => {
 }));
 
 // Start trading bot
-router.post('/bot/start', asyncHandler(async (req: Request, res: Response) => {
+router.post('/bot/start', asyncHandler(async (_req: Request, res: Response) => {
   const bot = getTradingBot();
   
   if (bot.getStatus().isRunning) {
@@ -53,7 +53,7 @@ router.post('/bot/start', asyncHandler(async (req: Request, res: Response) => {
 }));
 
 // Stop trading bot
-router.post('/bot/stop', asyncHandler(async (req: Request, res: Response) => {
+router.post('/bot/stop', asyncHandler(async (_req: Request, res: Response) => {
   const bot = getTradingBot();
   
   if (!bot.getStatus().isRunning) {
@@ -105,7 +105,7 @@ router.put('/bot/config', asyncHandler(async (req: Request, res: Response) => {
 }));
 
 // Get active positions
-router.get('/positions', asyncHandler(async (req: Request, res: Response) => {
+router.get('/positions', asyncHandler(async (_req: Request, res: Response) => {
   try {
     const positions = await bingxClient.getPositions();
     
@@ -305,7 +305,11 @@ router.post('/orders', asyncHandler(async (req: Request, res: Response) => {
         takeProfitPrice: orderData.takeProfit,
         signalStrength: 0,
         signalReason: 'Manual order',
-        indicators: {}
+        indicators: {},
+        commissionAsset: 'USDT',
+        executedQty: 0,
+        avgPrice: 0,
+        realizedPnl: 0
       });
       
       res.json({
