@@ -248,7 +248,11 @@ export class TradingBot extends EventEmitter {
           takeProfitPrice: takeProfit,
           signalStrength: signal.strength,
           signalReason: signal.reason,
-          indicators: signal.indicators
+          indicators: signal.indicators,
+          commissionAsset: 'USDT',
+          executedQty: 0,
+          avgPrice: 0,
+          realizedPnl: 0
         });
 
         // Add to active positions
