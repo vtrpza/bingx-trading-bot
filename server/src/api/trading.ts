@@ -307,6 +307,7 @@ router.post('/orders', asyncHandler(async (req: Request, res: Response) => {
         signalReason: 'Manual order',
         indicators: {},
         commissionAsset: 'USDT',
+        commission: 0,
         executedQty: 0,
         avgPrice: 0,
         realizedPnl: 0

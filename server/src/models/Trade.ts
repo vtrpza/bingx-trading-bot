@@ -28,7 +28,7 @@ interface TradeAttributes {
   updatedAt: Date;
 }
 
-interface TradeCreationAttributes extends Optional<TradeAttributes, 'id' | 'executedQty' | 'avgPrice' | 'commission' | 'realizedPnl'> {}
+interface TradeCreationAttributes extends Optional<TradeAttributes, 'id' | 'executedQty' | 'avgPrice' | 'commission' | 'realizedPnl' | 'createdAt' | 'updatedAt'> {}
 
 class Trade extends Model<TradeAttributes, TradeCreationAttributes> implements TradeAttributes {
   public id!: number;
