@@ -11,8 +11,10 @@
     "client:build": "cd client && npm run build",
     "server:build": "cd server && npm run build",
     "start": "cd server && npm start",
-    "install:all": "npm install && cd server && npm install && cd ../client && npm install",
-    "postinstall": "npm run install:all"
+    "install:server": "cd server && npm install",
+    "install:client": "cd client && npm install",
+    "install:all": "npm install && npm run install:server && npm run install:client",
+    "postinstall": "npm run install:server && npm run install:client"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"
