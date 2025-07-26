@@ -35,8 +35,8 @@ export const errorHandler = (
       stack: error.stack,
       statusCode,
       isOperational,
-      path: req.path,
-      method: req.method
+      path: _req.path,
+      method: _req.method
     }
   });
 
