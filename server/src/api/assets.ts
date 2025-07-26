@@ -91,7 +91,7 @@ router.get('/:symbol', asyncHandler(async (req: Request, res: Response) => {
 }));
 
 // Refresh assets from BingX API
-router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
+router.post('/refresh', asyncHandler(async (_req: Request, res: Response) => {
   logger.info('Refreshing assets from BingX API...');
   
   try {
@@ -151,7 +151,7 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
       }
       
       // Upsert to database
-      const [asset, wasCreated] = await Asset.upsert(assetData, {
+      const [_asset, wasCreated] = await Asset.upsert(assetData, {
         returning: true
       });
       
@@ -181,7 +181,7 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
 }));
 
 // Get asset statistics
-router.get('/stats/overview', asyncHandler(async (req: Request, res: Response) => {
+router.get('/stats/overview', asyncHandler(async (_req: Request, res: Response) => {
   const totalAssets = await Asset.count();
   const tradingAssets = await Asset.count({ where: { status: 'TRADING' } });
   

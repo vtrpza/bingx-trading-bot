@@ -140,12 +140,12 @@ router.get('/indicators/:symbol', asyncHandler(async (req: Request, res: Respons
         volumeAnalysis: indicators.volumeAnalysis,
         validation: indicators.validation,
         series: {
-          timestamps: candles.map(c => c.timestamp),
-          prices: candles.map(c => c.close),
+          timestamps: candles.map((c: any) => c.timestamp),
+          prices: candles.map((c: any) => c.close),
           ma1: indicators.ma1,
           ma2: indicators.ma2,
           rsi: indicators.rsi,
-          volumes: candles.map(c => c.volume)
+          volumes: candles.map((c: any) => c.volume)
         }
       }
     });
@@ -253,7 +253,7 @@ router.post('/unsubscribe', asyncHandler(async (req: Request, res: Response) => 
 }));
 
 // Get market overview
-router.get('/overview', asyncHandler(async (req: Request, res: Response) => {
+router.get('/overview', asyncHandler(async (_req: Request, res: Response) => {
   try {
     // Get all symbols
     const symbolsData = await bingxClient.getSymbols();
