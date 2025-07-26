@@ -25,7 +25,7 @@ interface AssetAttributes {
   createdAt: Date;
 }
 
-interface AssetCreationAttributes extends Optional<AssetAttributes, 'id'> {}
+interface AssetCreationAttributes extends Optional<AssetAttributes, 'id' | 'createdAt' | 'updatedAt'> {}
 
 class Asset extends Model<AssetAttributes, AssetCreationAttributes> implements AssetAttributes {
   public id!: number;
