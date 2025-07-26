@@ -49,5 +49,11 @@ services:
         source: /api/*
         destination: https://bingx-trading-bot-api.onrender.com/api/$1
       - type: rewrite
+        source: /favicon.ico
+        destination: https://bingx-trading-bot-api.onrender.com/favicon.ico
+      - type: rewrite
+        source: /manifest.json
+        destination: https://bingx-trading-bot-api.onrender.com/manifest.json
+      - type: rewrite
         source: /*
         destination: /index.html

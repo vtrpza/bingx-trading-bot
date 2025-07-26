@@ -20,21 +20,23 @@ const app = express();
 const server = createServer(app);
 const PORT = process.env.PORT || 3001;
 
-// Middleware
+// Middleware - Configure helmet with proper CSP for production
 app.use(helmet({
-  contentSecurityPolicy: {
+  contentSecurityPolicy: process.env.NODE_ENV === 'production' ? {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      imgSrc: ["'self'", "data:", "https:"],
-      connectSrc: ["'self'", "wss:", "ws:"],
-      fontSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https:"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https:", "fonts.googleapis.com"],
+      imgSrc: ["'self'", "data:", "https:", "blob:"],
+      connectSrc: ["'self'", "wss:", "ws:", "https:", "wss://open-api-ws.bingx.com"],
+      fontSrc: ["'self'", "https:", "fonts.gstatic.com"],
       objectSrc: ["'none'"],
       mediaSrc: ["'self'"],
-      frameSrc: ["'none'"]
+      frameSrc: ["'none'"],
+      baseUri: ["'self'"],
+      formAction: ["'self'"]
     }
-  }
+  } : false
 }));
 app.use(compression());
 app.use(cors({
@@ -52,8 +54,28 @@ app.use(express.urlencoded({ extended: true }));
 
 // Serve static files and handle favicon
 app.use(express.static('public'));
+
+// Multiple favicon handlers for different paths
 app.get('/favicon.ico', (_req, res) => {
+  res.setHeader('Content-Type', 'image/x-icon');
+  res.setHeader('Cache-Control', 'public, max-age=86400');
   res.status(204).end();
+});
+
+app.get('/apple-touch-icon.png', (_req, res) => {
+  res.status(204).end();
+});
+
+app.get('/manifest.json', (_req, res) => {
+  res.setHeader('Content-Type', 'application/json');
+  res.json({
+    name: "BingX Trading Bot",
+    short_name: "BingX Bot",
+    icons: [],
+    theme_color: "#000000",
+    background_color: "#ffffff",
+    display: "standalone"
+  });
 });
 
 // Health check endpoint

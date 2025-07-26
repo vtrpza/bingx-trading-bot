@@ -92,7 +92,7 @@ export default function AssetsPage() {
           
           <div className="card p-6">
             <h3 className="text-lg font-medium text-gray-900">Top Gainer</h3>
-            {stats.topGainers[0] && (
+            {stats.topGainers && stats.topGainers.length > 0 && stats.topGainers[0] && (
               <>
                 <p className="text-xl font-bold text-gray-900">{stats.topGainers[0].symbol}</p>
                 <p className="text-lg font-bold text-green-600">
@@ -100,17 +100,23 @@ export default function AssetsPage() {
                 </p>
               </>
             )}
+            {(!stats.topGainers || stats.topGainers.length === 0) && (
+              <p className="text-sm text-gray-500">No data available</p>
+            )}
           </div>
           
           <div className="card p-6">
             <h3 className="text-lg font-medium text-gray-900">Highest Volume</h3>
-            {stats.topVolume[0] && (
+            {stats.topVolume && stats.topVolume.length > 0 && stats.topVolume[0] && (
               <>
                 <p className="text-xl font-bold text-gray-900">{stats.topVolume[0].symbol}</p>
                 <p className="text-lg text-gray-600">
                   ${formatNumber(stats.topVolume[0].quoteVolume24h)}
                 </p>
               </>
+            )}
+            {(!stats.topVolume || stats.topVolume.length === 0) && (
+              <p className="text-sm text-gray-500">No data available</p>
             )}
           </div>
         </div>
