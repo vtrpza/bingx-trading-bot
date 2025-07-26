@@ -42,12 +42,23 @@ export default function AssetsPage() {
   // Handle refresh
   const handleRefresh = async () => {
     setIsRefreshing(true)
+    toast.loading('Refreshing assets from BingX...', { id: 'refresh-assets' })
+    
     try {
       const result = await api.refreshAssets()
-      toast.success(`Assets refreshed: ${result.created} created, ${result.updated} updated`)
+      const { created = 0, updated = 0, total = 0 } = result || {}
+      
+      toast.success(
+        `Assets refreshed successfully!\n${created} created, ${updated} updated (${total} total processed)`,
+        { 
+          id: 'refresh-assets',
+          duration: 4000
+        }
+      )
       refetch()
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to refresh assets')
+      const errorMessage = error instanceof Error ? error.message : 'Failed to refresh assets'
+      toast.error(errorMessage, { id: 'refresh-assets' })
     } finally {
       setIsRefreshing(false)
     }
@@ -75,9 +86,15 @@ export default function AssetsPage() {
         <button
           onClick={handleRefresh}
           disabled={isRefreshing}
-          className="btn btn-primary"
+          className={`btn btn-primary flex items-center gap-2 ${isRefreshing ? 'opacity-75 cursor-not-allowed' : ''}`}
         >
-          {isRefreshing ? 'Refreshing...' : 'Refresh Data'}
+          {isRefreshing && (
+            <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"/>
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"/>
+            </svg>
+          )}
+          {isRefreshing ? 'Refreshing from BingX...' : 'Refresh Data'}
         </button>
       </div>
 
