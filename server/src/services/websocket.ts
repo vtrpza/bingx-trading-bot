@@ -366,7 +366,7 @@ export function setupWebSocket(server: Server) {
   wsManager.connect();
 }
 
-function handleClientMessage(ws: WebSocket, message: any) {
+function handleClientMessage(_ws: WebSocket, message: any) {
   switch (message.action) {
     case 'subscribe':
       wsManager.subscribe(message.data);
