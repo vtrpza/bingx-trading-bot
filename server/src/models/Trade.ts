@@ -154,6 +154,14 @@ Trade.init({
   closedAt: {
     type: DataTypes.DATE,
     allowNull: true
+  },
+  createdAt: {
+    type: DataTypes.DATE,
+    allowNull: false
+  },
+  updatedAt: {
+    type: DataTypes.DATE,
+    allowNull: false
   }
 }, {
   sequelize,
