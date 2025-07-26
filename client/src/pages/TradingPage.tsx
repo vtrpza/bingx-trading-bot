@@ -33,7 +33,7 @@ export default function TradingPage() {
   )
 
   // WebSocket for real-time updates
-  const { lastMessage, sendMessage } = useWebSocket('/ws')
+  const { lastMessage } = useWebSocket('/ws')
 
   useEffect(() => {
     if (lastMessage) {
@@ -50,7 +50,7 @@ export default function TradingPage() {
           queryClient.invalidateQueries('trading-stats')
           break
         case 'positionClosed':
-          toast.info(`Position closed: ${data.data.symbol}`)
+          toast(`Position closed: ${data.data.symbol}`)
           queryClient.invalidateQueries('bot-status')
           break
         case 'orderUpdate':

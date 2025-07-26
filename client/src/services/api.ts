@@ -9,7 +9,6 @@ import type {
   MarketData,
   Candle,
   TechnicalIndicators,
-  ApiResponse,
   PaginatedResponse
 } from '../types'
 
@@ -31,7 +30,7 @@ axiosInstance.interceptors.request.use(
 // Response interceptor
 axiosInstance.interceptors.response.use(
   (response) => {
-    return response.data.data || response.data
+    return response.data
   },
   (error) => {
     const message = error.response?.data?.error?.message || error.message || 'An error occurred'
@@ -50,7 +49,7 @@ export const api = {
     status?: string
   }): Promise<PaginatedResponse<Asset>> {
     const response = await axiosInstance.get('/assets', { params })
-    return response
+    return response.data
   },
 
   async getAsset(symbol: string): Promise<Asset> {

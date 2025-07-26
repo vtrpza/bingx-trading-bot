@@ -23,7 +23,7 @@ export function useWebSocket(url: string, options: UseWebSocketOptions = {}) {
   const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected' | 'error'>('connecting')
 
   const reconnectAttempts = useRef(0)
-  const reconnectTimeoutId = useRef<NodeJS.Timeout | null>(null)
+  const reconnectTimeoutId = useRef<number | null>(null)
   const shouldReconnect = useRef(true)
 
   const connect = useCallback(() => {
@@ -47,7 +47,7 @@ export function useWebSocket(url: string, options: UseWebSocketOptions = {}) {
         if (shouldReconnect.current && reconnectAttempts.current < maxReconnectAttempts) {
           reconnectAttempts.current++
           setConnectionStatus('connecting')
-          reconnectTimeoutId.current = setTimeout(connect, reconnectInterval)
+          reconnectTimeoutId.current = window.setTimeout(connect, reconnectInterval)
         }
       }
 
@@ -84,7 +84,7 @@ export function useWebSocket(url: string, options: UseWebSocketOptions = {}) {
   const disconnect = useCallback(() => {
     shouldReconnect.current = false
     if (reconnectTimeoutId.current) {
-      clearTimeout(reconnectTimeoutId.current)
+      window.clearTimeout(reconnectTimeoutId.current)
     }
     if (socket) {
       socket.close()
@@ -104,7 +104,7 @@ export function useWebSocket(url: string, options: UseWebSocketOptions = {}) {
     return () => {
       shouldReconnect.current = false
       if (reconnectTimeoutId.current) {
-        clearTimeout(reconnectTimeoutId.current)
+        window.clearTimeout(reconnectTimeoutId.current)
       }
       if (socket) {
         socket.close()

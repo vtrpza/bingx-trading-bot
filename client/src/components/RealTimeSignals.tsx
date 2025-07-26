@@ -7,7 +7,7 @@ import type { TradingSignal } from '../types'
 export default function RealTimeSignals() {
   const [signals, setSignals] = useState<TradingSignal[]>([])
   const [selectedSymbol, setSelectedSymbol] = useState('BTC-USDT')
-  const [watchedSymbols, setWatchedSymbols] = useState(['BTC-USDT', 'ETH-USDT', 'BNB-USDT'])
+  const [watchedSymbols] = useState(['BTC-USDT', 'ETH-USDT', 'BNB-USDT'])
 
   const { lastMessage } = useWebSocket('/ws')
 
@@ -15,7 +15,7 @@ export default function RealTimeSignals() {
   const { data: marketOverview } = useQuery('market-overview', api.getMarketOverview)
 
   // Get signal for selected symbol
-  const { data: currentSignal, isLoading } = useQuery(
+  const { data: currentSignal } = useQuery(
     ['signal', selectedSymbol],
     () => api.getSignal(selectedSymbol),
     {

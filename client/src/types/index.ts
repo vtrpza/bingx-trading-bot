@@ -52,17 +52,17 @@ export interface Trade {
 export interface Position {
   symbol: string;
   side: 'LONG' | 'SHORT';
-  positionAmt: number;
-  entryPrice: number;
-  markPrice: number;
-  unrealizedProfit: number;
-  percentage: number;
+  positionAmt: string;
+  entryPrice: string;
+  markPrice: string;
+  unrealizedProfit: string;
+  percentage: string;
   marginType: string;
-  isolatedMargin: number;
+  isolatedMargin: string;
   isAutoAddMargin: boolean;
   positionSide: string;
-  notional: number;
-  isolatedWallet: number;
+  notional: string;
+  isolatedWallet: string;
   updateTime: number;
 }
 
@@ -153,7 +153,9 @@ export interface ApiResponse<T = any> {
 }
 
 export interface PaginatedResponse<T = any> {
-  data: T[];
+  assets?: T[];
+  trades?: T[];
+  data?: T[];
   pagination: {
     page: number;
     limit: number;
