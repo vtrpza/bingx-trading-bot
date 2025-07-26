@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, Request, Response } from 'express';
 import { getTradingBot } from '../trading/bot';
 import { bingxClient } from '../services/bingxClient';
 import Trade from '../models/Trade';
@@ -9,7 +9,7 @@ import { Op } from 'sequelize';
 const router = Router();
 
 // Get bot status
-router.get('/bot/status', asyncHandler(async (req, res) => {
+router.get('/bot/status', asyncHandler(async (req: Request, res: Response) => {
   const bot = getTradingBot();
   const status = bot.getStatus();
   
@@ -35,7 +35,7 @@ router.get('/bot/status', asyncHandler(async (req, res) => {
 }));
 
 // Start trading bot
-router.post('/bot/start', asyncHandler(async (req, res) => {
+router.post('/bot/start', asyncHandler(async (req: Request, res: Response) => {
   const bot = getTradingBot();
   
   if (bot.getStatus().isRunning) {
@@ -53,7 +53,7 @@ router.post('/bot/start', asyncHandler(async (req, res) => {
 }));
 
 // Stop trading bot
-router.post('/bot/stop', asyncHandler(async (req, res) => {
+router.post('/bot/stop', asyncHandler(async (req: Request, res: Response) => {
   const bot = getTradingBot();
   
   if (!bot.getStatus().isRunning) {
@@ -71,7 +71,7 @@ router.post('/bot/stop', asyncHandler(async (req, res) => {
 }));
 
 // Update bot configuration
-router.put('/bot/config', asyncHandler(async (req, res) => {
+router.put('/bot/config', asyncHandler(async (req: Request, res: Response) => {
   const bot = getTradingBot();
   const config = req.body;
   
@@ -105,7 +105,7 @@ router.put('/bot/config', asyncHandler(async (req, res) => {
 }));
 
 // Get active positions
-router.get('/positions', asyncHandler(async (req, res) => {
+router.get('/positions', asyncHandler(async (req: Request, res: Response) => {
   try {
     const positions = await bingxClient.getPositions();
     
@@ -129,7 +129,7 @@ router.get('/positions', asyncHandler(async (req, res) => {
 }));
 
 // Get open orders
-router.get('/orders/open', asyncHandler(async (req, res) => {
+router.get('/orders/open', asyncHandler(async (req: Request, res: Response) => {
   const { symbol } = req.query;
   
   try {
@@ -150,7 +150,7 @@ router.get('/orders/open', asyncHandler(async (req, res) => {
 }));
 
 // Get trade history
-router.get('/trades/history', asyncHandler(async (req, res) => {
+router.get('/trades/history', asyncHandler(async (req: Request, res: Response) => {
   const { 
     page = 1, 
     limit = 20, 
@@ -208,7 +208,7 @@ router.get('/trades/history', asyncHandler(async (req, res) => {
 }));
 
 // Get trading statistics
-router.get('/stats', asyncHandler(async (req, res) => {
+router.get('/stats', asyncHandler(async (req: Request, res: Response) => {
   const { period = '24h' } = req.query;
   
   // Calculate date range
@@ -279,7 +279,7 @@ router.get('/stats', asyncHandler(async (req, res) => {
 }));
 
 // Place manual order
-router.post('/orders', asyncHandler(async (req, res) => {
+router.post('/orders', asyncHandler(async (req: Request, res: Response) => {
   const orderData = req.body;
   
   // Validate required fields
@@ -322,7 +322,7 @@ router.post('/orders', asyncHandler(async (req, res) => {
 }));
 
 // Cancel order
-router.delete('/orders/:orderId', asyncHandler(async (req, res) => {
+router.delete('/orders/:orderId', asyncHandler(async (req: Request, res: Response) => {
   const { orderId } = req.params;
   const { symbol } = req.query;
   
