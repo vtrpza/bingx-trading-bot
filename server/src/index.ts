@@ -41,8 +41,8 @@ app.use(cors({
   origin: [
     'http://localhost:3000',
     'https://bingx-trading-bot-1.onrender.com',
-    process.env.FRONTEND_URL
-  ].filter(Boolean),
+    ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : [])
+  ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
