@@ -1,0 +1,276 @@
+import { TechnicalIndicators } from '../indicators/technicalIndicators';
+import { logger } from '../utils/logger';
+
+export interface TradingSignal {
+  symbol: string;
+  action: 'BUY' | 'SELL' | 'HOLD';
+  strength: number; // 0-100
+  reason: string;
+  indicators: {
+    price: number;
+    ma1: number;
+    ma2: number;
+    rsi: number;
+    volume: number;
+    avgVolume: number;
+  };
+  conditions: {
+    maCrossover: boolean;
+    rsiSignal: boolean;
+    volumeConfirmation: boolean;
+    trendAlignment: boolean;
+  };
+  timestamp: Date;
+}
+
+export interface SignalConfig {
+  rsiOversold: number;
+  rsiOverbought: number;
+  volumeSpikeThreshold: number;
+  minSignalStrength: number;
+  confirmationRequired: boolean;
+}
+
+export class SignalGenerator {
+  private config: SignalConfig;
+
+  constructor(config?: Partial<SignalConfig>) {
+    this.config = {
+      rsiOversold: 30,
+      rsiOverbought: 70,
+      volumeSpikeThreshold: 1.5,
+      minSignalStrength: 60,
+      confirmationRequired: true,
+      ...config
+    };
+  }
+
+  generateSignal(
+    symbol: string,
+    candles: any[],
+    indicatorConfig?: any
+  ): TradingSignal {
+    try {
+      // Calculate all indicators
+      const indicators = TechnicalIndicators.calculateAllIndicators(candles, indicatorConfig);
+      
+      // Validate data
+      if (!indicators.validation.isValid) {
+        logger.warn(`Invalid candle data for ${symbol}:`, indicators.validation.issues);
+        return this.createHoldSignal(symbol, indicators.latestValues, 'Invalid data');
+      }
+
+      // Check for sufficient data
+      const latestIndex = candles.length - 1;
+      if (isNaN(indicators.latestValues.ma1) || isNaN(indicators.latestValues.ma2) || 
+          isNaN(indicators.latestValues.rsi)) {
+        return this.createHoldSignal(symbol, indicators.latestValues, 'Insufficient data');
+      }
+
+      // Analyze conditions
+      const conditions = this.analyzeConditions(indicators, latestIndex);
+      
+      // Generate signal based on conditions
+      const signal = this.determineSignal(symbol, indicators.latestValues, conditions);
+      
+      return signal;
+    } catch (error) {
+      logger.error(`Error generating signal for ${symbol}:`, error);
+      return this.createHoldSignal(symbol, null, 'Error in signal generation');
+    }
+  }
+
+  private analyzeConditions(indicators: any, latestIndex: number) {
+    const conditions = {
+      maCrossover: false,
+      rsiSignal: false,
+      volumeConfirmation: false,
+      trendAlignment: false,
+      crossoverType: null as 'bullish' | 'bearish' | null
+    };
+
+    // Check MA crossover
+    const recentBullishCrossover = indicators.crossovers.bullish.some(
+      (index: number) => index >= latestIndex - 3
+    );
+    const recentBearishCrossover = indicators.crossovers.bearish.some(
+      (index: number) => index >= latestIndex - 3
+    );
+
+    if (recentBullishCrossover) {
+      conditions.maCrossover = true;
+      conditions.crossoverType = 'bullish';
+    } else if (recentBearishCrossover) {
+      conditions.maCrossover = true;
+      conditions.crossoverType = 'bearish';
+    }
+
+    // Check RSI conditions
+    const rsi = indicators.latestValues.rsi;
+    if (rsi <= this.config.rsiOversold) {
+      conditions.rsiSignal = true; // Oversold - potential buy
+    } else if (rsi >= this.config.rsiOverbought) {
+      conditions.rsiSignal = true; // Overbought - potential sell
+    }
+
+    // Check volume confirmation
+    const volumeRatio = indicators.latestValues.volume / indicators.latestValues.avgVolume;
+    conditions.volumeConfirmation = volumeRatio >= this.config.volumeSpikeThreshold;
+
+    // Check trend alignment
+    const ma1 = indicators.latestValues.ma1;
+    const ma2 = indicators.latestValues.ma2;
+    const price = indicators.latestValues.price;
+    
+    // Bullish trend: price > MA1 > MA2
+    // Bearish trend: price < MA1 < MA2
+    if (price > ma1 && ma1 > ma2) {
+      conditions.trendAlignment = true;
+    } else if (price < ma1 && ma1 < ma2) {
+      conditions.trendAlignment = true;
+    }
+
+    return conditions;
+  }
+
+  private determineSignal(
+    symbol: string,
+    latestValues: any,
+    conditions: any
+  ): TradingSignal {
+    let action: 'BUY' | 'SELL' | 'HOLD' = 'HOLD';
+    let strength = 0;
+    let reasons: string[] = [];
+
+    // Buy conditions
+    const buyConditions = {
+      oversold: latestValues.rsi <= this.config.rsiOversold,
+      bullishCrossover: conditions.maCrossover && conditions.crossoverType === 'bullish',
+      bullishTrend: latestValues.price > latestValues.ma1 && latestValues.ma1 > latestValues.ma2,
+      volumeSpike: conditions.volumeConfirmation
+    };
+
+    // Sell conditions
+    const sellConditions = {
+      overbought: latestValues.rsi >= this.config.rsiOverbought,
+      bearishCrossover: conditions.maCrossover && conditions.crossoverType === 'bearish',
+      bearishTrend: latestValues.price < latestValues.ma1 && latestValues.ma1 < latestValues.ma2,
+      volumeSpike: conditions.volumeConfirmation
+    };
+
+    // Calculate buy signal strength
+    let buyStrength = 0;
+    if (buyConditions.oversold) {
+      buyStrength += 30;
+      reasons.push('RSI oversold');
+    }
+    if (buyConditions.bullishCrossover) {
+      buyStrength += 35;
+      reasons.push('Bullish MA crossover');
+    }
+    if (buyConditions.bullishTrend) {
+      buyStrength += 25;
+      reasons.push('Bullish trend alignment');
+    }
+    if (buyConditions.volumeSpike && (buyConditions.oversold || buyConditions.bullishCrossover)) {
+      buyStrength += 10;
+      reasons.push('Volume confirmation');
+    }
+
+    // Calculate sell signal strength
+    let sellStrength = 0;
+    if (sellConditions.overbought) {
+      sellStrength += 30;
+      reasons.push('RSI overbought');
+    }
+    if (sellConditions.bearishCrossover) {
+      sellStrength += 35;
+      reasons.push('Bearish MA crossover');
+    }
+    if (sellConditions.bearishTrend) {
+      sellStrength += 25;
+      reasons.push('Bearish trend alignment');
+    }
+    if (sellConditions.volumeSpike && (sellConditions.overbought || sellConditions.bearishCrossover)) {
+      sellStrength += 10;
+      reasons.push('Volume confirmation');
+    }
+
+    // Determine action
+    if (buyStrength >= this.config.minSignalStrength && buyStrength > sellStrength) {
+      action = 'BUY';
+      strength = buyStrength;
+    } else if (sellStrength >= this.config.minSignalStrength && sellStrength > buyStrength) {
+      action = 'SELL';
+      strength = sellStrength;
+    } else {
+      reasons = ['No clear signal'];
+    }
+
+    // Additional confirmation check
+    if (this.config.confirmationRequired && action !== 'HOLD') {
+      const confirmations = [
+        conditions.maCrossover,
+        conditions.rsiSignal,
+        conditions.trendAlignment
+      ].filter(Boolean).length;
+
+      if (confirmations < 2) {
+        action = 'HOLD';
+        strength = Math.max(buyStrength, sellStrength);
+        reasons.push('Insufficient confirmations');
+      }
+    }
+
+    return {
+      symbol,
+      action,
+      strength,
+      reason: reasons.join(', '),
+      indicators: latestValues,
+      conditions: {
+        maCrossover: conditions.maCrossover,
+        rsiSignal: conditions.rsiSignal,
+        volumeConfirmation: conditions.volumeConfirmation,
+        trendAlignment: conditions.trendAlignment
+      },
+      timestamp: new Date()
+    };
+  }
+
+  private createHoldSignal(
+    symbol: string,
+    indicators: any,
+    reason: string
+  ): TradingSignal {
+    return {
+      symbol,
+      action: 'HOLD',
+      strength: 0,
+      reason,
+      indicators: indicators || {
+        price: 0,
+        ma1: 0,
+        ma2: 0,
+        rsi: 0,
+        volume: 0,
+        avgVolume: 0
+      },
+      conditions: {
+        maCrossover: false,
+        rsiSignal: false,
+        volumeConfirmation: false,
+        trendAlignment: false
+      },
+      timestamp: new Date()
+    };
+  }
+
+  updateConfig(config: Partial<SignalConfig>) {
+    this.config = { ...this.config, ...config };
+  }
+
+  getConfig(): SignalConfig {
+    return { ...this.config };
+  }
+}
