@@ -138,6 +138,14 @@ Asset.init({
     type: DataTypes.DECIMAL(20, 8),
     allowNull: false,
     defaultValue: 0
+  },
+  createdAt: {
+    type: DataTypes.DATE,
+    allowNull: false
+  },
+  updatedAt: {
+    type: DataTypes.DATE,
+    allowNull: false
   }
 }, {
   sequelize,
