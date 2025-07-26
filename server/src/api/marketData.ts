@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, Request, Response } from 'express';
 import { bingxClient } from '../services/bingxClient';
 import { wsManager } from '../services/websocket';
 import { AppError, asyncHandler } from '../utils/errorHandler';
@@ -9,7 +9,7 @@ import { SignalGenerator } from '../trading/signalGenerator';
 const router = Router();
 
 // Get ticker data for a symbol
-router.get('/ticker/:symbol', asyncHandler(async (req, res) => {
+router.get('/ticker/:symbol', asyncHandler(async (req: Request, res: Response) => {
   const { symbol } = req.params;
   
   try {
@@ -30,7 +30,7 @@ router.get('/ticker/:symbol', asyncHandler(async (req, res) => {
 }));
 
 // Get kline/candlestick data
-router.get('/klines/:symbol', asyncHandler(async (req, res) => {
+router.get('/klines/:symbol', asyncHandler(async (req: Request, res: Response) => {
   const { symbol } = req.params;
   const { interval = '5m', limit = '100' } = req.query;
   
@@ -69,7 +69,7 @@ router.get('/klines/:symbol', asyncHandler(async (req, res) => {
 }));
 
 // Get order book depth
-router.get('/depth/:symbol', asyncHandler(async (req, res) => {
+router.get('/depth/:symbol', asyncHandler(async (req: Request, res: Response) => {
   const { symbol } = req.params;
   const { limit = '20' } = req.query;
   
@@ -91,7 +91,7 @@ router.get('/depth/:symbol', asyncHandler(async (req, res) => {
 }));
 
 // Calculate technical indicators
-router.get('/indicators/:symbol', asyncHandler(async (req, res) => {
+router.get('/indicators/:symbol', asyncHandler(async (req: Request, res: Response) => {
   const { symbol } = req.params;
   const { 
     interval = '5m', 
@@ -156,7 +156,7 @@ router.get('/indicators/:symbol', asyncHandler(async (req, res) => {
 }));
 
 // Generate trading signal
-router.get('/signal/:symbol', asyncHandler(async (req, res) => {
+router.get('/signal/:symbol', asyncHandler(async (req: Request, res: Response) => {
   const { symbol } = req.params;
   const { interval = '5m', limit = '100' } = req.query;
   
@@ -197,7 +197,7 @@ router.get('/signal/:symbol', asyncHandler(async (req, res) => {
 }));
 
 // Subscribe to WebSocket streams
-router.post('/subscribe', asyncHandler(async (req, res) => {
+router.post('/subscribe', asyncHandler(async (req: Request, res: Response) => {
   const { symbol, type, interval } = req.body;
   
   if (!symbol || !type) {
@@ -225,7 +225,7 @@ router.post('/subscribe', asyncHandler(async (req, res) => {
 }));
 
 // Unsubscribe from WebSocket streams
-router.post('/unsubscribe', asyncHandler(async (req, res) => {
+router.post('/unsubscribe', asyncHandler(async (req: Request, res: Response) => {
   const { symbol, type, interval } = req.body;
   
   if (!symbol || !type) {
@@ -253,7 +253,7 @@ router.post('/unsubscribe', asyncHandler(async (req, res) => {
 }));
 
 // Get market overview
-router.get('/overview', asyncHandler(async (req, res) => {
+router.get('/overview', asyncHandler(async (req: Request, res: Response) => {
   try {
     // Get all symbols
     const symbolsData = await bingxClient.getSymbols();

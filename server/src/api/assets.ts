@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, Request, Response } from 'express';
 import { bingxClient } from '../services/bingxClient';
 import Asset from '../models/Asset';
 import { AppError, asyncHandler } from '../utils/errorHandler';
@@ -8,7 +8,7 @@ import { Op } from 'sequelize';
 const router = Router();
 
 // Get all assets with pagination, sorting, and filtering
-router.get('/', asyncHandler(async (req, res) => {
+router.get('/', asyncHandler(async (req: Request, res: Response) => {
   const { 
     page = 1, 
     limit = 20, 
@@ -59,7 +59,7 @@ router.get('/', asyncHandler(async (req, res) => {
 }));
 
 // Get single asset details
-router.get('/:symbol', asyncHandler(async (req, res) => {
+router.get('/:symbol', asyncHandler(async (req: Request, res: Response) => {
   const { symbol } = req.params;
   
   const asset = await Asset.findOne({ where: { symbol } });
@@ -91,7 +91,7 @@ router.get('/:symbol', asyncHandler(async (req, res) => {
 }));
 
 // Refresh assets from BingX API
-router.post('/refresh', asyncHandler(async (req, res) => {
+router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
   logger.info('Refreshing assets from BingX API...');
   
   try {
@@ -112,7 +112,7 @@ router.post('/refresh', asyncHandler(async (req, res) => {
         continue;
       }
       
-      const assetData = {
+      const assetData: any = {
         symbol: contract.symbol,
         name: contract.symbol,
         baseCurrency: contract.currency,
@@ -123,7 +123,15 @@ router.post('/refresh', asyncHandler(async (req, res) => {
         tickSize: parseFloat(contract.pricePrecision || 0),
         stepSize: parseFloat(contract.quantityPrecision || 0),
         maxLeverage: parseInt(contract.maxLongLeverage || 1),
-        maintMarginRate: parseFloat(contract.maintMarginPercent || 0)
+        maintMarginRate: parseFloat(contract.maintMarginPercent || 0),
+        // Initialize missing required fields
+        lastPrice: 0,
+        priceChangePercent: 0,
+        volume24h: 0,
+        quoteVolume24h: 0,
+        highPrice24h: 0,
+        lowPrice24h: 0,
+        openInterest: 0
       };
       
       // Get ticker data for volume and price info
@@ -173,7 +181,7 @@ router.post('/refresh', asyncHandler(async (req, res) => {
 }));
 
 // Get asset statistics
-router.get('/stats/overview', asyncHandler(async (req, res) => {
+router.get('/stats/overview', asyncHandler(async (req: Request, res: Response) => {
   const totalAssets = await Asset.count();
   const tradingAssets = await Asset.count({ where: { status: 'TRADING' } });
   

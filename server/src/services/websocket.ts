@@ -49,10 +49,37 @@ class BingXWebSocketManager extends EventEmitter {
 
       this.ws.on('message', (data: WebSocket.Data) => {
         try {
-          const message = JSON.parse(data.toString());
+          // Handle different data types
+          let messageStr: string;
+          
+          if (Buffer.isBuffer(data)) {
+            // Check if data is compressed (starts with compression magic bytes)
+            if (data[0] === 0x1f && data[1] === 0x8b) {
+              // This is gzip compressed data, skip for now
+              logger.debug('Received compressed WebSocket data, skipping...');
+              return;
+            }
+            messageStr = data.toString('utf8');
+          } else if (typeof data === 'string') {
+            messageStr = data;
+          } else {
+            messageStr = data.toString();
+          }
+          
+          // Skip empty or non-JSON messages
+          if (!messageStr || messageStr.trim().length === 0) {
+            return;
+          }
+          
+          const message = JSON.parse(messageStr);
           this.handleMessage(message);
         } catch (error) {
-          logger.error('Failed to parse WebSocket message:', error);
+          // Only log actual parsing errors, not compression/binary data
+          if (error instanceof SyntaxError && error.message.includes('JSON')) {
+            logger.debug('Received non-JSON WebSocket message, skipping...');
+          } else {
+            logger.error('Failed to parse WebSocket message:', error);
+          }
         }
       });
 
