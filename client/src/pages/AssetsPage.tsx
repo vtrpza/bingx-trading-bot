@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useQuery } from 'react-query'
+import { useQuery, useQueryClient } from 'react-query'
 import { api } from '../services/api'
 import { toast } from 'react-hot-toast'
 import type { Asset } from '../types'
@@ -15,6 +15,7 @@ export default function AssetsPage() {
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [refreshProgress, setRefreshProgress] = useState({ progress: 0, message: '', processed: 0, total: 0 })
   const { t } = useTranslation()
+  const queryClient = useQueryClient()
 
   // Get assets data
   const { data: assetsData, isLoading, refetch } = useQuery(
@@ -77,12 +78,16 @@ export default function AssetsPage() {
               duration: 5000 
             }
           )
+          
+          // Invalidate and refetch all related queries after completion
+          queryClient.invalidateQueries(['assets'])
+          queryClient.invalidateQueries('asset-stats')
         } else if (progressData.type === 'error') {
           toast.error(progressData.message || 'Erro durante a atualização', { id: 'refresh-assets' })
         }
       })
       
-      // Refetch the assets list after completion
+      // Additional manual refetch as backup
       await refetch()
       
     } catch (error) {
@@ -91,6 +96,10 @@ export default function AssetsPage() {
     } finally {
       setIsRefreshing(false)
       setRefreshProgress({ progress: 0, message: '', processed: 0, total: 0 })
+      
+      // Ensure cache invalidation happens even on error for consistency
+      queryClient.invalidateQueries(['assets'])
+      queryClient.invalidateQueries('asset-stats')
     }
   }
 

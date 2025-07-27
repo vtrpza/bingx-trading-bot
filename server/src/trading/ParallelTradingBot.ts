@@ -769,28 +769,28 @@ export class ParallelTradingBot extends EventEmitter {
       {
         id: 'scanning',
         name: 'Market Scanning',
-        status: this.isRunning ? 'active' : 'idle',
+        status: this.isRunning ? 'processing' : 'idle',
         startTime: this.metrics.scanningMetrics.lastScanAt,
         duration: this.metrics.scanningMetrics.avgScanTime
       },
       {
-        id: 'signal_generation',
+        id: 'analysis',
         name: 'Signal Generation',
-        status: this.signalQueue.getStatus().active > 0 ? 'active' : 'idle',
+        status: this.signalQueue.getStatus().active > 0 ? 'processing' : 'idle',
         startTime: Date.now(),
         duration: this.metrics.signalMetrics.avgSignalLatency
       },
       {
         id: 'decision',
         name: 'Trade Decision',
-        status: this.signalQueue.getStatus().processing ? 'active' : 'idle',
+        status: this.signalQueue.getStatus().processing ? 'processing' : 'idle',
         startTime: Date.now(),
         duration: 1000
       },
       {
         id: 'execution',
         name: 'Trade Execution',
-        status: this.tradeExecutorPool.getStatus().activeExecutors > 0 ? 'active' : 'idle',
+        status: this.tradeExecutorPool.getStatus().activeExecutors > 0 ? 'processing' : 'idle',
         startTime: Date.now(),
         duration: this.metrics.executionMetrics.avgExecutionTime
       }
