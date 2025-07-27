@@ -98,11 +98,21 @@ class TradeExecutor extends EventEmitter {
       // Pre-execution validation
       await this.validateTradeConditions(task);
 
-      // Get current market price
+      // Get smart entry price based on market conditions
+      const { price: smartEntryPrice, strategy: entryStrategy } = await this.getSmartEntryPrice(task.symbol, task.action);
+      
+      // Also get current market price for comparison
       const currentPrice = await this.getCurrentPrice(task.symbol);
       
-      // Calculate position details
-      const positionDetails = this.calculatePosition(task, currentPrice);
+      // Calculate position details using smart entry price
+      const positionDetails = this.calculatePosition(task, smartEntryPrice);
+      
+      // Log entry strategy
+      logger.info(`Using ${entryStrategy} strategy for ${task.symbol}:`, {
+        marketPrice: currentPrice,
+        smartEntryPrice,
+        priceImprovement: ((currentPrice - smartEntryPrice) / currentPrice * 100).toFixed(4) + '%'
+      });
       
       // Execute the trade
       const orderResult = await this.placeOrder(task, positionDetails);
@@ -232,6 +242,90 @@ class TradeExecutor extends EventEmitter {
     }
 
     return parseFloat(ticker.data.lastPrice);
+  }
+
+  // Get smart entry price based on market conditions
+  private async getSmartEntryPrice(symbol: string, side: 'BUY' | 'SELL'): Promise<{ price: number; strategy: string }> {
+    try {
+      // Get current market data
+      const ticker = await apiRequestManager.getTicker(symbol) as any;
+      const depth = await apiRequestManager.getDepth(symbol, 20) as any;
+      
+      if (!ticker.data || !depth.data) {
+        const fallbackPrice = await this.getCurrentPrice(symbol);
+        return { price: fallbackPrice, strategy: 'MARKET_FALLBACK' };
+      }
+
+      const lastPrice = parseFloat(ticker.data.lastPrice);
+      const bidPrice = parseFloat(ticker.data.bidPrice || lastPrice);
+      const askPrice = parseFloat(ticker.data.askPrice || lastPrice);
+      const spread = askPrice - bidPrice;
+      const spreadPercent = (spread / lastPrice) * 100;
+
+      // Analyze order book depth
+      const bids = depth.data.bids || [];
+      const asks = depth.data.asks || [];
+      
+      let smartPrice: number;
+      let strategy: string;
+
+      if (spreadPercent < 0.01) {
+        // Tight spread - use aggressive pricing for better fills
+        if (side === 'BUY') {
+          // Place bid slightly above best bid but below mid-price
+          const bestBid = bids.length > 0 ? parseFloat(bids[0][0]) : bidPrice;
+          const midPrice = (bidPrice + askPrice) / 2;
+          smartPrice = Math.min(bestBid + (spread * 0.3), midPrice);
+          strategy = 'AGGRESSIVE_BID';
+        } else {
+          // Place ask slightly below best ask but above mid-price
+          const bestAsk = asks.length > 0 ? parseFloat(asks[0][0]) : askPrice;
+          const midPrice = (bidPrice + askPrice) / 2;
+          smartPrice = Math.max(bestAsk - (spread * 0.3), midPrice);
+          strategy = 'AGGRESSIVE_ASK';
+        }
+      } else if (spreadPercent < 0.05) {
+        // Medium spread - use market price with slight edge
+        const edge = lastPrice * 0.0005; // 0.05% edge
+        if (side === 'BUY') {
+          smartPrice = lastPrice + edge;
+          strategy = 'MARKET_PLUS_EDGE';
+        } else {
+          smartPrice = lastPrice - edge;
+          strategy = 'MARKET_MINUS_EDGE';
+        }
+      } else {
+        // Wide spread - use conservative market pricing
+        smartPrice = lastPrice;
+        strategy = 'MARKET_CONSERVATIVE';
+      }
+
+      // Ensure price is within reasonable bounds (max 0.1% slippage)
+      const maxSlippage = lastPrice * 0.001;
+      if (side === 'BUY' && smartPrice > lastPrice + maxSlippage) {
+        smartPrice = lastPrice + maxSlippage;
+        strategy += '_SLIPPAGE_LIMITED';
+      } else if (side === 'SELL' && smartPrice < lastPrice - maxSlippage) {
+        smartPrice = lastPrice - maxSlippage;
+        strategy += '_SLIPPAGE_LIMITED';
+      }
+
+      logger.debug(`Smart entry price for ${symbol}:`, {
+        side,
+        lastPrice,
+        smartPrice,
+        strategy,
+        spread: spread.toFixed(6),
+        spreadPercent: spreadPercent.toFixed(4)
+      });
+
+      return { price: smartPrice, strategy };
+
+    } catch (error) {
+      logger.warn(`Failed to calculate smart entry price for ${symbol}, using market price:`, error);
+      const fallbackPrice = await this.getCurrentPrice(symbol);
+      return { price: fallbackPrice, strategy: 'MARKET_FALLBACK' };
+    }
   }
 
   private calculatePosition(task: TradeTask, currentPrice: number) {

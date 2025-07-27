@@ -4,6 +4,7 @@ import { PrioritySignalQueue, SignalQueueConfig } from './PrioritySignalQueue';
 import { TradeExecutorPool, TradeExecutorConfig } from './TradeExecutorPool';
 import { MarketDataCache, MarketDataCacheConfig } from './MarketDataCache';
 import { PositionManager, PositionManagerConfig } from './PositionManager';
+import { PositionTracker } from './PositionTracker';
 import { apiRequestManager } from '../services/APIRequestManager';
 import { wsManager } from '../services/websocket';
 import { logger } from '../utils/logger';
@@ -85,6 +86,12 @@ export interface Position {
   quantity: number;
   unrealizedPnl: number;
   orderId: string;
+  markPrice?: number;
+  percentage?: number;
+  notional?: number;
+  liquidationPrice?: number;
+  maintMargin?: number;
+  updateTime?: number;
 }
 
 export class ParallelTradingBot extends EventEmitter {
@@ -99,6 +106,7 @@ export class ParallelTradingBot extends EventEmitter {
   private tradeExecutorPool!: TradeExecutorPool;
   private marketDataCache!: MarketDataCache;
   private positionManager!: PositionManager;
+  private positionTracker!: PositionTracker;
   
   // State tracking
   private activePositions: Map<string, Position> = new Map();
@@ -254,6 +262,18 @@ export class ParallelTradingBot extends EventEmitter {
     // Initialize position manager
     this.positionManager = new PositionManager(this.config.positionManager);
     
+    // Initialize position tracker for real-time monitoring
+    this.positionTracker = new PositionTracker({
+      entryStrategy: 'SMART_ENTRY',
+      entryPriceOffset: 0.05,
+      maxSlippage: 0.1,
+      positionSizing: 'VOLATILITY_BASED',
+      riskPerTrade: 2,
+      stopLossStrategy: 'ATR',
+      takeProfitStrategy: 'SCALED',
+      riskRewardRatio: 2.5
+    });
+    
     // Integrate position manager with trade executor
     this.tradeExecutorPool.setPositionManager(this.positionManager);
   }
@@ -388,6 +408,7 @@ export class ParallelTradingBot extends EventEmitter {
       this.signalWorkerPool.start();
       this.tradeExecutorPool.start();
       this.positionManager.start();
+      this.positionTracker.start();
 
       // Load active positions
       await this.loadActivePositions();
@@ -759,7 +780,7 @@ export class ParallelTradingBot extends EventEmitter {
     }
   }
 
-  // Get real-time positions directly from BingX API
+  // Get real-time positions directly from BingX API with enhanced data processing
   private async getRealTimePositions(): Promise<any[]> {
     try {
       const positions = await apiRequestManager.getPositions() as any;
@@ -773,34 +794,63 @@ export class ParallelTradingBot extends EventEmitter {
           .map((pos: any) => {
             const positionAmt = parseFloat(pos.positionAmt);
             const isLong = positionAmt > 0;
+            const entryPrice = parseFloat(pos.entryPrice || pos.avgPrice || '0');
+            const markPrice = parseFloat(pos.markPrice || '0');
+            const unrealizedPnl = parseFloat(pos.unrealizedProfit || '0');
+            const percentage = parseFloat(pos.percentage || '0');
             
-            // Sync internal tracking with real positions
+            // Enhanced position data processing
+            const enhancedPosition = {
+              symbol: pos.symbol,
+              positionAmt: pos.positionAmt,
+              entryPrice: entryPrice > 0 ? entryPrice.toFixed(6) : '0.000000',
+              markPrice: markPrice > 0 ? markPrice.toFixed(6) : '0.000000',
+              unrealizedProfit: unrealizedPnl.toFixed(6),
+              percentage: percentage.toFixed(2),
+              side: isLong ? 'LONG' : 'SHORT',
+              quantity: Math.abs(positionAmt),
+              
+              // Additional calculated fields
+              notional: Math.abs(positionAmt * markPrice).toFixed(2),
+              pnlPercent: entryPrice > 0 ? ((markPrice - entryPrice) / entryPrice * 100 * (isLong ? 1 : -1)).toFixed(2) : '0.00',
+              
+              // Risk metrics
+              liquidationPrice: pos.liquidationPrice || '0',
+              maintMargin: pos.maintMargin || '0',
+              
+              // Timestamps for tracking
+              updateTime: pos.updateTime || Date.now(),
+              
+              // Raw data for debugging
+              rawData: pos
+            };
+            
+            // Sync internal tracking with accurate entry price
             this.activePositions.set(pos.symbol, {
               symbol: pos.symbol,
               side: isLong ? 'LONG' : 'SHORT',
-              entryPrice: parseFloat(pos.entryPrice),
+              entryPrice: entryPrice,
               quantity: Math.abs(positionAmt),
-              unrealizedPnl: parseFloat(pos.unrealizedProfit || '0'),
-              orderId: ''
+              unrealizedPnl: unrealizedPnl,
+              orderId: '',
+              markPrice: markPrice,
+              percentage: percentage
             });
             
-            return {
-              symbol: pos.symbol,
-              positionAmt: pos.positionAmt,
-              entryPrice: pos.entryPrice,
-              markPrice: pos.markPrice,
-              unrealizedProfit: pos.unrealizedProfit,
-              percentage: pos.percentage,
-              side: isLong ? 'LONG' : 'SHORT',
-              quantity: Math.abs(positionAmt),
-              // Additional fields for frontend compatibility
-              ...pos
-            };
+            return enhancedPosition;
           });
 
-        logger.debug(`Retrieved ${activePositions.length} real-time positions from BingX`, {
-          positions: activePositions.map((p: any) => ({ symbol: p.symbol, amount: p.positionAmt }))
-        });
+        if (activePositions.length > 0) {
+          logger.debug(`Retrieved ${activePositions.length} real-time positions from BingX`, {
+            positions: activePositions.map((p: any) => ({ 
+              symbol: p.symbol, 
+              amount: p.positionAmt,
+              entryPrice: p.entryPrice,
+              markPrice: p.markPrice,
+              pnl: p.unrealizedProfit
+            }))
+          });
+        }
         
         return activePositions;
       }
@@ -808,8 +858,22 @@ export class ParallelTradingBot extends EventEmitter {
       return [];
     } catch (error) {
       logger.error('Failed to get real-time positions:', error);
-      // Fallback to internal tracking
-      return Array.from(this.activePositions.values());
+      // Fallback to internal tracking with enhanced formatting
+      return Array.from(this.activePositions.values()).map(pos => ({
+        symbol: pos.symbol,
+        positionAmt: pos.side === 'LONG' ? pos.quantity : -pos.quantity,
+        entryPrice: pos.entryPrice.toFixed(6),
+        markPrice: pos.markPrice?.toFixed(6) || '0.000000',
+        unrealizedProfit: pos.unrealizedPnl.toFixed(6),
+        percentage: pos.percentage?.toFixed(2) || '0.00',
+        side: pos.side,
+        quantity: pos.quantity,
+        notional: ((pos.markPrice || 0) * pos.quantity).toFixed(2),
+        pnlPercent: '0.00',
+        liquidationPrice: '0',
+        maintMargin: '0',
+        updateTime: Date.now()
+      }));
     }
   }
 
