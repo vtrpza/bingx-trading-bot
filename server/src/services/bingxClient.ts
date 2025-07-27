@@ -48,7 +48,10 @@ export class BingXClient {
       hasApiKey: !!this.config.apiKey,
       hasSecretKey: !!this.config.secretKey,
       demoMode: this.config.demoMode,
-      apiKeyLength: this.config.apiKey ? this.config.apiKey.length : 0
+      apiKeyLength: this.config.apiKey ? this.config.apiKey.length : 0,
+      secretKeyLength: this.config.secretKey ? this.config.secretKey.length : 0,
+      baseURL: this.config.baseURL,
+      apiKeyStart: this.config.apiKey ? this.config.apiKey.substring(0, 8) + '...' : 'NOT_SET'
     });
 
     this.axios = axios.create({
@@ -132,47 +135,61 @@ export class BingXClient {
       return config;
     }
 
-    if (!config.params) {
-      config.params = {};
-    }
-
     // Add timestamp
     const timestamp = Date.now();
 
-    // Create signature string following BingX official method
-    let parameters = '';
+    // For POST requests, move data to params for signature generation
+    let allParams: any = {};
     
-    // Add existing parameters first (maintain original order, not sorted)
-    for (const key in config.params) {
-      if (key !== 'timestamp' && key !== 'signature') {
-        parameters += key + '=' + encodeURIComponent(config.params[key]) + '&';
-      }
-    }
-    
-    // Remove trailing & if parameters exist, then add timestamp
-    if (parameters) {
-      parameters = parameters.substring(0, parameters.length - 1);
-      parameters = parameters + '&timestamp=' + timestamp;
+    if (config.method === 'post' && config.data) {
+      // For POST requests, use data body for signature
+      allParams = { ...config.data, timestamp };
     } else {
-      parameters = 'timestamp=' + timestamp;
+      // For GET/DELETE requests, use query params
+      if (!config.params) {
+        config.params = {};
+      }
+      allParams = { ...config.params, timestamp };
     }
+    
+    // Remove signature if it exists
+    delete allParams.signature;
+    
+    // Sort parameters alphabetically by key (critical for BingX)
+    const sortedKeys = Object.keys(allParams).sort();
+    
+    // Build parameter string with sorted keys
+    const paramString = sortedKeys
+      .map(key => `${key}=${allParams[key]}`)
+      .join('&');
 
-    // Generate signature using the correct BingX method
+    // Generate signature using HMAC-SHA256
     const signature = crypto
       .createHmac('sha256', this.config.secretKey)
-      .update(parameters)
+      .update(paramString)
       .digest('hex');
 
-    // Add timestamp and signature to params
-    config.params.timestamp = timestamp;
-    config.params.signature = signature;
+    // Add signature based on request method
+    if (config.method === 'post' && config.data) {
+      // For POST, add to data body
+      config.data = { ...allParams, signature };
+    } else {
+      // For GET/DELETE, add to params
+      config.params = { ...allParams, signature };
+    }
+    
     config.headers['X-BX-APIKEY'] = this.config.apiKey;
 
     // Log signature details for debugging
     logger.debug('BingX Authentication Debug:', {
-      parameters,
-      signature,
-      timestamp
+      method: config.method,
+      paramString,
+      signature: signature.substring(0, 10) + '...', // Only show first 10 chars for security
+      timestamp,
+      sortedKeys,
+      url: config.url,
+      hasData: !!config.data,
+      hasParams: !!config.params
     });
 
     return config;
@@ -277,13 +294,39 @@ export class BingXClient {
     stopLoss?: number;
   }) {
     try {
-      // Demo mode uses same symbol format as live mode
-      // No symbol conversion needed
+      // Demo mode - filter out unnecessary fields for BingX
+      const orderParams: any = {
+        symbol: orderData.symbol,
+        side: orderData.side,
+        type: orderData.type,
+        quantity: orderData.quantity
+      };
 
-      const response = await this.axios.post('/openApi/swap/v2/trade/order', orderData);
+      // Only add optional fields if they exist
+      if (orderData.positionSide) {
+        orderParams.positionSide = orderData.positionSide;
+      }
+      if (orderData.price && orderData.type !== 'MARKET') {
+        orderParams.price = orderData.price;
+      }
+      if (orderData.stopPrice) {
+        orderParams.stopPrice = orderData.stopPrice;
+      }
+
+      logger.info('Placing order with params:', orderParams);
+
+      const response = await this.axios({
+        method: 'post',
+        url: '/openApi/swap/v2/trade/order',
+        data: orderParams
+      });
       return response.data;
     } catch (error) {
-      logger.error('Failed to place order:', error);
+      logger.error('Failed to place order:', {
+        error: error instanceof Error ? error.message : error,
+        orderData,
+        response: (error as any)?.response?.data
+      });
       throw error;
     }
   }

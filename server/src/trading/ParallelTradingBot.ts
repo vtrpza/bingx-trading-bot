@@ -4,7 +4,6 @@ import { PrioritySignalQueue, SignalQueueConfig } from './PrioritySignalQueue';
 import { TradeExecutorPool, TradeExecutorConfig } from './TradeExecutorPool';
 import { MarketDataCache, MarketDataCacheConfig } from './MarketDataCache';
 import { PositionManager, PositionManagerConfig } from './PositionManager';
-import { bingxClient } from '../services/bingxClient';
 import { apiRequestManager } from '../services/APIRequestManager';
 import { wsManager } from '../services/websocket';
 import { logger } from '../utils/logger';
@@ -135,7 +134,7 @@ export class ParallelTradingBot extends EventEmitter {
       signalWorkers: {
         maxWorkers: 5,
         maxConcurrentTasks: 15,
-        taskTimeout: 6000,
+        taskTimeout: 15000, // Increased timeout for symbol processing
         retryAttempts: 2
       },
       signalQueue: {
@@ -147,7 +146,7 @@ export class ParallelTradingBot extends EventEmitter {
       tradeExecutors: {
         maxExecutors: 3,
         maxConcurrentTrades: 5,
-        executionTimeout: 10000,
+        executionTimeout: 20000, // Increased timeout for trade execution
         retryAttempts: 2,
         rateLimit: 2
       },
@@ -467,21 +466,22 @@ export class ParallelTradingBot extends EventEmitter {
     try {
       logger.info('Fetching all available symbols from exchange...');
       
-      // Get all symbols from BingX
-      const symbolsData = await bingxClient.getSymbols();
+      // Get all symbols from BingX using APIRequestManager
+      const symbolsData: any = await apiRequestManager.getSymbols();
       
       if (!symbolsData.data || !Array.isArray(symbolsData.data)) {
         logger.warn('Invalid symbols data received from exchange');
         return;
       }
 
-      // Filter for active USDT pairs only
+      // Filter for active USDT pairs only and limit initial processing
       const usdtSymbols = symbolsData.data
         .filter((contract: any) => 
           contract.status === 1 && // Active contracts only
           contract.symbol && 
           contract.symbol.endsWith('-USDT') // USDT pairs only
         )
+        .slice(0, 100) // Limit to first 100 symbols to prevent timeouts
         .map((contract: any) => contract.symbol);
 
       if (usdtSymbols.length === 0) {
@@ -517,7 +517,7 @@ export class ParallelTradingBot extends EventEmitter {
     }
   }
 
-  private async getSymbolVolumes(symbols: string[], batchSize = 10): Promise<{symbol: string, volume: number}[]> {
+  private async getSymbolVolumes(symbols: string[], batchSize = 5): Promise<{symbol: string, volume: number}[]> {
     const symbolsWithVolume: {symbol: string, volume: number}[] = [];
     
     logger.info(`Getting volume data for ${symbols.length} symbols...`);
@@ -528,7 +528,7 @@ export class ParallelTradingBot extends EventEmitter {
       
       const promises = batch.map(async (symbol) => {
         try {
-          const ticker = await bingxClient.getTicker(symbol);
+          const ticker: any = await apiRequestManager.getTicker(symbol);
           if (ticker.code === 0 && ticker.data) {
             const volume = parseFloat(ticker.data.quoteVolume || 0);
             return { symbol, volume };
@@ -547,9 +547,9 @@ export class ParallelTradingBot extends EventEmitter {
         }
       });
 
-      // Small delay between batches to respect rate limits
+      // Delay between batches to respect rate limits and prevent timeouts
       if (i + batchSize < symbols.length) {
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise(resolve => setTimeout(resolve, 250));
       }
       
       // Log progress
