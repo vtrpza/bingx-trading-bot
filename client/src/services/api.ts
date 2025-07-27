@@ -56,7 +56,7 @@ export const api = {
     return axiosInstance.get(`/assets/${symbol}`)
   },
 
-  async refreshAssets(): Promise<{ message: string; created: number; updated: number; total: number }> {
+  async refreshAssets(): Promise<{ message: string; created: number; updated: number; total: number; processed: number; skipped: number }> {
     return axiosInstance.post('/assets/refresh')
   },
 
