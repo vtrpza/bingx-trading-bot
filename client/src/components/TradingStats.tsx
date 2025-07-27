@@ -111,13 +111,72 @@ export default function TradingStats({ stats: initialStats }: TradingStatsProps)
           </div>
         </div>
 
+        {/* Position Management Section - Show if parallel bot data available */}
+        {stats.positions && (
+          <div className="mt-8 pt-6 border-t border-gray-200">
+            <h4 className="text-lg font-medium text-gray-900 mb-4">Position Management</h4>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+              <div className="text-center">
+                <div className="text-xl font-bold text-blue-600">{stats.positions.currentActive}</div>
+                <div className="text-sm text-gray-500">Active Positions</div>
+              </div>
+              <div className="text-center">
+                <div className="text-xl font-bold text-gray-900">{stats.positions.metrics.totalPositions}</div>
+                <div className="text-sm text-gray-500">Total Managed</div>
+              </div>
+              <div className="text-center">
+                <div className="text-xl font-bold text-green-600">{stats.positions.metrics.winRate.toFixed(1)}%</div>
+                <div className="text-sm text-gray-500">Position Win Rate</div>
+              </div>
+              <div className="text-center">
+                <div className={`text-xl font-bold ${
+                  stats.positions.metrics.totalPnL >= 0 ? 'text-green-600' : 'text-red-600'
+                }`}>
+                  {formatCurrency(stats.positions.metrics.totalPnL.toFixed(2))}
+                </div>
+                <div className="text-sm text-gray-500">Position P&L</div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Bot Status Section - Show architecture info */}
+        {stats.bot && (
+          <div className="mt-6 pt-6 border-t border-gray-200">
+            <div className="flex justify-between items-center">
+              <h4 className="text-lg font-medium text-gray-900">Bot Status</h4>
+              <div className="flex items-center space-x-4">
+                <div className="flex items-center">
+                  <div className={`w-3 h-3 rounded-full mr-2 ${
+                    stats.bot.isRunning ? 'bg-green-500' : 'bg-gray-400'
+                  }`}></div>
+                  <span className="text-sm text-gray-600">
+                    {stats.bot.isRunning ? 'Running' : 'Stopped'}
+                  </span>
+                </div>
+                <div className="text-sm text-gray-600">
+                  Architecture: <span className="font-medium">{stats.bot.architecture}</span>
+                </div>
+                {stats.bot.immediateExecution !== undefined && (
+                  <div className="text-sm text-gray-600">
+                    Immediate Execution: <span className="font-medium">
+                      {stats.bot.immediateExecution ? 'Enabled' : 'Disabled'}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Best and Worst Trades */}
         {(stats.bestTrade || stats.worstTrade) && (
           <div className="mt-8 pt-6 border-t border-gray-200">
+            <h4 className="text-lg font-medium text-gray-900 mb-4">Trade Performance</h4>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {stats.bestTrade && (
                 <div className="bg-green-50 rounded-lg p-4">
-                  <h4 className="font-medium text-green-900 mb-2">Best Trade</h4>
+                  <h5 className="font-medium text-green-900 mb-2">Best Trade</h5>
                   <div className="space-y-1">
                     <div className="flex justify-between">
                       <span className="text-green-700">Symbol:</span>
@@ -141,7 +200,7 @@ export default function TradingStats({ stats: initialStats }: TradingStatsProps)
 
               {stats.worstTrade && (
                 <div className="bg-red-50 rounded-lg p-4">
-                  <h4 className="font-medium text-red-900 mb-2">Worst Trade</h4>
+                  <h5 className="font-medium text-red-900 mb-2">Worst Trade</h5>
                   <div className="space-y-1">
                     <div className="flex justify-between">
                       <span className="text-red-700">Symbol:</span>
