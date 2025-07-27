@@ -110,13 +110,16 @@ function validateAndFormatSymbol(symbol: string): string {
   // Convert to uppercase and normalize format
   const normalizedSymbol = symbol.toUpperCase().replace(/[\/\\]/g, '-');
   
+  // Remove any trailing -VST-USDT, -VST-USDC patterns first
+  let cleanedSymbol = normalizedSymbol.replace(/-VST-(USDT|USDC)$/, '-$1');
+  
   // Check if symbol already has proper suffix
-  if (normalizedSymbol.endsWith('-USDT') || normalizedSymbol.endsWith('-USDC')) {
-    return normalizedSymbol;
+  if (cleanedSymbol.endsWith('-USDT') || cleanedSymbol.endsWith('-USDC')) {
+    return cleanedSymbol;
   }
   
   // Remove existing suffix if any (for conversion)
-  const baseSymbol = normalizedSymbol.replace(/-(USDT|USDC|VST)$/, '');
+  const baseSymbol = cleanedSymbol.replace(/-(USDT|USDC|VST)$/, '');
   
   // Add default USDT suffix if no suffix provided
   return `${baseSymbol}-USDT`;

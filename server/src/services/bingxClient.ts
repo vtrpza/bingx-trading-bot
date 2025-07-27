@@ -184,8 +184,8 @@ export class BingXClient {
 
   async getTicker(symbol: string) {
     try {
-      // For demo mode, convert symbol to VST
-      const apiSymbol = this.config.demoMode ? symbol.replace('-USDT', '-VST') : symbol;
+      // Demo mode uses same symbol format as live mode
+      const apiSymbol = symbol;
       
       const response = await this.axios.get('/openApi/swap/v2/quote/ticker', {
         params: { symbol: apiSymbol }
@@ -208,8 +208,8 @@ export class BingXClient {
 
     try {
       await klineRateLimiter.waitForSlot();
-      // For demo mode, convert symbol to VST
-      const apiSymbol = this.config.demoMode ? symbol.replace('-USDT', '-VST') : symbol;
+      // Demo mode uses same symbol format as live mode
+      const apiSymbol = symbol;
       
       const response = await this.axios.get('/openApi/swap/v2/quote/klines', {
         params: { symbol: apiSymbol, interval, limit }
@@ -225,8 +225,8 @@ export class BingXClient {
 
   async getDepth(symbol: string, limit: number = 20) {
     try {
-      // For demo mode, convert symbol to VST
-      const apiSymbol = this.config.demoMode ? symbol.replace('-USDT', '-VST') : symbol;
+      // Demo mode uses same symbol format as live mode
+      const apiSymbol = symbol;
       
       const response = await this.axios.get('/openApi/swap/v2/quote/depth', {
         params: { symbol: apiSymbol, limit }
@@ -251,10 +251,8 @@ export class BingXClient {
     stopLoss?: number;
   }) {
     try {
-      // For demo mode, append -VST to symbol
-      if (this.config.demoMode) {
-        orderData.symbol = orderData.symbol.replace('-USDT', '-VST');
-      }
+      // Demo mode uses same symbol format as live mode
+      // No symbol conversion needed
 
       const response = await this.axios.post('/openApi/swap/v2/trade/order', orderData);
       return response.data;
@@ -266,9 +264,7 @@ export class BingXClient {
 
   async cancelOrder(symbol: string, orderId: string) {
     try {
-      if (this.config.demoMode) {
-        symbol = symbol.replace('-USDT', '-VST');
-      }
+      // Demo mode uses same symbol format as live mode
 
       const response = await this.axios.delete('/openApi/swap/v2/trade/order', {
         params: { symbol, orderId }
@@ -284,7 +280,7 @@ export class BingXClient {
     try {
       const params: any = {};
       if (symbol) {
-        params.symbol = this.config.demoMode ? symbol.replace('-USDT', '-VST') : symbol;
+        params.symbol = symbol; // Demo mode uses same symbol format
       }
 
       const response = await this.axios.get('/openApi/swap/v2/user/positions', { params });
@@ -299,7 +295,7 @@ export class BingXClient {
     try {
       const params: any = {};
       if (symbol) {
-        params.symbol = this.config.demoMode ? symbol.replace('-USDT', '-VST') : symbol;
+        params.symbol = symbol; // Demo mode uses same symbol format
       }
 
       const response = await this.axios.get('/openApi/swap/v2/trade/openOrders', { params });
