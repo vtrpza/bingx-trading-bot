@@ -15,7 +15,7 @@ export default function TradingStats({ stats: initialStats }: TradingStatsProps)
     () => api.getTradingStats(period),
     {
       initialData: period === '24h' ? initialStats : undefined,
-      refetchInterval: 30000,
+      refetchInterval: 420000,
     }
   )
 

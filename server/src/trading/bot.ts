@@ -40,12 +40,12 @@ export class TradingBot extends EventEmitter {
       enabled: false,
       maxConcurrentTrades: parseInt(process.env.MAX_CONCURRENT_TRADES || '3'),
       defaultPositionSize: parseFloat(process.env.DEFAULT_POSITION_SIZE || '100'),
-      scanInterval: 120000, // 30 seconds
+      scanInterval: 420000, // 30 seconds
       symbolsToScan: [],
       stopLossPercent: 2,
       takeProfitPercent: 3,
       trailingStopPercent: 1,
-      minVolumeUSDT: 1000000 // 1M USDT minimum volume
+      minVolumeUSDT: 100000 // 1M USDT minimum volume
     };
 
     this.signalGenerator = new SignalGenerator({
@@ -326,12 +326,12 @@ export class TradingBot extends EventEmitter {
       // Convert to candle format with validation
       const candles = klines.data.map((k: any) => {
         const candle = {
-          timestamp: parseInt(k[0]),
-          open: parseFloat(k[1]),
-          high: parseFloat(k[2]),
-          low: parseFloat(k[3]),
-          close: parseFloat(k[4]),
-          volume: parseFloat(k[5])
+          timestamp: parseInt(k.time || k[0]),
+          open: parseFloat(k.open || k[1]),
+          high: parseFloat(k.high || k[2]),
+          low: parseFloat(k.low || k[3]),
+          close: parseFloat(k.close || k[4]),
+          volume: parseFloat(k.volume || k[5])
         };
         
         // Validate candle data
