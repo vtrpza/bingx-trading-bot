@@ -6,11 +6,33 @@ import { logger } from '../utils/logger';
 import { TechnicalIndicators } from '../indicators/technicalIndicators';
 import { SignalGenerator } from '../trading/signalGenerator';
 
+// Symbol validation helper
+function validateAndFormatSymbol(symbol: string): string {
+  if (!symbol) {
+    throw new AppError('Symbol is required', 400);
+  }
+  
+  // Convert to uppercase and normalize format
+  const normalizedSymbol = symbol.toUpperCase().replace(/[\/\\]/g, '-');
+  
+  // Check if symbol already has proper suffix
+  if (normalizedSymbol.endsWith('-USDT') || normalizedSymbol.endsWith('-USDC')) {
+    return normalizedSymbol;
+  }
+  
+  // Remove existing suffix if any (for conversion)
+  const baseSymbol = normalizedSymbol.replace(/-(USDT|USDC|VST)$/, '');
+  
+  // Add default USDT suffix if no suffix provided
+  return `${baseSymbol}-USDT`;
+}
+
 const router = Router();
 
 // Get ticker data for a symbol
 router.get('/ticker/:symbol', asyncHandler(async (req: Request, res: Response) => {
-  const { symbol } = req.params;
+  const rawSymbol = req.params.symbol;
+  const symbol = validateAndFormatSymbol(rawSymbol);
   
   try {
     const ticker = await bingxClient.getTicker(symbol);
@@ -31,7 +53,8 @@ router.get('/ticker/:symbol', asyncHandler(async (req: Request, res: Response) =
 
 // Get kline/candlestick data
 router.get('/klines/:symbol', asyncHandler(async (req: Request, res: Response) => {
-  const { symbol } = req.params;
+  const rawSymbol = req.params.symbol;
+  const symbol = validateAndFormatSymbol(rawSymbol);
   const { interval = '5m', limit = '100' } = req.query;
   
   try {
@@ -70,7 +93,8 @@ router.get('/klines/:symbol', asyncHandler(async (req: Request, res: Response) =
 
 // Get order book depth
 router.get('/depth/:symbol', asyncHandler(async (req: Request, res: Response) => {
-  const { symbol } = req.params;
+  const rawSymbol = req.params.symbol;
+  const symbol = validateAndFormatSymbol(rawSymbol);
   const { limit = '20' } = req.query;
   
   try {
@@ -92,7 +116,8 @@ router.get('/depth/:symbol', asyncHandler(async (req: Request, res: Response) =>
 
 // Calculate technical indicators
 router.get('/indicators/:symbol', asyncHandler(async (req: Request, res: Response) => {
-  const { symbol } = req.params;
+  const rawSymbol = req.params.symbol;
+  const symbol = validateAndFormatSymbol(rawSymbol);
   const { 
     interval = '5m', 
     limit = '100',
@@ -157,7 +182,8 @@ router.get('/indicators/:symbol', asyncHandler(async (req: Request, res: Respons
 
 // Generate trading signal
 router.get('/signal/:symbol', asyncHandler(async (req: Request, res: Response) => {
-  const { symbol } = req.params;
+  const rawSymbol = req.params.symbol;
+  const symbol = validateAndFormatSymbol(rawSymbol);
   const { interval = '5m', limit = '100' } = req.query;
   
   try {
@@ -241,7 +267,8 @@ router.get('/signal/:symbol', asyncHandler(async (req: Request, res: Response) =
 
 // Subscribe to WebSocket streams
 router.post('/subscribe', asyncHandler(async (req: Request, res: Response) => {
-  const { symbol, type, interval } = req.body;
+  const { symbol: rawSymbol, type, interval } = req.body;
+  const symbol = rawSymbol ? validateAndFormatSymbol(rawSymbol) : undefined;
   
   if (!symbol || !type) {
     throw new AppError('Symbol and type are required', 400);
@@ -269,7 +296,8 @@ router.post('/subscribe', asyncHandler(async (req: Request, res: Response) => {
 
 // Unsubscribe from WebSocket streams
 router.post('/unsubscribe', asyncHandler(async (req: Request, res: Response) => {
-  const { symbol, type, interval } = req.body;
+  const { symbol: rawSymbol, type, interval } = req.body;
+  const symbol = rawSymbol ? validateAndFormatSymbol(rawSymbol) : undefined;
   
   if (!symbol || !type) {
     throw new AppError('Symbol and type are required', 400);

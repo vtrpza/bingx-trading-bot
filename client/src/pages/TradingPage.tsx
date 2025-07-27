@@ -8,7 +8,7 @@ import TradingStats from '../components/TradingStats'
 import TradeHistory from '../components/TradeHistory'
 import RealTimeSignals from '../components/RealTimeSignals'
 import TradingFlowMonitor from '../components/TradingFlowMonitor'
-import type { BotStatus, BotConfig } from '../types'
+import type { BotStatus2, BotConfig } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { useLocalStorage } from '../hooks/useLocalStorage'
 import { useTranslation } from '../hooks/useTranslation'
@@ -20,14 +20,14 @@ export default function TradingPage() {
   const { t } = useTranslation()
 
   // Get parallel bot status
-  const { data: botStatus, isLoading } = useQuery<BotStatus>(
+  const { data: botStatus, isLoading } = useQuery<BotStatus2>(
     'parallel-bot-status',
     () => fetch('/api/trading/parallel-bot/status').then(res => res.json()).then(data => data.data),
     {
       refetchInterval: 3000,
     }
   )
-
+  console.log('Bot Status Debug:', { botStatus, isLoading })
   // Get parallel bot metrics
   const { data: parallelMetrics } = useQuery(
     'parallel-bot-metrics',

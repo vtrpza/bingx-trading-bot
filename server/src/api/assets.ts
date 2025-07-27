@@ -101,9 +101,31 @@ router.get('/', asyncHandler(async (req: Request, res: Response) => {
   });
 }));
 
+// Symbol validation helper
+function validateAndFormatSymbol(symbol: string): string {
+  if (!symbol) {
+    throw new AppError('Symbol is required', 400);
+  }
+  
+  // Convert to uppercase and normalize format
+  const normalizedSymbol = symbol.toUpperCase().replace(/[\/\\]/g, '-');
+  
+  // Check if symbol already has proper suffix
+  if (normalizedSymbol.endsWith('-USDT') || normalizedSymbol.endsWith('-USDC')) {
+    return normalizedSymbol;
+  }
+  
+  // Remove existing suffix if any (for conversion)
+  const baseSymbol = normalizedSymbol.replace(/-(USDT|USDC|VST)$/, '');
+  
+  // Add default USDT suffix if no suffix provided
+  return `${baseSymbol}-USDT`;
+}
+
 // Get single asset details
 router.get('/:symbol', asyncHandler(async (req: Request, res: Response) => {
-  const { symbol } = req.params;
+  const rawSymbol = req.params.symbol;
+  const symbol = validateAndFormatSymbol(rawSymbol);
   
   const asset = await Asset.findOne({ where: { symbol } });
   

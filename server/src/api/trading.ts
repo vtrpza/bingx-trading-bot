@@ -875,10 +875,32 @@ router.get('/parallel-bot/position-metrics', asyncHandler(async (_req: Request, 
   });
 }));
 
+// Symbol validation helper
+function validateAndFormatSymbol(symbol: string): string {
+  if (!symbol) {
+    throw new AppError('Symbol is required', 400);
+  }
+  
+  // Convert to uppercase and normalize format
+  const normalizedSymbol = symbol.toUpperCase().replace(/[\/\\]/g, '-');
+  
+  // Check if symbol already has proper suffix
+  if (normalizedSymbol.endsWith('-USDT') || normalizedSymbol.endsWith('-USDC')) {
+    return normalizedSymbol;
+  }
+  
+  // Remove existing suffix if any (for conversion)
+  const baseSymbol = normalizedSymbol.replace(/-(USDT|USDC|VST)$/, '');
+  
+  // Add default USDT suffix if no suffix provided
+  return `${baseSymbol}-USDT`;
+}
+
 // Signal close position
 router.post('/parallel-bot/positions/:symbol/close', asyncHandler(async (req: Request, res: Response) => {
   const parallelBot = getParallelTradingBot();
-  const { symbol } = req.params;
+  const rawSymbol = req.params.symbol;
+  const symbol = validateAndFormatSymbol(rawSymbol);
   
   if (!parallelBot.getStatus().isRunning) {
     throw new AppError('Parallel bot is not running', 400);
@@ -911,7 +933,8 @@ router.post('/parallel-bot/positions/close-all', asyncHandler(async (_req: Reque
 // Confirm position closed (for external closures)
 router.post('/parallel-bot/positions/:symbol/confirm-closed', asyncHandler(async (req: Request, res: Response) => {
   const parallelBot = getParallelTradingBot();
-  const { symbol } = req.params;
+  const rawSymbol = req.params.symbol;
+  const symbol = validateAndFormatSymbol(rawSymbol);
   const { actualPnl } = req.body;
   
   await parallelBot.confirmPositionClosed(symbol, actualPnl);
@@ -925,7 +948,8 @@ router.post('/parallel-bot/positions/:symbol/confirm-closed', asyncHandler(async
 // Execute signal immediately for specific symbol
 router.post('/parallel-bot/execute-immediate/:symbol', asyncHandler(async (req: Request, res: Response) => {
   const parallelBot = getParallelTradingBot();
-  const { symbol } = req.params;
+  const rawSymbol = req.params.symbol;
+  const symbol = validateAndFormatSymbol(rawSymbol);
   
   if (!parallelBot.getStatus().isRunning) {
     throw new AppError('Parallel bot is not running', 400);

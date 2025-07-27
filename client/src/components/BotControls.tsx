@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useTranslation } from '../hooks/useTranslation'
-import type { BotStatus, BotConfig } from '../types'
+import type { BotStatus2, BotConfig } from '../types'
 
 // Utility function for safe number parsing
 const safeParseNumber = (value: string, fallback: number): number => {
@@ -129,7 +129,7 @@ const getTradingProfiles = (t: any) => ({
 })
 
 interface BotControlsProps {
-  botStatus?: BotStatus
+  botStatus?: BotStatus2
   onStart: () => void
   onStop: () => void
   onUpdateConfig: (config: Partial<BotConfig>) => void
