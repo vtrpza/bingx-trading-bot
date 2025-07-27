@@ -31,30 +31,30 @@ interface TradeAttributes {
 interface TradeCreationAttributes extends Optional<TradeAttributes, 'id' | 'executedQty' | 'avgPrice' | 'commission' | 'realizedPnl' | 'createdAt' | 'updatedAt'> {}
 
 class Trade extends Model<TradeAttributes, TradeCreationAttributes> implements TradeAttributes {
-  public id!: number;
-  public orderId!: string;
-  public symbol!: string;
-  public side!: 'BUY' | 'SELL';
-  public positionSide!: 'LONG' | 'SHORT';
-  public type!: 'LIMIT' | 'MARKET' | 'STOP_MARKET' | 'TAKE_PROFIT_MARKET';
-  public status!: 'NEW' | 'PARTIALLY_FILLED' | 'FILLED' | 'CANCELED' | 'EXPIRED' | 'REJECTED';
-  public quantity!: number;
-  public price!: number;
-  public executedQty!: number;
-  public avgPrice!: number;
-  public stopPrice?: number;
-  public takeProfitPrice?: number;
-  public stopLossPrice?: number;
-  public commission!: number;
-  public commissionAsset!: string;
-  public realizedPnl!: number;
-  public signalStrength!: number;
-  public signalReason!: string;
-  public indicators!: object;
-  public executedAt?: Date;
-  public closedAt?: Date;
-  public readonly createdAt!: Date;
-  public readonly updatedAt!: Date;
+  declare id: number;
+  declare orderId: string;
+  declare symbol: string;
+  declare side: 'BUY' | 'SELL';
+  declare positionSide: 'LONG' | 'SHORT';
+  declare type: 'LIMIT' | 'MARKET' | 'STOP_MARKET' | 'TAKE_PROFIT_MARKET';
+  declare status: 'NEW' | 'PARTIALLY_FILLED' | 'FILLED' | 'CANCELED' | 'EXPIRED' | 'REJECTED';
+  declare quantity: number;
+  declare price: number;
+  declare executedQty: number;
+  declare avgPrice: number;
+  declare stopPrice?: number;
+  declare takeProfitPrice?: number;
+  declare stopLossPrice?: number;
+  declare commission: number;
+  declare commissionAsset: string;
+  declare realizedPnl: number;
+  declare signalStrength: number;
+  declare signalReason: string;
+  declare indicators: object;
+  declare executedAt?: Date;
+  declare closedAt?: Date;
+  declare readonly createdAt: Date;
+  declare readonly updatedAt: Date;
 }
 
 Trade.init({

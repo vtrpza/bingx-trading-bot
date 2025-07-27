@@ -114,100 +114,120 @@ export default function RealTimeSignals() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {/* Price Info */}
-            <div>
-              <h4 className="text-sm font-medium text-gray-500 mb-2">Price Info</h4>
-              <div className="space-y-1">
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Current:</span>
-                  <span className="text-sm font-medium">${currentSignal.indicators.price.toFixed(4)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">MA1 (9):</span>
-                  <span className="text-sm font-medium">${currentSignal.indicators.ma1.toFixed(4)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">MA2 (21):</span>
-                  <span className="text-sm font-medium">${currentSignal.indicators.ma2.toFixed(4)}</span>
+          {currentSignal.indicators && Object.keys(currentSignal.indicators).length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              {/* Price Info */}
+              <div>
+                <h4 className="text-sm font-medium text-gray-500 mb-2">Price Info</h4>
+                <div className="space-y-1">
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-600">Current:</span>
+                    <span className="text-sm font-medium">
+                      ${currentSignal.indicators.price ? currentSignal.indicators.price.toFixed(4) : 'N/A'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-600">MA1 (9):</span>
+                    <span className="text-sm font-medium">
+                      ${currentSignal.indicators.ma1 ? currentSignal.indicators.ma1.toFixed(4) : 'N/A'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-600">MA2 (21):</span>
+                    <span className="text-sm font-medium">
+                      ${currentSignal.indicators.ma2 ? currentSignal.indicators.ma2.toFixed(4) : 'N/A'}
+                    </span>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            {/* RSI */}
-            <div>
-              <h4 className="text-sm font-medium text-gray-500 mb-2">RSI</h4>
-              <div className="text-2xl font-bold text-gray-900">
-                {currentSignal.indicators.rsi.toFixed(1)}
+              {/* RSI */}
+              <div>
+                <h4 className="text-sm font-medium text-gray-500 mb-2">RSI</h4>
+                <div className="text-2xl font-bold text-gray-900">
+                  {currentSignal.indicators.rsi ? currentSignal.indicators.rsi.toFixed(1) : 'N/A'}
+                </div>
+                <div className="text-sm text-gray-500">
+                  {currentSignal.indicators.rsi ? (
+                    currentSignal.indicators.rsi <= 30 ? 'Oversold' : 
+                    currentSignal.indicators.rsi >= 70 ? 'Overbought' : 'Neutral'
+                  ) : 'No data'}
+                </div>
               </div>
-              <div className="text-sm text-gray-500">
-                {currentSignal.indicators.rsi <= 30 ? 'Oversold' : 
-                 currentSignal.indicators.rsi >= 70 ? 'Overbought' : 'Neutral'}
-              </div>
-            </div>
 
-            {/* Volume */}
-            <div>
-              <h4 className="text-sm font-medium text-gray-500 mb-2">Volume</h4>
-              <div className="space-y-1">
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Current:</span>
-                  <span className="text-sm font-medium">
-                    {(currentSignal.indicators.volume / 1000).toFixed(1)}K
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Average:</span>
-                  <span className="text-sm font-medium">
-                    {(currentSignal.indicators.avgVolume / 1000).toFixed(1)}K
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Ratio:</span>
-                  <span className={`text-sm font-medium ${
-                    currentSignal.indicators.volume / currentSignal.indicators.avgVolume > 1.5 ? 'text-green-600' : 'text-gray-600'
-                  }`}>
-                    {(currentSignal.indicators.volume / currentSignal.indicators.avgVolume).toFixed(2)}x
-                  </span>
+              {/* Volume */}
+              <div>
+                <h4 className="text-sm font-medium text-gray-500 mb-2">Volume</h4>
+                <div className="space-y-1">
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-600">Current:</span>
+                    <span className="text-sm font-medium">
+                      {currentSignal.indicators.volume ? (currentSignal.indicators.volume / 1000).toFixed(1) + 'K' : 'N/A'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-600">Average:</span>
+                    <span className="text-sm font-medium">
+                      {currentSignal.indicators.avgVolume ? (currentSignal.indicators.avgVolume / 1000).toFixed(1) + 'K' : 'N/A'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-600">Ratio:</span>
+                    <span className={`text-sm font-medium ${
+                      currentSignal.indicators.volume && currentSignal.indicators.avgVolume &&
+                      currentSignal.indicators.volume / currentSignal.indicators.avgVolume > 1.5 ? 'text-green-600' : 'text-gray-600'
+                    }`}>
+                      {currentSignal.indicators.volume && currentSignal.indicators.avgVolume ? 
+                        (currentSignal.indicators.volume / currentSignal.indicators.avgVolume).toFixed(2) + 'x' : 'N/A'
+                      }
+                    </span>
+                  </div>
                 </div>
               </div>
-            </div>
 
-            {/* Conditions */}
-            <div>
-              <h4 className="text-sm font-medium text-gray-500 mb-2">Conditions</h4>
-              <div className="space-y-1">
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">MA Cross:</span>
-                  <span className={`text-sm ${currentSignal.conditions.maCrossover ? 'text-green-600' : 'text-gray-400'}`}>
-                    {currentSignal.conditions.maCrossover ? '✓' : '✗'}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">RSI Signal:</span>
-                  <span className={`text-sm ${currentSignal.conditions.rsiSignal ? 'text-green-600' : 'text-gray-400'}`}>
-                    {currentSignal.conditions.rsiSignal ? '✓' : '✗'}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Volume:</span>
-                  <span className={`text-sm ${currentSignal.conditions.volumeConfirmation ? 'text-green-600' : 'text-gray-400'}`}>
-                    {currentSignal.conditions.volumeConfirmation ? '✓' : '✗'}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-sm text-gray-600">Trend:</span>
-                  <span className={`text-sm ${currentSignal.conditions.trendAlignment ? 'text-green-600' : 'text-gray-400'}`}>
-                    {currentSignal.conditions.trendAlignment ? '✓' : '✗'}
-                  </span>
+              {/* Conditions */}
+              <div>
+                <h4 className="text-sm font-medium text-gray-500 mb-2">Conditions</h4>
+                <div className="space-y-1">
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-600">MA Cross:</span>
+                    <span className={`text-sm ${currentSignal.conditions?.maCrossover ? 'text-green-600' : 'text-gray-400'}`}>
+                      {currentSignal.conditions?.maCrossover ? '✓' : '✗'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-600">RSI Signal:</span>
+                    <span className={`text-sm ${currentSignal.conditions?.rsiSignal ? 'text-green-600' : 'text-gray-400'}`}>
+                      {currentSignal.conditions?.rsiSignal ? '✓' : '✗'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-600">Volume:</span>
+                    <span className={`text-sm ${currentSignal.conditions?.volumeConfirmation ? 'text-green-600' : 'text-gray-400'}`}>
+                      {currentSignal.conditions?.volumeConfirmation ? '✓' : '✗'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-600">Trend:</span>
+                    <span className={`text-sm ${currentSignal.conditions?.trendAlignment ? 'text-green-600' : 'text-gray-400'}`}>
+                      {currentSignal.conditions?.trendAlignment ? '✓' : '✗'}
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
+          ) : (
+            <div className="p-8 text-center">
+              <div className="text-gray-400 text-lg mb-2">Signal Data Unavailable</div>
+              <p className="text-gray-500">
+                Technical indicators are being calculated. Please wait for market data to be processed.
+              </p>
+            </div>
+          )}
 
           <div className="mt-4 p-3 bg-gray-50 rounded-lg">
             <p className="text-sm text-gray-700">
-              <strong>Reason:</strong> {currentSignal.reason}
+              <strong>Reason:</strong> {currentSignal.reason || 'No reason provided'}
             </p>
           </div>
         </div>
@@ -229,18 +249,18 @@ export default function RealTimeSignals() {
               <div key={index} className="p-4 hover:bg-gray-50">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-4">
-                    <div className="font-medium text-gray-900">{signal.symbol}</div>
-                    {getActionBadge(signal.action)}
-                    <span className={`font-bold ${getSignalStrengthColor(signal.strength)}`}>
-                      {signal.strength}%
+                    <div className="font-medium text-gray-900">{signal.symbol || 'Unknown'}</div>
+                    {getActionBadge(signal.action || 'HOLD')}
+                    <span className={`font-bold ${getSignalStrengthColor(signal.strength || 0)}`}>
+                      {signal.strength || 0}%
                     </span>
                   </div>
                   <div className="text-sm text-gray-500">
-                    {new Date(signal.timestamp).toLocaleTimeString()}
+                    {signal.timestamp ? new Date(signal.timestamp).toLocaleTimeString() : 'Unknown time'}
                   </div>
                 </div>
                 <div className="mt-2 text-sm text-gray-600">
-                  {signal.reason}
+                  {signal.reason || 'No reason provided'}
                 </div>
               </div>
             ))

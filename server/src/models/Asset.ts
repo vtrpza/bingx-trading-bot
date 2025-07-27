@@ -28,27 +28,27 @@ interface AssetAttributes {
 interface AssetCreationAttributes extends Optional<AssetAttributes, 'id' | 'createdAt' | 'updatedAt'> {}
 
 class Asset extends Model<AssetAttributes, AssetCreationAttributes> implements AssetAttributes {
-  public id!: number;
-  public symbol!: string;
-  public name!: string;
-  public baseCurrency!: string;
-  public quoteCurrency!: string;
-  public status!: string;
-  public minQty!: number;
-  public maxQty!: number;
-  public tickSize!: number;
-  public stepSize!: number;
-  public maxLeverage!: number;
-  public maintMarginRate!: number;
-  public volume24h!: number;
-  public quoteVolume24h!: number;
-  public openInterest!: number;
-  public lastPrice!: number;
-  public priceChangePercent!: number;
-  public highPrice24h!: number;
-  public lowPrice24h!: number;
-  public readonly updatedAt!: Date;
-  public readonly createdAt!: Date;
+  declare id: number;
+  declare symbol: string;
+  declare name: string;
+  declare baseCurrency: string;
+  declare quoteCurrency: string;
+  declare status: string;
+  declare minQty: number;
+  declare maxQty: number;
+  declare tickSize: number;
+  declare stepSize: number;
+  declare maxLeverage: number;
+  declare maintMarginRate: number;
+  declare volume24h: number;
+  declare quoteVolume24h: number;
+  declare openInterest: number;
+  declare lastPrice: number;
+  declare priceChangePercent: number;
+  declare highPrice24h: number;
+  declare lowPrice24h: number;
+  declare readonly updatedAt: Date;
+  declare readonly createdAt: Date;
 }
 
 Asset.init({

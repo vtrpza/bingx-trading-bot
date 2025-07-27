@@ -98,32 +98,78 @@ router.post('/refresh', asyncHandler(async (_req: Request, res: Response) => {
     // Get all contracts from BingX
     const response = await bingxClient.getSymbols();
     
+    logger.info('BingX getSymbols response:', {
+      code: response?.code,
+      dataLength: response?.data?.length,
+      sampleData: response?.data?.slice(0, 2) // Show first 2 items for debugging
+    });
+    
     if (response.code !== 0 || !response.data) {
-      throw new AppError('Failed to fetch assets from BingX', 500);
+      logger.error('BingX API returned error:', {
+        code: response.code,
+        message: response.msg,
+        data: response.data
+      });
+      throw new AppError(`BingX API Error: ${response.msg || 'Failed to fetch assets'}`, 500);
     }
     
     const contracts = response.data;
     let created = 0;
     let updated = 0;
+    let processed = 0;
+    let skipped = 0;
+    
+    logger.info(`Processing ${contracts.length} contracts from BingX...`);
     
     // Process each contract
     for (const contract of contracts) {
-      if (contract.contractType !== 'PERPETUAL') {
+      processed++;
+      
+      // Log first few contracts for debugging
+      if (processed <= 3) {
+        logger.debug(`Processing contract ${processed}:`, {
+          symbol: contract.symbol,
+          contractType: contract.contractType,
+          status: contract.status
+        });
+      }
+      
+      // Log contract structure for debugging
+      if (processed <= 5) {
+        logger.debug(`Contract ${processed} structure:`, {
+          symbol: contract.symbol,
+          status: contract.status,
+          contractType: contract.contractType,
+          contractId: contract.contractId,
+          asset: contract.asset,
+          currency: contract.currency,
+          hasContractType: 'contractType' in contract
+        });
+      }
+      
+      // BingX futures contracts don't have contractType field
+      // Instead they have status=1 (active) and are all perpetual futures
+      // Skip if not active trading status
+      if (contract.status !== 1) {
+        skipped++;
+        if (processed <= 5) {
+          logger.debug(`Skipping inactive contract: ${contract.symbol} (status: ${contract.status})`);
+        }
         continue;
       }
       
       const assetData: any = {
         symbol: contract.symbol,
-        name: contract.symbol,
-        baseCurrency: contract.currency,
-        quoteCurrency: contract.asset,
-        status: contract.status,
-        minQty: parseFloat(contract.minQty || 0),
-        maxQty: parseFloat(contract.maxQty || 0),
-        tickSize: parseFloat(contract.pricePrecision || 0),
-        stepSize: parseFloat(contract.quantityPrecision || 0),
-        maxLeverage: parseInt(contract.maxLongLeverage || 1),
-        maintMarginRate: parseFloat(contract.maintMarginPercent || 0),
+        name: contract.displayName || contract.symbol,
+        baseCurrency: contract.asset,           // BTC, ETH, etc.
+        quoteCurrency: contract.currency,       // USDT
+        status: contract.status === 1 ? 'TRADING' : 'SUSPEND',
+        minQty: parseFloat(contract.tradeMinQuantity || contract.size || 0),
+        maxQty: parseFloat(contract.maxQty || 999999999),
+        tickSize: Math.pow(10, -contract.pricePrecision),     // Convert precision to tick size
+        stepSize: Math.pow(10, -contract.quantityPrecision),  // Convert precision to step size
+        maxLeverage: parseInt(contract.maxLeverage || 100),   // Default max leverage
+        maintMarginRate: parseFloat(contract.feeRate || 0),
         // Initialize missing required fields
         lastPrice: 0,
         priceChangePercent: 0,
@@ -133,6 +179,11 @@ router.post('/refresh', asyncHandler(async (_req: Request, res: Response) => {
         lowPrice24h: 0,
         openInterest: 0
       };
+      
+      // Log first few asset data for debugging
+      if (processed <= 3) {
+        logger.debug(`Asset data ${processed}:`, assetData);
+      }
       
       // Get ticker data for volume and price info
       try {
@@ -151,18 +202,35 @@ router.post('/refresh', asyncHandler(async (_req: Request, res: Response) => {
       }
       
       // Upsert to database
-      const [_asset, wasCreated] = await Asset.upsert(assetData, {
-        returning: true
-      });
-      
-      if (wasCreated) {
-        created++;
-      } else {
-        updated++;
+      try {
+        const [_asset, wasCreated] = await Asset.upsert(assetData, {
+          returning: true
+        });
+        
+        if (wasCreated) {
+          created++;
+        } else {
+          updated++;
+        }
+        
+        // Log progress every 50 assets
+        if ((created + updated) % 50 === 0) {
+          logger.info(`Progress: ${created + updated} assets processed (${created} created, ${updated} updated)`);
+        }
+      } catch (dbError) {
+        logger.error(`Failed to upsert asset ${contract.symbol}:`, dbError);
+        // Continue processing other assets
       }
     }
     
-    logger.info(`Assets refresh completed: ${created} created, ${updated} updated`);
+    logger.info(`Assets refresh completed:`, {
+      totalContracts: contracts.length,
+      processed,
+      skipped,
+      created,
+      updated,
+      perpetualContracts: processed - skipped
+    });
     
     res.json({
       success: true,
@@ -170,7 +238,9 @@ router.post('/refresh', asyncHandler(async (_req: Request, res: Response) => {
         message: 'Assets refreshed successfully',
         created,
         updated,
-        total: contracts.length
+        total: contracts.length,
+        processed: processed - skipped,
+        skipped
       }
     });
     

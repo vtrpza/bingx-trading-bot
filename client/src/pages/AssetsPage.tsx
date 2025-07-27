@@ -46,13 +46,13 @@ export default function AssetsPage() {
     
     try {
       const result = await api.refreshAssets()
-      const { created = 0, updated = 0, total = 0 } = result || {}
+      const { created = 0, updated = 0, total = 0, processed = 0, skipped = 0 } = result || {}
       
       toast.success(
-        `Assets refreshed successfully!\n${created} created, ${updated} updated (${total} total processed)`,
+        `Assets refreshed successfully!\n${created} created, ${updated} updated\n${processed} processed, ${skipped} skipped from ${total} total contracts`,
         { 
           id: 'refresh-assets',
-          duration: 4000
+          duration: 5000
         }
       )
       refetch()

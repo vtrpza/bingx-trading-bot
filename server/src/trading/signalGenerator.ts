@@ -51,20 +51,48 @@ export class SignalGenerator {
     indicatorConfig?: any
   ): TradingSignal {
     try {
+      // Validate input
+      if (!candles || candles.length === 0) {
+        logger.warn(`No candles data provided for ${symbol}`);
+        return this.createHoldSignal(symbol, null, 'No market data available');
+      }
+
+      if (candles.length < 50) {
+        logger.warn(`Insufficient candles data for ${symbol}: ${candles.length} candles`);
+        return this.createHoldSignal(symbol, null, 'Insufficient historical data');
+      }
+
       // Calculate all indicators
       const indicators = TechnicalIndicators.calculateAllIndicators(candles, indicatorConfig);
       
       // Validate data
+      if (!indicators || !indicators.validation) {
+        logger.error(`Failed to calculate indicators for ${symbol}`);
+        return this.createHoldSignal(symbol, null, 'Technical indicators calculation failed');
+      }
+
       if (!indicators.validation.isValid) {
         logger.warn(`Invalid candle data for ${symbol}:`, indicators.validation.issues);
-        return this.createHoldSignal(symbol, indicators.latestValues, 'Invalid data');
+        return this.createHoldSignal(symbol, indicators.latestValues, 'Invalid market data detected');
+      }
+
+      // Validate latest values exist and are valid numbers
+      if (!indicators.latestValues) {
+        logger.error(`No latest values calculated for ${symbol}`);
+        return this.createHoldSignal(symbol, null, 'No current market data');
       }
 
       // Check for sufficient data
       const latestIndex = candles.length - 1;
       if (isNaN(indicators.latestValues.ma1) || isNaN(indicators.latestValues.ma2) || 
-          isNaN(indicators.latestValues.rsi)) {
-        return this.createHoldSignal(symbol, indicators.latestValues, 'Insufficient data');
+          isNaN(indicators.latestValues.rsi) || isNaN(indicators.latestValues.price)) {
+        logger.warn(`Invalid indicator values for ${symbol}:`, {
+          ma1: indicators.latestValues.ma1,
+          ma2: indicators.latestValues.ma2,
+          rsi: indicators.latestValues.rsi,
+          price: indicators.latestValues.price
+        });
+        return this.createHoldSignal(symbol, indicators.latestValues, 'Invalid technical indicators');
       }
 
       // Analyze conditions
@@ -73,10 +101,19 @@ export class SignalGenerator {
       // Generate signal based on conditions
       const signal = this.determineSignal(symbol, indicators.latestValues, conditions);
       
+      logger.debug(`Signal generated for ${symbol}:`, {
+        action: signal.action,
+        strength: signal.strength,
+        reason: signal.reason
+      });
+      
       return signal;
     } catch (error) {
-      logger.error(`Error generating signal for ${symbol}:`, error);
-      return this.createHoldSignal(symbol, null, 'Error in signal generation');
+      logger.error(`Error generating signal for ${symbol}:`, {
+        error: error instanceof Error ? error.message : error,
+        stack: error instanceof Error ? error.stack : undefined
+      });
+      return this.createHoldSignal(symbol, null, `Signal generation error: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
@@ -243,19 +280,22 @@ export class SignalGenerator {
     indicators: any,
     reason: string
   ): TradingSignal {
+    // Ensure indicators is always a valid object with required properties
+    const safeIndicators = {
+      price: (indicators?.price && !isNaN(indicators.price)) ? indicators.price : 0,
+      ma1: (indicators?.ma1 && !isNaN(indicators.ma1)) ? indicators.ma1 : 0,
+      ma2: (indicators?.ma2 && !isNaN(indicators.ma2)) ? indicators.ma2 : 0,
+      rsi: (indicators?.rsi && !isNaN(indicators.rsi)) ? indicators.rsi : 50, // Neutral RSI
+      volume: (indicators?.volume && !isNaN(indicators.volume)) ? indicators.volume : 0,
+      avgVolume: (indicators?.avgVolume && !isNaN(indicators.avgVolume)) ? indicators.avgVolume : 0
+    };
+
     return {
       symbol,
       action: 'HOLD',
       strength: 0,
-      reason,
-      indicators: indicators || {
-        price: 0,
-        ma1: 0,
-        ma2: 0,
-        rsi: 0,
-        volume: 0,
-        avgVolume: 0
-      },
+      reason: reason || 'No trading signal detected',
+      indicators: safeIndicators,
       conditions: {
         maCrossover: false,
         rsiSignal: false,

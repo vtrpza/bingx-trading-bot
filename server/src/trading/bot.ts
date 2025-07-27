@@ -73,21 +73,34 @@ export class TradingBot extends EventEmitter {
     }
 
     logger.info('Starting trading bot...');
-    this.isRunning = true;
-    this.emit('started');
+    
+    try {
+      this.isRunning = true;
+      this.emit('started');
 
-    // Load active positions
-    await this.loadActivePositions();
+      // Load active positions
+      logger.info('Loading active positions...');
+      await this.loadActivePositions();
 
-    // Get top symbols by volume
-    await this.updateSymbolList();
+      // Get top symbols by volume
+      logger.info('Updating symbol list...');
+      await this.updateSymbolList();
 
-    // Start scanning
-    this.startScanning();
+      // Start scanning
+      logger.info('Starting symbol scanning...');
+      this.startScanning();
+      
+      logger.info(`Trading bot started successfully. Scanning ${this.config.symbolsToScan.length} symbols every ${this.config.scanInterval}ms`);
+    } catch (error) {
+      logger.error('Failed to start trading bot:', error);
+      this.isRunning = false;
+      throw error;
+    }
   }
 
   stop() {
     if (!this.isRunning) {
+      logger.warn('Trading bot is already stopped');
       return;
     }
 
@@ -97,9 +110,11 @@ export class TradingBot extends EventEmitter {
     if (this.scanInterval) {
       clearInterval(this.scanInterval);
       this.scanInterval = null;
+      logger.info('Symbol scanning stopped');
     }
 
     this.emit('stopped');
+    logger.info('Trading bot stopped successfully');
   }
 
   private async updateSymbolList() {
@@ -112,19 +127,45 @@ export class TradingBot extends EventEmitter {
         return;
       }
 
-      // Filter and sort by volume
-      const eligibleSymbols = symbolsData.data
-        .filter((symbol: any) => {
-          return symbol.status === 'TRADING' && 
-                 symbol.contractType === 'PERPETUAL' &&
-                 parseFloat(symbol.quoteVolume24h || 0) >= this.config.minVolumeUSDT;
-        })
-        .sort((a: any, b: any) => parseFloat(b.quoteVolume24h) - parseFloat(a.quoteVolume24h))
+      logger.debug(`Processing ${symbolsData.data.length} contracts for symbol list...`);
+
+      // Filter active contracts and get their tickers for volume data
+      const activeContracts = symbolsData.data.filter((contract: any) => {
+        return contract.status === 1; // Active trading status
+      });
+
+      logger.debug(`Found ${activeContracts.length} active contracts`);
+
+      // Get ticker data for volume filtering
+      const symbolsWithVolume = [];
+      
+      for (const contract of activeContracts.slice(0, 50)) { // Limit to top 50 for performance
+        try {
+          const ticker = await bingxClient.getTicker(contract.symbol);
+          if (ticker.code === 0 && ticker.data) {
+            const volume = parseFloat(ticker.data.quoteVolume || 0);
+            if (volume >= this.config.minVolumeUSDT) {
+              symbolsWithVolume.push({
+                symbol: contract.symbol,
+                volume: volume
+              });
+            }
+          }
+        } catch (error) {
+          logger.debug(`Failed to get ticker for ${contract.symbol}:`, error);
+        }
+      }
+
+      // Sort by volume and take top symbols
+      const eligibleSymbols = symbolsWithVolume
+        .sort((a, b) => b.volume - a.volume)
         .slice(0, 20) // Top 20 by volume
-        .map((symbol: any) => symbol.symbol);
+        .map(item => item.symbol);
 
       this.config.symbolsToScan = eligibleSymbols;
-      logger.info(`Updated symbol list: ${eligibleSymbols.length} symbols`);
+      logger.info(`Updated symbol list: ${eligibleSymbols.length} symbols`, {
+        symbols: eligibleSymbols.slice(0, 5) // Log first 5 symbols
+      });
 
     } catch (error) {
       logger.error('Failed to update symbol list:', error);

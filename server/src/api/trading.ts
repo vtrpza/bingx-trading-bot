@@ -109,22 +109,61 @@ router.get('/positions', asyncHandler(async (_req: Request, res: Response) => {
   try {
     const positions = await bingxClient.getPositions();
     
-    if (positions.code === 0 && positions.data) {
+    logger.info('Positions API response:', { 
+      code: positions?.code, 
+      dataLength: positions?.data?.length,
+      demoMode: process.env.DEMO_MODE 
+    });
+    
+    if (positions.code === 0) {
+      // Handle empty positions array
+      const positionsData = positions.data || [];
+      
       // Filter out positions with zero amount
-      const activePositions = positions.data.filter((pos: any) => 
-        parseFloat(pos.positionAmt) !== 0
-      );
+      const activePositions = positionsData.filter((pos: any) => {
+        const amount = parseFloat(pos.positionAmt || '0');
+        return !isNaN(amount) && amount !== 0;
+      });
       
       res.json({
         success: true,
         data: activePositions
       });
     } else {
-      throw new AppError('Failed to fetch positions', 500);
+      logger.error('BingX API returned error:', {
+        code: positions.code,
+        message: positions.msg,
+        demoMode: process.env.DEMO_MODE
+      });
+      
+      // In demo mode, return empty positions if API fails
+      if (process.env.DEMO_MODE === 'true') {
+        logger.warn('Demo mode: Returning empty positions due to API error');
+        res.json({
+          success: true,
+          data: []
+        });
+      } else {
+        throw new AppError(`BingX API Error: ${positions.msg || 'Unknown error'}`, 500);
+      }
     }
   } catch (error) {
-    logger.error('Failed to get positions:', error);
-    throw new AppError('Failed to fetch positions', 500);
+    logger.error('Failed to get positions:', {
+      error: error instanceof Error ? error.message : error,
+      stack: error instanceof Error ? error.stack : undefined,
+      demoMode: process.env.DEMO_MODE
+    });
+    
+    // In demo mode, gracefully handle API failures
+    if (process.env.DEMO_MODE === 'true') {
+      logger.warn('Demo mode: Returning empty positions due to fetch error');
+      res.json({
+        success: true,
+        data: []
+      });
+    } else {
+      throw new AppError('Failed to fetch positions from BingX', 500);
+    }
   }
 }));
 
