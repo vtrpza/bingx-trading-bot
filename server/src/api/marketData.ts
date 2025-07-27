@@ -252,9 +252,24 @@ router.post('/unsubscribe', asyncHandler(async (req: Request, res: Response) => 
   }
 }));
 
+// Cache for market overview to avoid rate limiting
+let marketOverviewCache: any = null;
+let marketOverviewCacheTime: number = 0;
+const CACHE_DURATION = 60000; // 1 minute cache
+
 // Get market overview
 router.get('/overview', asyncHandler(async (_req: Request, res: Response) => {
   try {
+    // Check cache first
+    const now = Date.now();
+    if (marketOverviewCache && (now - marketOverviewCacheTime) < CACHE_DURATION) {
+      res.json({
+        success: true,
+        data: marketOverviewCache
+      });
+      return;
+    }
+
     // Get all symbols
     const symbolsData = await bingxClient.getSymbols();
     
@@ -262,17 +277,19 @@ router.get('/overview', asyncHandler(async (_req: Request, res: Response) => {
       throw new AppError('Failed to fetch market data', 500);
     }
     
-    // Get top movers
+    // Popular trading pairs to reduce API calls
+    const popularSymbols = ['BTC-USDT', 'ETH-USDT', 'BNB-USDT', 'ADA-USDT', 'XRP-USDT', 
+                          'DOGE-USDT', 'MATIC-USDT', 'SOL-USDT', 'DOT-USDT', 'LINK-USDT'];
+    
+    // Get tickers for popular symbols only
     const tickers = await Promise.all(
-      symbolsData.data
-        .filter((s: any) => s.contractType === 'PERPETUAL' && s.status === 'TRADING')
-        .slice(0, 50) // Limit to top 50 to avoid too many requests
-        .map(async (symbol: any) => {
+      popularSymbols
+        .map(async (symbol: string) => {
           try {
-            const ticker = await bingxClient.getTicker(symbol.symbol);
+            const ticker = await bingxClient.getTicker(symbol);
             if (ticker.code === 0 && ticker.data) {
               return {
-                symbol: symbol.symbol,
+                symbol: symbol,
                 lastPrice: parseFloat(ticker.data.lastPrice),
                 priceChangePercent: parseFloat(ticker.data.priceChangePercent),
                 volume: parseFloat(ticker.data.quoteVolume)
@@ -280,6 +297,7 @@ router.get('/overview', asyncHandler(async (_req: Request, res: Response) => {
             }
             return null;
           } catch (error) {
+            logger.error(`Failed to get ticker for ${symbol}:`, error);
             return null;
           }
         })
@@ -300,15 +318,19 @@ router.get('/overview', asyncHandler(async (_req: Request, res: Response) => {
       .sort((a, b) => b!.volume - a!.volume)
       .slice(0, 5);
     
+    // Cache the result
+    marketOverviewCache = {
+      topGainers,
+      topLosers,
+      topVolume,
+      totalSymbols: symbolsData.data.length,
+      activeSymbols: symbolsData.data.filter((s: any) => s.status === 'TRADING').length
+    };
+    marketOverviewCacheTime = now;
+    
     res.json({
       success: true,
-      data: {
-        topGainers,
-        topLosers,
-        topVolume,
-        totalSymbols: symbolsData.data.length,
-        activeSymbols: symbolsData.data.filter((s: any) => s.status === 'TRADING').length
-      }
+      data: marketOverviewCache
     });
   } catch (error) {
     logger.error('Failed to get market overview:', error);

@@ -318,6 +318,8 @@ export const wsManager = new BingXWebSocketManager();
 
 // Setup WebSocket server for client connections
 export function setupWebSocket(server: Server) {
+  // Import here to avoid circular dependency
+  const { getTradingBot } = require('../trading/bot');
   const wss = new WebSocket.Server({ server, path: '/ws' });
 
   wss.on('connection', (ws: WebSocket) => {
@@ -360,6 +362,21 @@ export function setupWebSocket(server: Server) {
 
   wsManager.on('orderUpdate', (data) => {
     broadcast(wss, { type: 'orderUpdate', data });
+  });
+
+  // Listen to trading bot events
+  const tradingBot = getTradingBot();
+  
+  tradingBot.on('signal', (signal: any) => {
+    broadcast(wss, { type: 'signal', data: signal });
+  });
+  
+  tradingBot.on('tradeExecuted', (trade: any) => {
+    broadcast(wss, { type: 'tradeExecuted', data: trade });
+  });
+  
+  tradingBot.on('positionClosed', (position: any) => {
+    broadcast(wss, { type: 'positionClosed', data: position });
   });
 
   // Connect to BingX WebSocket

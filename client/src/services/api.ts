@@ -30,6 +30,11 @@ axiosInstance.interceptors.request.use(
 // Response interceptor
 axiosInstance.interceptors.response.use(
   (response) => {
+    // Se a resposta tem o formato padrão { success: true, data: {...} }, extrair só os dados
+    if (response.data && response.data.success && response.data.data !== undefined) {
+      return response.data.data
+    }
+    // Caso contrário, retornar a resposta completa
     return response.data
   },
   (error) => {
@@ -48,8 +53,7 @@ export const api = {
     search?: string
     status?: string
   }): Promise<PaginatedResponse<Asset>> {
-    const response = await axiosInstance.get('/assets', { params })
-    return response.data
+    return axiosInstance.get('/assets', { params })
   },
 
   async getAsset(symbol: string): Promise<Asset> {
@@ -98,8 +102,7 @@ export const api = {
 
   // Trading Bot
   async getBotStatus(): Promise<BotStatus> {
-    const response = await axiosInstance.get('/trading/bot/status')
-    return response.data
+    return axiosInstance.get('/trading/bot/status')
   },
 
   async startBot(): Promise<{ message: string }> {
@@ -119,8 +122,7 @@ export const api = {
     message: string
     service: string
   }[]> {
-    const response = await axiosInstance.get('/trading/bot/logs', { params })
-    return response.data
+    return axiosInstance.get('/trading/bot/logs', { params })
   },
 
   async updateBotConfig(config: Partial<BotConfig>): Promise<{ message: string; config: Partial<BotConfig> }> {
@@ -143,8 +145,7 @@ export const api = {
     startDate?: string
     endDate?: string
   }): Promise<PaginatedResponse<Trade>> {
-    const response = await axiosInstance.get('/trading/trades/history', { params })
-    return response.data
+    return axiosInstance.get('/trading/trades/history', { params })
   },
 
   async getTradingStats(period?: string): Promise<{
