@@ -442,28 +442,124 @@ export class ParallelTradingBot extends EventEmitter {
 
   private async updateSymbolList(): Promise<void> {
     try {
-      // Use predefined popular symbols for immediate start
+      // Predefined popular symbols for immediate start
       const baseSymbols = [
         'BTC-USDT', 'ETH-USDT', 'BNB-USDT', 'SOL-USDT', 'XRP-USDT',
         'ADA-USDT', 'DOGE-USDT', 'DOT-USDT', 'MATIC-USDT', 'AVAX-USDT',
         'LINK-USDT', 'UNI-USDT', 'LTC-USDT', 'BCH-USDT', 'ATOM-USDT'
       ];
 
-      // Use same symbol format for both demo and live mode
-      const popularSymbols = baseSymbols;
+      // Start with base symbols immediately
+      this.config.symbolsToScan = baseSymbols;
+      logger.info(`Preloaded market data for ${baseSymbols.length} symbols`);
 
-      this.config.symbolsToScan = popularSymbols;
-      
-      // Preload market data for faster processing
-      await this.marketDataCache.preloadSymbols(popularSymbols);
-      
-      logger.info(`Symbol list updated with ${popularSymbols.length} symbols`, {
-        demoMode: process.env.DEMO_MODE === 'true',
-        sampleSymbols: popularSymbols.slice(0, 3)
+      // Async fetch all available symbols from exchange
+      this.fetchAllAvailableSymbols().catch(error => {
+        logger.warn('Failed to fetch all symbols, continuing with base symbols:', error);
       });
+
     } catch (error) {
       logger.error('Failed to update symbol list:', error);
     }
+  }
+
+  private async fetchAllAvailableSymbols(): Promise<void> {
+    try {
+      logger.info('Fetching all available symbols from exchange...');
+      
+      // Get all symbols from BingX
+      const symbolsData = await this.bingxClient.getSymbols();
+      
+      if (!symbolsData.data || !Array.isArray(symbolsData.data)) {
+        logger.warn('Invalid symbols data received from exchange');
+        return;
+      }
+
+      // Filter for active USDT pairs only
+      const usdtSymbols = symbolsData.data
+        .filter((contract: any) => 
+          contract.status === 1 && // Active contracts only
+          contract.symbol && 
+          contract.symbol.endsWith('-USDT') // USDT pairs only
+        )
+        .map((contract: any) => contract.symbol);
+
+      if (usdtSymbols.length === 0) {
+        logger.warn('No USDT symbols found from exchange');
+        return;
+      }
+
+      // Get volume data for all symbols to filter by minimum volume
+      const symbolsWithVolume = await this.getSymbolVolumes(usdtSymbols);
+      
+      // Filter by minimum volume and sort by volume
+      const eligibleSymbols = symbolsWithVolume
+        .filter(item => item.volume >= this.config.minVolumeUSDT)
+        .sort((a, b) => b.volume - a.volume)
+        .map(item => item.symbol);
+
+      if (eligibleSymbols.length > 0) {
+        this.config.symbolsToScan = eligibleSymbols;
+        
+        // Preload market data for all symbols
+        await this.marketDataCache.preloadSymbols(eligibleSymbols);
+        
+        logger.info(`Symbol list updated with ${eligibleSymbols.length} symbols`, {
+          demoMode: process.env.DEMO_MODE === 'true',
+          sampleSymbols: eligibleSymbols.slice(0, 3)
+        });
+      } else {
+        logger.warn('No symbols meet minimum volume criteria, keeping base symbols');
+      }
+
+    } catch (error) {
+      logger.error('Failed to fetch all available symbols:', error);
+    }
+  }
+
+  private async getSymbolVolumes(symbols: string[], batchSize = 10): Promise<{symbol: string, volume: number}[]> {
+    const symbolsWithVolume: {symbol: string, volume: number}[] = [];
+    
+    logger.info(`Getting volume data for ${symbols.length} symbols...`);
+    
+    // Process in batches to avoid overwhelming the API
+    for (let i = 0; i < symbols.length; i += batchSize) {
+      const batch = symbols.slice(i, i + batchSize);
+      
+      const promises = batch.map(async (symbol) => {
+        try {
+          const ticker = await this.bingxClient.getTicker(symbol);
+          if (ticker.code === 0 && ticker.data) {
+            const volume = parseFloat(ticker.data.quoteVolume || 0);
+            return { symbol, volume };
+          }
+        } catch (error) {
+          logger.debug(`Failed to get ticker for ${symbol}:`, error instanceof Error ? error.message : String(error));
+        }
+        return null;
+      });
+
+      const results = await Promise.allSettled(promises);
+      
+      results.forEach(result => {
+        if (result.status === 'fulfilled' && result.value) {
+          symbolsWithVolume.push(result.value);
+        }
+      });
+
+      // Small delay between batches to respect rate limits
+      if (i + batchSize < symbols.length) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+      
+      // Log progress
+      if (i % (batchSize * 5) === 0) {
+        logger.debug(`Processed ${Math.min(i + batchSize, symbols.length)}/${symbols.length} symbols`);
+      }
+    }
+
+    logger.info(`Volume data retrieved for ${symbolsWithVolume.length} symbols`);
+    return symbolsWithVolume;
   }
 
   private startScanning(): void {

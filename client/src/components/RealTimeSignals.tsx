@@ -11,7 +11,12 @@ export default function RealTimeSignals() {
   const [selectedSymbol, setSelectedSymbol] = useLocalStorage('realTimeSignalsSelectedSymbol', 'BTC-USDT')
   const { t } = useTranslation()
 
-  const { lastMessage } = useWebSocket('/ws')
+  const { lastMessage, connectionStatus } = useWebSocket('/ws')
+  
+  // Debug WebSocket connection
+  useEffect(() => {
+    console.log('🔌 WebSocket connection status:', connectionStatus)
+  }, [connectionStatus])
 
   // Get parallel bot status (only parallel mode now)
   const { data: botStatus } = useQuery(
@@ -76,15 +81,25 @@ export default function RealTimeSignals() {
 
   useEffect(() => {
     if (lastMessage) {
-      const data = JSON.parse(lastMessage.data)
-      
-      if (data.type === 'signal') {
-        // Add new signal to the list and keep only 50 latest signals
-        setSignals(prev => {
-          const newSignals = [data.data, ...prev]
-          // Keep only 50 most recent signals
-          return newSignals.slice(0, 50)
-        })
+      console.log('🔄 WebSocket message received:', lastMessage.data)
+      try {
+        const data = JSON.parse(lastMessage.data)
+        console.log('📊 Parsed WebSocket data:', data)
+        
+        if (data.type === 'signal') {
+          console.log('📈 Signal data received:', data.data)
+          // Add new signal to the list and keep only 50 latest signals
+          setSignals(prev => {
+            const newSignals = [data.data, ...prev]
+            console.log('💾 Updated signals array:', newSignals.length, 'signals')
+            // Keep only 50 most recent signals
+            return newSignals.slice(0, 50)
+          })
+        } else {
+          console.log('ℹ️ Non-signal WebSocket message type:', data.type)
+        }
+      } catch (error) {
+        console.error('❌ Error parsing WebSocket message:', error)
       }
     }
   }, [lastMessage, setSignals])
@@ -115,7 +130,24 @@ export default function RealTimeSignals() {
     <div className="space-y-6">
       {/* Symbol Selection */}
       <div className="card p-6">
-        <h3 className="text-lg font-medium text-gray-900 mb-4">{t('trading.signals.title')}</h3>
+        <div className="flex justify-between items-center mb-4">
+          <h3 className="text-lg font-medium text-gray-900">{t('trading.signals.title')}</h3>
+          <div className="flex items-center space-x-4">
+            <div className={`flex items-center space-x-2 ${
+              connectionStatus === 'connected' ? 'text-green-600' : 
+              connectionStatus === 'connecting' ? 'text-yellow-600' : 'text-red-600'
+            }`}>
+              <div className={`w-2 h-2 rounded-full ${
+                connectionStatus === 'connected' ? 'bg-green-500' : 
+                connectionStatus === 'connecting' ? 'bg-yellow-500' : 'bg-red-500'
+              }`}></div>
+              <span className="text-sm font-medium">{connectionStatus}</span>
+            </div>
+            <div className="text-sm text-gray-500">
+              {signals.length} signals
+            </div>
+          </div>
+        </div>
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
