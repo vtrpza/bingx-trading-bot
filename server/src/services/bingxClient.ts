@@ -2,6 +2,9 @@ import axios, { AxiosInstance } from 'axios';
 import crypto from 'crypto';
 import { logger } from '../utils/logger';
 import { globalRateLimiter, RateLimiter } from './rateLimiter';
+import dotenv from 'dotenv';
+import path from 'path';
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
 // Create a specific rate limiter for kline data
 const klineRateLimiter = new RateLimiter(5, 900000); // 5 requests per 15 minutes
