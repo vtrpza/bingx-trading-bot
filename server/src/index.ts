@@ -63,16 +63,19 @@ app.use(express.urlencoded({ extended: true }));
 // Serve static files
 app.use(express.static('public'));
 
-// Handle favicon and manifest requests to prevent CSP errors
+// Handle favicon and manifest requests with proper headers
 app.get('/favicon.ico', (_req, res) => {
+  res.setHeader('Content-Type', 'image/x-icon');
   res.status(204).end();
 });
 
 app.get('/apple-touch-icon.png', (_req, res) => {
+  res.setHeader('Content-Type', 'image/png');
   res.status(204).end();
 });
 
 app.get('/manifest.json', (_req, res) => {
+  res.setHeader('Content-Type', 'application/json');
   res.status(204).end();
 });
 

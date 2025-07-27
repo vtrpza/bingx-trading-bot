@@ -163,12 +163,8 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
       throw new AppError(`BingX API Error: ${response.msg || 'Failed to fetch assets'}`, 500);
     }
     
-    const contracts = response.data;
-    
-    // For testing, limit to first 50 contracts to avoid rate limiting issues
-    // Remove this limit once we confirm rate limiting works
-    const contractsToProcess = contracts.slice(0, 50);
-    logger.info(`Processing first ${contractsToProcess.length} contracts (out of ${contracts.length} total) for testing...`);
+   
+    const contractsToProcess = response.data;
     
     // Send progress with total count
     sendProgress(sessionId, {
@@ -184,7 +180,6 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
     let processed = 0;
     let skipped = 0;
     
-    logger.info(`Processing ${contracts.length} contracts from BingX...`);
     
     // Process each contract with rate limiting (100 requests/10 seconds = 10 requests/second max)
     let tickerRequests = 0;
@@ -328,7 +323,7 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
     }
     
     logger.info(`Assets refresh completed:`, {
-      totalContracts: contracts.length,
+      totalContracts: contractsToProcess.length,
       processedContracts: contractsToProcess.length,
       processed,
       skipped,
