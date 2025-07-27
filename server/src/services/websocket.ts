@@ -83,7 +83,7 @@ class BingXWebSocketManager extends EventEmitter {
         }
       });
 
-      this.ws.on('error', (error) => {
+      this.ws.on('error', (error: Error) => {
         logger.error('WebSocket error:', error);
         this.emit('error', error);
       });
@@ -320,10 +320,10 @@ export const wsManager = new BingXWebSocketManager();
 export function setupWebSocket(server: Server) {
   const wss = new WebSocket.Server({ server, path: '/ws' });
 
-  wss.on('connection', (ws) => {
+  wss.on('connection', (ws: WebSocket) => {
     logger.info('Client WebSocket connected');
 
-    ws.on('message', (message) => {
+    ws.on('message', (message: WebSocket.Data) => {
       try {
         const data = JSON.parse(message.toString());
         handleClientMessage(ws, data);
@@ -378,7 +378,7 @@ function handleClientMessage(_ws: WebSocket, message: any) {
 }
 
 function broadcast(wss: WebSocket.Server, data: any) {
-  wss.clients.forEach((client) => {
+  wss.clients.forEach((client: WebSocket) => {
     if (client.readyState === WebSocket.OPEN) {
       client.send(JSON.stringify(data));
     }

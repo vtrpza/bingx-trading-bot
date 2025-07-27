@@ -2,7 +2,7 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
-import express from 'express';
+import express, { Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
@@ -57,23 +57,23 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.static('public'));
 
 // Handle favicon and manifest requests with proper headers
-app.get('/favicon.ico', (_req, res) => {
+app.get('/favicon.ico', (_req: Request, res: Response) => {
   res.setHeader('Content-Type', 'image/x-icon');
   res.status(204).end();
 });
 
-app.get('/apple-touch-icon.png', (_req, res) => {
+app.get('/apple-touch-icon.png', (_req: Request, res: Response) => {
   res.setHeader('Content-Type', 'image/png');
   res.status(204).end();
 });
 
-app.get('/manifest.json', (_req, res) => {
+app.get('/manifest.json', (_req: Request, res: Response) => {
   res.setHeader('Content-Type', 'application/json');
   res.status(204).end();
 });
 
 // Health check endpoint
-app.get('/health', (_req, res) => {
+app.get('/health', (_req: Request, res: Response) => {
   res.json({ 
     status: 'healthy', 
     timestamp: new Date().toISOString(),
@@ -82,7 +82,7 @@ app.get('/health', (_req, res) => {
 });
 
 // Root endpoint for API service
-app.get('/', (_req, res) => {
+app.get('/', (_req: Request, res: Response) => {
   res.json({
     name: 'BingX Trading Bot API',
     version: '1.0.0',
