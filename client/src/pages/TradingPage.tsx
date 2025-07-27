@@ -27,15 +27,7 @@ export default function TradingPage() {
       refetchInterval: 3000,
     }
   )
-  // Get parallel bot metrics
-  const { data: parallelMetrics } = useQuery(
-    'parallel-bot-metrics',
-    () => fetch('/api/trading/parallel-bot/metrics').then(res => res.json()).then(data => data.data),
-    { 
-      enabled: botStatus?.isRunning,
-      refetchInterval: 5000 
-    }
-  )
+
   // Get parallel bot performance data
   const { data: performanceData } = useQuery(
     'parallel-bot-performance',
