@@ -34,12 +34,27 @@ export class TechnicalIndicators {
     const result: number[] = [];
     const multiplier = 2 / (period + 1);
     
+    // Validate input
+    if (data.length < period) {
+      return new Array(data.length).fill(NaN);
+    }
+    
+    // Validate first period data contains no NaN values
+    const firstPeriodData = data.slice(0, period);
+    if (firstPeriodData.some(val => isNaN(val) || !isFinite(val))) {
+      return new Array(data.length).fill(NaN);
+    }
+    
     // Start with SMA for the first period
-    let ema = data.slice(0, period).reduce((a, b) => a + b, 0) / period;
+    let ema = firstPeriodData.reduce((a, b) => a + b, 0) / period;
     result.push(...new Array(period - 1).fill(NaN), ema);
     
     // Calculate EMA for remaining values
     for (let i = period; i < data.length; i++) {
+      if (isNaN(data[i]) || !isFinite(data[i])) {
+        result.push(NaN);
+        continue;
+      }
       ema = (data[i] - ema) * multiplier + ema;
       result.push(ema);
     }
@@ -228,6 +243,16 @@ export class TechnicalIndicators {
     const volumeAnalysis = this.analyzeVolume(candles, volumePeriod);
     const validation = this.validateCandles(candles);
     
+    // Helper function to get last valid value from array
+    const getLastValidValue = (arr: number[], fallback: number = 0): number => {
+      for (let i = arr.length - 1; i >= 0; i--) {
+        if (!isNaN(arr[i]) && isFinite(arr[i])) {
+          return arr[i];
+        }
+      }
+      return fallback;
+    };
+    
     return {
       ma1,
       ma2,
@@ -237,11 +262,11 @@ export class TechnicalIndicators {
       validation,
       latestValues: {
         price: closes[closes.length - 1],
-        ma1: ma1[ma1.length - 1],
-        ma2: ma2[ma2.length - 1],
-        rsi: rsi[rsi.length - 1],
+        ma1: getLastValidValue(ma1),
+        ma2: getLastValidValue(ma2),
+        rsi: getLastValidValue(rsi, 50), // Default to neutral RSI
         volume: candles[candles.length - 1].volume,
-        avgVolume: volumeAnalysis.avgVolume[volumeAnalysis.avgVolume.length - 1]
+        avgVolume: getLastValidValue(volumeAnalysis.avgVolume)
       }
     };
   }
