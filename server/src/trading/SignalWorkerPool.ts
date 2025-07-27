@@ -190,6 +190,9 @@ export class SignalWorkerPool extends EventEmitter {
   private config: SignalWorkerConfig;
   private isRunning: boolean = false;
   private processingInterval: NodeJS.Timeout | null = null;
+  private consecutiveErrors: number = 0;
+  private lastErrorTime: number = 0;
+  private circuitBreakerOpen: boolean = false;
 
   constructor(config: Partial<SignalWorkerConfig> = {}) {
     super();
@@ -212,6 +215,9 @@ export class SignalWorkerPool extends EventEmitter {
       const worker = new SignalWorker(workerId, this.config.signalConfig);
       
       worker.on('taskCompleted', (result) => {
+        // Reset consecutive errors on successful task completion
+        this.consecutiveErrors = 0;
+        
         this.emit('signalGenerated', result.signal);
         this.processNextTask();
       });
@@ -302,6 +308,20 @@ export class SignalWorkerPool extends EventEmitter {
       return;
     }
 
+    // Check circuit breaker
+    if (this.circuitBreakerOpen) {
+      const currentTime = Date.now();
+      // Open circuit breaker for 5 minutes after 10 consecutive errors
+      if (currentTime - this.lastErrorTime > 300000) { // 5 minutes
+        this.circuitBreakerOpen = false;
+        this.consecutiveErrors = 0;
+        logger.info('Circuit breaker closed - resuming task processing');
+      } else {
+        logger.debug('Circuit breaker open - skipping task processing');
+        return;
+      }
+    }
+
     // Remove expired tasks (older than 60 seconds)
     const currentTime = Date.now();
     this.taskQueue = this.taskQueue.filter(task => 
@@ -328,6 +348,9 @@ export class SignalWorkerPool extends EventEmitter {
   }
 
   private async processTask(worker: SignalWorker, task: SignalTask) {
+    const startTime = Date.now();
+    logger.debug(`Starting task ${task.id} for symbol ${task.symbol} on worker ${worker.getId()}`);
+    
     try {
       await Promise.race([
         worker.processTask(task),
@@ -335,8 +358,16 @@ export class SignalWorkerPool extends EventEmitter {
           setTimeout(() => reject(new Error('Task timeout')), this.config.taskTimeout)
         )
       ]);
+      
+      const duration = Date.now() - startTime;
+      logger.debug(`Task ${task.id} completed successfully in ${duration}ms`);
+      
     } catch (error) {
-      this.handleTaskError(task, error instanceof Error ? error.message : String(error));
+      const duration = Date.now() - startTime;
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      logger.warn(`Task ${task.id} for ${task.symbol} failed after ${duration}ms: ${errorMessage}`);
+      this.handleTaskError(task, errorMessage);
     }
   }
 
@@ -346,6 +377,24 @@ export class SignalWorkerPool extends EventEmitter {
   }
 
   private handleTaskError(task: SignalTask, error: string) {
+    // Track consecutive errors for circuit breaker
+    this.consecutiveErrors++;
+    this.lastErrorTime = Date.now();
+    
+    // Open circuit breaker if too many consecutive errors
+    if (this.consecutiveErrors >= 10 && !this.circuitBreakerOpen) {
+      this.circuitBreakerOpen = true;
+      logger.error(`Circuit breaker opened after ${this.consecutiveErrors} consecutive errors. Pausing for 5 minutes.`);
+      
+      // Clear the task queue to prevent processing more failing tasks
+      this.taskQueue = [];
+      
+      this.emit('circuitBreakerOpened', {
+        consecutiveErrors: this.consecutiveErrors,
+        lastError: error
+      });
+    }
+    
     if (task.retries < task.maxRetries) {
       task.retries++;
       task.timestamp = Date.now(); // Update timestamp for retry
@@ -378,7 +427,12 @@ export class SignalWorkerPool extends EventEmitter {
       config: this.config,
       totalWorkers: this.workers.size,
       availableWorkers: workerMetrics.filter(w => w.isAvailable).length,
-      activeWorkers: workerMetrics.filter(w => !w.isAvailable).length
+      activeWorkers: workerMetrics.filter(w => !w.isAvailable).length,
+      circuitBreaker: {
+        isOpen: this.circuitBreakerOpen,
+        consecutiveErrors: this.consecutiveErrors,
+        lastErrorTime: this.lastErrorTime
+      }
     };
   }
 

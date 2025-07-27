@@ -851,6 +851,43 @@ router.get('/parallel-bot/rate-limit', asyncHandler(async (_req: Request, res: R
   });
 }));
 
+// Get blacklisted symbols
+router.get('/parallel-bot/blacklist', asyncHandler(async (_req: Request, res: Response) => {
+  const parallelBot = getParallelTradingBot();
+  const blacklistedSymbols = parallelBot.getBlacklistedSymbols();
+  
+  res.json({
+    success: true,
+    data: blacklistedSymbols
+  });
+}));
+
+// Clear symbol blacklist
+router.post('/parallel-bot/blacklist/clear', asyncHandler(async (_req: Request, res: Response) => {
+  const parallelBot = getParallelTradingBot();
+  parallelBot.clearSymbolBlacklist();
+  
+  res.json({
+    success: true,
+    data: {
+      message: 'Symbol blacklist cleared successfully'
+    }
+  });
+}));
+
+// Reset circuit breaker
+router.post('/parallel-bot/circuit-breaker/reset', asyncHandler(async (_req: Request, res: Response) => {
+  const parallelBot = getParallelTradingBot();
+  parallelBot.resetCircuitBreaker();
+  
+  res.json({
+    success: true,
+    data: {
+      message: 'Circuit breaker reset successfully'
+    }
+  });
+}));
+
 // === POSITION MANAGER ROUTES ===
 
 // Get managed positions

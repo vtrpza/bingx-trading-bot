@@ -7,7 +7,7 @@ import PositionsTable from '../components/PositionsTable'
 import TradingStats from '../components/TradingStats'
 import TradeHistory from '../components/TradeHistory'
 import RealTimeSignals from '../components/RealTimeSignals'
-import TradingFlowMonitor from '../components/TradingFlowMonitor'
+// import TradingFlowMonitor from '../components/TradingFlowMonitor'
 import type { BotStatus2, BotConfig } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { useLocalStorage } from '../hooks/useLocalStorage'
@@ -72,6 +72,15 @@ export default function TradingPage() {
     () => api.getTradingStats('24h'),
     {
       refetchInterval: 10000,
+    }
+  )
+
+  // Get blacklisted symbols
+  const { data: blacklistedSymbols } = useQuery(
+    'parallel-bot-blacklist',
+    () => fetch('/api/trading/parallel-bot/blacklist').then(res => res.json()).then(data => data.data),
+    { 
+      refetchInterval: 30000 // Check every 30 seconds
     }
   )
   console.log('Trading stats:', tradingStats)
@@ -150,6 +159,20 @@ export default function TradingPage() {
       },
       onError: (error: any) => {
         toast.error(error.message || 'Failed to update config')
+      },
+    }
+  )
+
+  // Clear blacklist mutation
+  const clearBlacklistMutation = useMutation(
+    () => fetch('/api/trading/parallel-bot/blacklist/clear', { method: 'POST' }).then(res => res.json()),
+    {
+      onSuccess: () => {
+        toast.success('Symbol blacklist cleared successfully')
+        queryClient.invalidateQueries('parallel-bot-blacklist')
+      },
+      onError: (error: any) => {
+        toast.error(error.message || 'Failed to clear blacklist')
       },
     }
   )
@@ -286,11 +309,43 @@ export default function TradingPage() {
             <TradingStats stats={tradingStats} />
             
             {/* Trading Flow Monitor */}
-            <TradingFlowMonitor 
+            {/* <TradingFlowMonitor 
               activityEvents={activityEvents}
               parallelMetrics={parallelMetrics}
               isParallelBot={true}
-            />
+            /> */}
+            
+            {/* Blacklisted Symbols Warning */}
+            {blacklistedSymbols && blacklistedSymbols.length > 0 && (
+              <div className="card p-6 border-l-4 border-yellow-500 bg-yellow-50">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-lg font-medium text-yellow-800">Blacklisted Symbols</h3>
+                    <p className="text-sm text-yellow-700 mt-1">
+                      {blacklistedSymbols.length} symbol(s) temporarily blacklisted due to errors
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => clearBlacklistMutation.mutate()}
+                    disabled={clearBlacklistMutation.isLoading}
+                    className="px-3 py-1 bg-yellow-600 text-white text-sm rounded hover:bg-yellow-700 disabled:opacity-50"
+                  >
+                    {clearBlacklistMutation.isLoading ? 'Clearing...' : 'Clear All'}
+                  </button>
+                </div>
+                <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                  {blacklistedSymbols.map((item: any) => (
+                    <div key={item.symbol} className="flex items-center justify-between bg-white p-2 rounded border">
+                      <span className="font-medium text-gray-900">{item.symbol}</span>
+                      <div className="text-xs text-gray-500">
+                        <div>Failures: {item.count}</div>
+                        <div>Until: {new Date(item.backoffUntil).toLocaleTimeString()}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
             
             {botStatus?.activePositions && botStatus.activePositions.length > 0 && (
               <PositionsTable positions={botStatus.activePositions} />

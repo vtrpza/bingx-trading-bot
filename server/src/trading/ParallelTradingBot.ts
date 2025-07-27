@@ -69,7 +69,7 @@ export interface ParallelBotMetrics {
 
 export interface ActivityEvent {
   id: string;
-  type: 'scan_started' | 'signal_generated' | 'trade_executed' | 'error' | 'position_closed' | 'market_data_updated';
+  type: 'scan_started' | 'signal_generated' | 'trade_executed' | 'error' | 'position_closed' | 'market_data_updated' | 'blacklist_updated' | 'info';
   symbol?: string;
   message: string;
   timestamp: number;
@@ -90,6 +90,7 @@ export class ParallelTradingBot extends EventEmitter {
   private config: ParallelBotConfig;
   private isRunning: boolean = false;
   private scanInterval: NodeJS.Timeout | null = null;
+  private symbolBlacklist: Map<string, { count: number, lastFailed: number, backoffUntil: number }> = new Map();
   
   // Core components
   private signalWorkerPool!: SignalWorkerPool;
@@ -261,7 +262,15 @@ export class ParallelTradingBot extends EventEmitter {
     });
 
     this.signalWorkerPool.on('taskFailed', (error) => {
+      this.handleSymbolError(error.task.symbol, error.error);
       this.addActivityEvent('error', `Signal generation failed: ${error.error}`, 'error', error.task.symbol);
+    });
+
+    this.signalWorkerPool.on('circuitBreakerOpened', (info) => {
+      this.addActivityEvent('error', 
+        `Circuit breaker opened after ${info.consecutiveErrors} consecutive errors. System paused for 5 minutes.`, 
+        'error'
+      );
     });
 
     // Signal queue events
@@ -471,7 +480,7 @@ export class ParallelTradingBot extends EventEmitter {
     }
 
     const symbolsToScan = this.config.symbolsToScan.filter(symbol => 
-      !this.activePositions.has(symbol)
+      !this.activePositions.has(symbol) && !this.isSymbolBlacklisted(symbol)
     );
 
     if (symbolsToScan.length === 0) {
@@ -958,6 +967,90 @@ export class ParallelTradingBot extends EventEmitter {
   setImmediateExecutionMode(enabled: boolean): void {
     this.config.immediateExecution = enabled;
     logger.info(`Immediate execution mode ${enabled ? 'enabled' : 'disabled'}`);
+  }
+
+  // Symbol blacklist management for error recovery
+  private handleSymbolError(symbol: string, error: string): void {
+    const currentTime = Date.now();
+    const existing = this.symbolBlacklist.get(symbol);
+    
+    if (existing) {
+      existing.count++;
+      existing.lastFailed = currentTime;
+      // Exponential backoff: 1min, 5min, 15min, 1hour, 4hours
+      const backoffMinutes = Math.min(Math.pow(2, existing.count) * 0.5, 240);
+      existing.backoffUntil = currentTime + (backoffMinutes * 60 * 1000);
+      
+      logger.warn(`Symbol ${symbol} blacklisted for ${backoffMinutes} minutes (failure count: ${existing.count})`);
+    } else {
+      // First failure - 1 minute backoff
+      this.symbolBlacklist.set(symbol, {
+        count: 1,
+        lastFailed: currentTime,
+        backoffUntil: currentTime + (60 * 1000) // 1 minute
+      });
+      
+      logger.warn(`Symbol ${symbol} temporarily blacklisted for 1 minute due to error: ${error}`);
+    }
+    
+    this.addActivityEvent('blacklist_updated', 
+      `Symbol ${symbol} blacklisted temporarily (failure ${existing?.count || 1})`, 
+      'warning', 
+      symbol
+    );
+  }
+
+  private isSymbolBlacklisted(symbol: string): boolean {
+    const blacklistEntry = this.symbolBlacklist.get(symbol);
+    if (!blacklistEntry) {
+      return false;
+    }
+    
+    const currentTime = Date.now();
+    if (currentTime > blacklistEntry.backoffUntil) {
+      // Backoff period expired, remove from blacklist
+      this.symbolBlacklist.delete(symbol);
+      logger.info(`Symbol ${symbol} removed from blacklist - backoff period expired`);
+      return false;
+    }
+    
+    return true;
+  }
+
+  getBlacklistedSymbols(): Array<{symbol: string, count: number, backoffUntil: number}> {
+    const currentTime = Date.now();
+    const result: Array<{symbol: string, count: number, backoffUntil: number}> = [];
+    
+    for (const [symbol, data] of this.symbolBlacklist.entries()) {
+      if (currentTime <= data.backoffUntil) {
+        result.push({
+          symbol,
+          count: data.count,
+          backoffUntil: data.backoffUntil
+        });
+      }
+    }
+    
+    return result;
+  }
+
+  clearSymbolBlacklist(): void {
+    const count = this.symbolBlacklist.size;
+    this.symbolBlacklist.clear();
+    logger.info(`Cleared ${count} symbols from blacklist`);
+    this.addActivityEvent('blacklist_updated', `Manually cleared ${count} symbols from blacklist`, 'info');
+  }
+
+  resetCircuitBreaker(): void {
+    const status = this.signalWorkerPool.getStatus();
+    if (status.circuitBreaker.isOpen) {
+      // Reset circuit breaker by reinitializing the signal worker pool
+      this.signalWorkerPool.stop();
+      this.signalWorkerPool.start();
+      
+      logger.info('Circuit breaker manually reset');
+      this.addActivityEvent('info', 'Circuit breaker manually reset - resuming operations', 'info');
+    }
   }
 }
 

@@ -39,15 +39,20 @@ export default function TradingFlowMonitor({
   const [activeView, setActiveView] = useState<'pipeline' | 'signals' | 'activity' | 'metrics'>('pipeline')
 
   // Get flow state
-  const { data: flowState, isLoading: flowLoading } = useQuery<TradingFlowState>(
+  const { data: flowState, isLoading: flowLoading, error: flowError } = useQuery<TradingFlowState>(
     'bot-flow-state',
     api.getBotFlowState,
     {
       refetchInterval: config.autoRefresh ? config.refreshInterval : false,
-      enabled: config.autoRefresh
+      enabled: true, // Always enabled, not dependent on autoRefresh
+      retry: 3,
+      staleTime: 1000
     }
   )
   console.log('Flow state:', flowState)
+  console.log('Flow loading:', flowLoading)
+  console.log('Flow error:', flowError)
+  
   // Safe flow state with defaults
   const safeFlowState = flowState ? {
     currentStep: flowState.currentStep || '',
@@ -221,6 +226,18 @@ export default function TradingFlowMonitor({
       {/* Content based on active view */}
       {activeView === 'pipeline' && (
         <div className="space-y-4">
+          
+          {/* No data state */}
+          {!flowLoading && !flowError && (!safeFlowState || safeFlowState.steps.length === 0) && (
+            <div className="card p-6">
+              <div className="text-center text-gray-500">
+                <div className="text-lg mb-2">🤖</div>
+                <p className="text-sm">No trading flow data available</p>
+                <p className="text-xs mt-1">Start the trading bot to see flow information</p>
+              </div>
+            </div>
+          )}
+          
           {/* Current Status */}
           {safeFlowState && safeFlowState.steps.length > 0 && (
             <div className="card p-6">
