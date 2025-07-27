@@ -68,6 +68,14 @@ export function useWebSocket(url: string, options: UseWebSocketOptions = {}) {
       ws.onerror = (event) => {
         setReadyState(WebSocket.CLOSED)
         setConnectionStatus('error')
+        
+        if (enableWebSocketDebug) {
+          console.error('❌ WebSocket error:', event);
+          console.error('🔗 Attempted URL:', wsUrl);
+          console.error('🌐 Current protocol:', window.location.protocol);
+          console.error('💻 User agent:', navigator.userAgent);
+        }
+        
         onError?.(event)
       }
 
