@@ -1,6 +1,81 @@
 import { logger } from '../utils/logger';
 
 /**
+ * A generic rate limiter class.
+ */
+export class RateLimiter {
+  private requestLog: number[] = [];
+  private readonly maxRequests: number;
+  private readonly windowMs: number;
+
+  constructor(maxRequests: number, windowMs: number) {
+    this.maxRequests = maxRequests;
+    this.windowMs = windowMs;
+  }
+
+  canMakeRequest(): boolean {
+    const now = Date.now();
+    this.requestLog = this.requestLog.filter(timestamp => now - timestamp < this.windowMs);
+
+    if (this.requestLog.length >= this.maxRequests) {
+      const oldestRequest = this.requestLog[0];
+      const timeUntilReset = this.windowMs - (now - oldestRequest);
+      logger.warn('Rate limit exceeded', {
+        currentRequests: this.requestLog.length,
+        maxRequests: this.maxRequests,
+        timeUntilReset: Math.ceil(timeUntilReset / 1000)
+      });
+      return false;
+    }
+
+    this.requestLog.push(now);
+    logger.debug('Rate limit check passed', {
+      currentRequests: this.requestLog.length,
+      maxRequests: this.maxRequests,
+      remainingRequests: this.maxRequests - this.requestLog.length
+    });
+    return true;
+  }
+
+  async waitForSlot(): Promise<void> {
+    let retryCount = 0;
+    const maxRetries = 10;
+
+    while (!this.canMakeRequest() && retryCount < maxRetries) {
+      const now = Date.now();
+      const oldestRequest = this.requestLog[0];
+      const baseWaitTime = this.windowMs - (now - oldestRequest) + 300;
+      const waitTime = Math.max(300, baseWaitTime * Math.pow(1.2, retryCount));
+      logger.info(`Rate limited - waiting ${waitTime}ms (attempt ${retryCount + 1}/${maxRetries})`);
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+      retryCount++;
+    }
+
+    if (retryCount >= maxRetries) {
+      logger.error('Rate limit exceeded - max retries reached.');
+      throw new Error('Rate limit exceeded - max retries reached');
+    }
+  }
+
+  getStatus() {
+    const now = Date.now();
+    this.requestLog = this.requestLog.filter(timestamp => now - timestamp < this.windowMs);
+    return {
+      currentRequests: this.requestLog.length,
+      maxRequests: this.maxRequests,
+      remainingRequests: this.maxRequests - this.requestLog.length,
+      windowMs: this.windowMs,
+      oldestRequestAge: this.requestLog.length > 0 ? now - this.requestLog[0] : 0
+    };
+  }
+
+  reset(): void {
+    this.requestLog = [];
+    logger.info('Rate limiter reset');
+  }
+}
+
+/**
  * Global rate limiter for BingX API calls
  * Enforces conservative rate limits to prevent 109400 errors
  * BingX limit: 5 requests per 900ms, implemented as 4 per 900ms (conservative approach)

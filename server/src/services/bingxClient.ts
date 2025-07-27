@@ -1,7 +1,7 @@
 import axios, { AxiosInstance } from 'axios';
 import crypto from 'crypto';
 import { logger } from '../utils/logger';
-import { RateLimiter } from './rateLimiter';
+import { globalRateLimiter, RateLimiter } from './rateLimiter';
 
 // Create a specific rate limiter for kline data
 const klineRateLimiter = new RateLimiter(5, 900000); // 5 requests per 15 minutes
@@ -9,6 +9,13 @@ const klineRateLimiter = new RateLimiter(5, 900000); // 5 requests per 15 minute
 // Cache for kline data
 const klineCache = new Map<string, { timestamp: number; data: any }>();
 const KLINE_CACHE_DURATION = 60000; // 1 minute
+
+interface BingXConfig {
+  apiKey: string;
+  secretKey: string;
+  baseURL: string;
+  demoMode: boolean;
+}
 
 export class BingXClient {
   private axios: AxiosInstance;
