@@ -6,6 +6,13 @@ import { logger } from '../utils/logger';
 import { TechnicalIndicators } from '../indicators/technicalIndicators';
 import { SignalGenerator } from '../trading/signalGenerator';
 
+// Symbol mapping for deprecated/renamed tokens
+const SYMBOL_MAPPING: { [key: string]: string } = {
+  'MATIC-USDT': 'POL-USDT', // MATIC was rebranded to POL (Polygon)
+  'MATIC': 'POL-USDT',
+  // Add other symbol mappings as needed
+};
+
 // Symbol validation helper
 function validateAndFormatSymbol(symbol: string): string {
   if (!symbol) {
@@ -13,6 +20,13 @@ function validateAndFormatSymbol(symbol: string): string {
   }
   
   const normalizedSymbol = symbol.toUpperCase().replace(/[/\\]/g, '-');
+
+  // Check for symbol mapping first
+  const mappedSymbol = SYMBOL_MAPPING[normalizedSymbol];
+  if (mappedSymbol) {
+    logger.info(`Symbol mapping applied: ${normalizedSymbol} → ${mappedSymbol}`);
+    return mappedSymbol;
+  }
 
   // Remove any trailing -VST-USDT, -VST-USDC patterns first
   let cleanedSymbol = normalizedSymbol.replace(/-VST-(USDT|USDC)$/, '-$1');
@@ -348,9 +362,9 @@ router.get('/overview', asyncHandler(async (_req: Request, res: Response) => {
       throw new AppError('Failed to fetch market data', 500);
     }
     
-    // Popular trading pairs to reduce API calls
+    // Popular trading pairs to reduce API calls (updated with correct symbols)
     const popularSymbols = ['BTC-USDT', 'ETH-USDT', 'BNB-USDT', 'ADA-USDT', 'XRP-USDT', 
-                          'DOGE-USDT', 'MATIC-USDT', 'SOL-USDT', 'DOT-USDT', 'LINK-USDT'];
+                          'DOGE-USDT', 'POL-USDT', 'SOL-USDT', 'DOT-USDT', 'LINK-USDT'];
     
     // Get tickers for popular symbols with proper rate limiting
     const tickers = [];
