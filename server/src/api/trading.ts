@@ -112,13 +112,13 @@ router.get('/bot/logs', asyncHandler(async (req: Request, res: Response) => {
       })
       .reverse();
     
-    res.json({
+    return res.json({
       success: true,
       data: logs
     });
   } catch (error) {
     logger.error('Failed to read logs:', error);
-    res.json({
+    return res.json({
       success: true,
       data: []
     });
