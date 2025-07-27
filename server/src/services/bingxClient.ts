@@ -439,6 +439,93 @@ export class BingXClient {
     }
   }
 
+  // Close Position
+  async closePosition(symbol: string, percentage: number = 100) {
+    try {
+      // Normalize symbol format: LINK-USDT -> LINKUSDT for BingX API
+      const normalizedSymbol = this.normalizeSymbol(symbol);
+      
+      // Get current position to determine side and quantity
+      const positions = await this.getPositions();
+      if (positions.code !== 0 || !positions.data) {
+        throw new Error('Failed to get current positions');
+      }
+
+      // Debug: Log all positions for troubleshooting
+      logger.debug(`All BingX positions for close validation:`, {
+        originalSymbol: symbol,
+        normalizedSymbol: normalizedSymbol,
+        totalPositions: positions.data.length,
+        positions: positions.data.map((pos: any) => ({
+          symbol: pos.symbol,
+          positionAmt: pos.positionAmt,
+          unrealizedProfit: pos.unrealizedProfit
+        }))
+      });
+
+      // Try to find position with both original and normalized symbol
+      let position = positions.data.find((pos: any) => pos.symbol === symbol);
+      if (!position) {
+        position = positions.data.find((pos: any) => pos.symbol === normalizedSymbol);
+      }
+      
+      if (!position || parseFloat(position.positionAmt) === 0) {
+        logger.warn(`Position not found in BingX API for close:`, {
+          requestedSymbol: symbol,
+          normalizedSymbol: normalizedSymbol,
+          positionFound: !!position,
+          positionAmount: position?.positionAmt || 'N/A',
+          availableSymbols: positions.data.map((pos: any) => pos.symbol)
+        });
+        throw new Error(`No active position found for ${symbol} (also tried ${normalizedSymbol})`);
+      }
+
+      const positionAmt = parseFloat(position.positionAmt);
+      const isLong = positionAmt > 0;
+      const currentSize = Math.abs(positionAmt);
+      
+      // Calculate quantity to close based on percentage
+      const closeQuantity = (currentSize * percentage) / 100;
+
+      // Create opposite order to close the position (use the symbol format from the actual position)
+      const orderData = {
+        symbol: position.symbol, // Use actual symbol format from BingX API
+        side: isLong ? 'SELL' : 'BUY' as 'BUY' | 'SELL',
+        positionSide: isLong ? 'LONG' : 'SHORT' as 'LONG' | 'SHORT',
+        type: 'MARKET' as const,
+        quantity: parseFloat(closeQuantity.toFixed(6))
+      };
+
+      logger.info(`Closing ${percentage}% of ${symbol} position:`, {
+        requestedSymbol: symbol,
+        actualSymbol: position.symbol,
+        currentSize,
+        closeQuantity: orderData.quantity,
+        side: orderData.side,
+        positionSide: orderData.positionSide
+      });
+
+      const response = await this.placeOrder(orderData);
+      
+      if (response.code === 0) {
+        logger.info(`Position close order placed successfully: ${response.data?.orderId}`);
+      } else {
+        throw new Error(`Failed to place close order: ${response.msg}`);
+      }
+      
+      return response;
+    } catch (error) {
+      logger.error(`Failed to close position ${symbol}:`, error);
+      throw error;
+    }
+  }
+
+  // Normalize symbol format for BingX API compatibility
+  private normalizeSymbol(symbol: string): string {
+    // Convert LINK-USDT to LINKUSDT (remove hyphens)
+    return symbol.replace(/-/g, '');
+  }
+
   // Rate Limit Status
   getRateLimitStatus() {
     return globalRateLimiter.getStatus();

@@ -1,5 +1,6 @@
 import { EventEmitter } from 'events';
 import { apiRequestManager } from '../services/APIRequestManager';
+import { bingxClient } from '../services/bingxClient';
 import { wsManager } from '../services/websocket';
 import { logger } from '../utils/logger';
 import { v4 as uuidv4 } from 'uuid';
@@ -158,7 +159,7 @@ export class PositionManager extends EventEmitter {
     try {
       // Close position if still active
       if (position.status === 'ACTIVE') {
-        await this.closePosition(position, reason);
+        await this.closePosition(position, reason, 100);
       }
 
       // Update metrics
@@ -336,51 +337,98 @@ export class PositionManager extends EventEmitter {
     }
   }
 
-  private async closePosition(position: ManagedPosition, reason: string): Promise<void> {
+  private async closePosition(position: ManagedPosition, reason: string, percentage: number = 100): Promise<void> {
     try {
       position.status = 'CLOSING';
       
-      // Log the close signal but don't actually close the position automatically
-      // In a real implementation, this would integrate with the actual close position API
-      logger.warn(`Position ${position.symbol} should be closed (${reason})`, {
+      logger.info(`Attempting to close ${percentage}% of position ${position.symbol} (${reason})`, {
         symbol: position.symbol,
         side: position.side,
         entryPrice: position.entryPrice,
         currentPnl: position.unrealizedPnl,
-        reason,
-        suggestion: `Manually close ${position.side} position for ${position.symbol}`
+        percentage
       });
       
-      // Emit event for external handling (UI notifications, manual intervention, etc.)
-      this.emit('positionShouldClose', {
-        position,
-        reason,
-        recommendation: `Close ${position.side} position for ${position.symbol} - ${reason}`
-      });
-      
-      // Mark as closed in our tracking but note it's a logical close, not API close
-      position.status = 'CLOSED';
-      
-      // Update trade record to reflect the close signal
-      if (position.tradeId) {
-        await Trade.update(
-          {
-            realizedPnl: position.unrealizedPnl,
-            closedAt: new Date()
-          },
-          { where: { orderId: position.orderId } }
-        );
+      // Pre-validate: Check if position actually exists in BingX before attempting close
+      try {
+        const apiPositions = await apiRequestManager.getPositions() as any;
+        
+        if (apiPositions.code === 0 && apiPositions.data) {
+          const existsInAPI = apiPositions.data.find((pos: any) => 
+            pos.symbol === position.symbol && parseFloat(pos.positionAmt) !== 0
+          );
+          
+          if (!existsInAPI) {
+            logger.warn(`Position ${position.symbol} not found in BingX API - removing from local tracking`, {
+              localPosition: {
+                symbol: position.symbol,
+                side: position.side,
+                status: position.status
+              },
+              apiPositionsCount: apiPositions.data.length
+            });
+            
+            // Position doesn't exist in API, just remove from local tracking
+            position.status = 'CLOSED';
+            this.emit('positionAlreadyClosed', {
+              position,
+              reason: 'Position not found in exchange API'
+            });
+            return;
+          }
+        }
+      } catch (validationError) {
+        logger.warn(`Failed to pre-validate position ${position.symbol}, proceeding with close attempt:`, validationError);
       }
+      
+      // Actually close the position using BingX API
+      const closeResult = await bingxClient.closePosition(position.symbol, percentage);
+      
+      if (closeResult.code === 0) {
+        logger.info(`Position close order executed successfully: ${position.symbol}`, {
+          orderId: closeResult.data?.orderId,
+          percentage,
+          reason
+        });
+        
+        // Mark as closed in our tracking
+        position.status = 'CLOSED';
+        
+        // Update trade record to reflect the close
+        if (position.tradeId) {
+          await Trade.update(
+            {
+              realizedPnl: position.unrealizedPnl,
+              closedAt: new Date(),
+              status: 'FILLED'
+            },
+            { where: { orderId: position.orderId } }
+          );
+        }
 
-      logger.info(`Position marked for closure: ${position.symbol}`, {
-        reason,
-        pnl: position.unrealizedPnl,
-        note: 'Position not automatically closed - manual intervention required'
-      });
+        // Emit successful close event
+        this.emit('positionClosed', {
+          position,
+          reason,
+          percentage,
+          orderId: closeResult.data?.orderId
+        });
+        
+      } else {
+        throw new Error(`Failed to close position: ${closeResult.msg}`);
+      }
       
     } catch (error) {
-      logger.error(`Failed to process position close signal ${position.symbol}:`, error);
+      logger.error(`Failed to close position ${position.symbol}:`, error);
       position.status = 'ACTIVE'; // Revert status for retry
+      
+      // Emit error event for UI feedback
+      this.emit('positionCloseError', {
+        position,
+        reason,
+        error: error instanceof Error ? error.message : 'Unknown error'
+      });
+      
       throw error;
     }
   }
@@ -524,16 +572,29 @@ export class PositionManager extends EventEmitter {
     if (position) {
       logger.info(`Partial close signal for position: ${symbol} (${percentage}% - ${reason})`);
       
-      // For now, we'll treat partial closes as manual close signals
-      // The actual execution would be handled by the trading bot
-      this.emit('partialCloseSignal', { 
-        symbol, 
-        percentage, 
-        reason, 
-        position: { ...position } 
-      });
+      try {
+        // Actually execute the partial close
+        await this.closePosition(position, reason, percentage);
+        
+        // If it's a full close (100%), remove from tracking
+        if (percentage === 100) {
+          await this.removePosition(symbol, 'MANUAL');
+        } else {
+          // For partial closes, emit event but keep position active for remainder
+          this.emit('partialCloseExecuted', { 
+            symbol, 
+            percentage, 
+            reason, 
+            position: { ...position } 
+          });
+        }
+      } catch (error) {
+        logger.error(`Failed to execute partial close for ${symbol}:`, error);
+        throw error;
+      }
     } else {
       logger.warn(`Position not found for partial close: ${symbol}`);
+      throw new Error(`Position not found: ${symbol}`);
     }
   }
 

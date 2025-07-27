@@ -164,10 +164,7 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
   }
 
   const handleManageClick = (symbol: string) => {
-    if (!isBotRunning) {
-      addToast('warning', 'Bot precisa estar rodando para gerenciar posições.')
-      return
-    }
+    addToast('warning', 'Bot precisa estar rodando para gerenciar posições.')
     setSelectedSymbol(symbol)
     setShowConfirmation(false)
   }
@@ -509,11 +506,11 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
       )}
 
       {/* Toast Notifications */}
-      <div className="fixed top-4 right-4 z-50 space-y-2">
+      <div className="fixed top-4 right-4 z-50 space-y-3">
         {toasts.map((toast) => (
           <div
             key={toast.id}
-            className={`max-w-sm w-full shadow-lg rounded-lg pointer-events-auto overflow-hidden ${
+            className={`max-w-md w-full min-w-80 shadow-lg rounded-lg pointer-events-auto overflow-hidden ${
               toast.type === 'success' 
                 ? 'bg-green-500' 
                 : toast.type === 'error' 
@@ -521,7 +518,7 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
                 : 'bg-yellow-500'
             }`}
           >
-            <div className="p-4">
+            <div className="p-5">
               <div className="flex items-center">
                 <div className="flex-shrink-0">
                   {toast.type === 'success' && (
@@ -540,8 +537,8 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
                     </svg>
                   )}
                 </div>
-                <div className="ml-3 w-0 flex-1">
-                  <p className="text-sm font-medium text-white">
+                <div className="ml-4 w-0 flex-1">
+                  <p className="text-sm font-medium text-white leading-relaxed">
                     {toast.message}
                   </p>
                 </div>
