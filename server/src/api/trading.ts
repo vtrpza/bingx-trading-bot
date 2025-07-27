@@ -14,30 +14,66 @@ import path from 'path';
 
 const router = Router();
 
-// Get bot status
+// Get bot status (unified endpoint - checks both bots)
 router.get('/bot/status', asyncHandler(async (_req: Request, res: Response) => {
-  const bot = getTradingBot();
-  const status = bot.getStatus();
-  
-  // Get account balance
-  let balance = null;
+  // Try parallel bot first (preferred)
   try {
-    const balanceData = await bingxClient.getBalance();
-    if (balanceData.code === 0 && balanceData.data) {
-      balance = balanceData.data.balance;
+    const parallelBot = getParallelTradingBot();
+    const status = parallelBot.getStatus();
+    
+    // Get account balance
+    let balance = null;
+    try {
+      const balanceData = await bingxClient.getBalance();
+      if (balanceData.code === 0 && balanceData.data) {
+        balance = balanceData.data.balance;
+      }
+    } catch (error) {
+      logger.error('Failed to get balance:', error);
     }
+    
+    // Get position manager data
+    const managedPositions = parallelBot.getManagedPositions();
+    const positionMetrics = parallelBot.getPositionMetrics();
+    
+    res.json({
+      success: true,
+      data: {
+        ...status,
+        balance,
+        demoMode: process.env.DEMO_MODE === 'true',
+        architecture: 'parallel',
+        managedPositions: managedPositions.length,
+        positionMetrics,
+        immediateExecution: status.config.immediateExecution
+      }
+    });
   } catch (error) {
-    logger.error('Failed to get balance:', error);
-  }
-  
-  res.json({
-    success: true,
-    data: {
-      ...status,
-      balance,
-      demoMode: process.env.DEMO_MODE === 'true'
+    // Fallback to legacy bot if parallel bot fails
+    logger.warn('Parallel bot not available, falling back to legacy bot');
+    const bot = getTradingBot();
+    const status = bot.getStatus();
+    
+    let balance = null;
+    try {
+      const balanceData = await bingxClient.getBalance();
+      if (balanceData.code === 0 && balanceData.data) {
+        balance = balanceData.data.balance;
+      }
+    } catch (error) {
+      logger.error('Failed to get balance:', error);
     }
-  });
+    
+    res.json({
+      success: true,
+      data: {
+        ...status,
+        balance,
+        demoMode: process.env.DEMO_MODE === 'true',
+        architecture: 'legacy'
+      }
+    });
+  }
 }));
 
 // Start trading bot
@@ -305,7 +341,7 @@ router.get('/trades/history', asyncHandler(async (req: Request, res: Response) =
   });
 }));
 
-// Get trading statistics
+// Get trading statistics (enhanced with position manager data)
 router.get('/stats', asyncHandler(async (req: Request, res: Response) => {
   const { period = '24h' } = req.query;
   
@@ -334,7 +370,7 @@ router.get('/stats', asyncHandler(async (req: Request, res: Response) => {
     }
   });
   
-  // Calculate statistics
+  // Calculate basic statistics
   const totalTrades = trades.length;
   const winningTrades = trades.filter(t => t.realizedPnl > 0).length;
   const losingTrades = trades.filter(t => t.realizedPnl < 0).length;
@@ -350,6 +386,39 @@ router.get('/stats', asyncHandler(async (req: Request, res: Response) => {
   const worstTrade = trades.reduce((worst, current) => 
     (!worst || parseFloat(current.realizedPnl.toString()) < parseFloat(worst.realizedPnl.toString())) ? current : worst
   , null as Trade | null);
+  
+  // Try to get enhanced data from parallel bot
+  let positionData = null;
+  let botStatus = null;
+  try {
+    const parallelBot = getParallelTradingBot();
+    const positionMetrics = parallelBot.getPositionMetrics();
+    const currentPositions = parallelBot.getManagedPositions();
+    const status = parallelBot.getStatus();
+    
+    positionData = {
+      currentActive: currentPositions.length,
+      metrics: positionMetrics
+    };
+    
+    botStatus = {
+      isRunning: status.isRunning,
+      architecture: 'parallel',
+      immediateExecution: status.config.immediateExecution
+    };
+  } catch (error) {
+    // Fallback to basic bot data
+    try {
+      const bot = getTradingBot();
+      const status = bot.getStatus();
+      botStatus = {
+        isRunning: status.isRunning,
+        architecture: 'legacy'
+      };
+    } catch (fallbackError) {
+      logger.error('Failed to get bot status:', fallbackError);
+    }
+  }
   
   res.json({
     success: true,
@@ -371,7 +440,10 @@ router.get('/stats', asyncHandler(async (req: Request, res: Response) => {
         symbol: worstTrade.symbol,
         pnl: worstTrade.realizedPnl,
         date: worstTrade.executedAt
-      } : null
+      } : null,
+      // Enhanced data
+      positions: positionData,
+      bot: botStatus
     }
   });
 }));
@@ -516,13 +588,19 @@ router.get('/parallel-bot/status', asyncHandler(async (_req: Request, res: Respo
     logger.error('Failed to get balance:', error);
   }
   
+  // Get position manager data
+  const managedPositions = parallelBot.getManagedPositions();
+  const positionMetrics = parallelBot.getPositionMetrics();
+  
   res.json({
     success: true,
     data: {
       ...status,
       balance,
       demoMode: process.env.DEMO_MODE === 'true',
-      architecture: 'parallel'
+      architecture: 'parallel',
+      managedPositions: managedPositions.length,
+      positionMetrics
     }
   });
 }));
@@ -770,6 +848,180 @@ router.get('/parallel-bot/rate-limit', asyncHandler(async (_req: Request, res: R
   res.json({
     success: true,
     data: globalRateLimiter.getStatus()
+  });
+}));
+
+// === POSITION MANAGER ROUTES ===
+
+// Get managed positions
+router.get('/parallel-bot/positions', asyncHandler(async (_req: Request, res: Response) => {
+  const parallelBot = getParallelTradingBot();
+  const managedPositions = parallelBot.getManagedPositions();
+  
+  res.json({
+    success: true,
+    data: managedPositions
+  });
+}));
+
+// Get position metrics
+router.get('/parallel-bot/position-metrics', asyncHandler(async (_req: Request, res: Response) => {
+  const parallelBot = getParallelTradingBot();
+  const metrics = parallelBot.getPositionMetrics();
+  
+  res.json({
+    success: true,
+    data: metrics
+  });
+}));
+
+// Signal close position
+router.post('/parallel-bot/positions/:symbol/close', asyncHandler(async (req: Request, res: Response) => {
+  const parallelBot = getParallelTradingBot();
+  const { symbol } = req.params;
+  
+  if (!parallelBot.getStatus().isRunning) {
+    throw new AppError('Parallel bot is not running', 400);
+  }
+  
+  await parallelBot.signalClosePosition(symbol);
+  
+  res.json({
+    success: true,
+    message: `Close signal sent for position: ${symbol}`
+  });
+}));
+
+// Signal close all positions
+router.post('/parallel-bot/positions/close-all', asyncHandler(async (_req: Request, res: Response) => {
+  const parallelBot = getParallelTradingBot();
+  
+  if (!parallelBot.getStatus().isRunning) {
+    throw new AppError('Parallel bot is not running', 400);
+  }
+  
+  await parallelBot.signalCloseAllPositions();
+  
+  res.json({
+    success: true,
+    message: 'Emergency close signal sent for all positions'
+  });
+}));
+
+// Confirm position closed (for external closures)
+router.post('/parallel-bot/positions/:symbol/confirm-closed', asyncHandler(async (req: Request, res: Response) => {
+  const parallelBot = getParallelTradingBot();
+  const { symbol } = req.params;
+  const { actualPnl } = req.body;
+  
+  await parallelBot.confirmPositionClosed(symbol, actualPnl);
+  
+  res.json({
+    success: true,
+    message: `Position closure confirmed for: ${symbol}`
+  });
+}));
+
+// Execute signal immediately for specific symbol
+router.post('/parallel-bot/execute-immediate/:symbol', asyncHandler(async (req: Request, res: Response) => {
+  const parallelBot = getParallelTradingBot();
+  const { symbol } = req.params;
+  
+  if (!parallelBot.getStatus().isRunning) {
+    throw new AppError('Parallel bot is not running', 400);
+  }
+  
+  const taskId = await parallelBot.executeSignalImmediately(symbol);
+  
+  res.json({
+    success: true,
+    data: {
+      taskId,
+      message: `Immediate execution ${taskId ? 'initiated' : 'failed'} for ${symbol}`
+    }
+  });
+}));
+
+// Toggle immediate execution mode
+router.post('/parallel-bot/immediate-execution', asyncHandler(async (req: Request, res: Response) => {
+  const parallelBot = getParallelTradingBot();
+  const { enabled } = req.body;
+  
+  if (typeof enabled !== 'boolean') {
+    throw new AppError('enabled must be a boolean value', 400);
+  }
+  
+  parallelBot.setImmediateExecutionMode(enabled);
+  
+  res.json({
+    success: true,
+    message: `Immediate execution mode ${enabled ? 'enabled' : 'disabled'}`
+  });
+}));
+
+// Enhanced trading stats with position manager data
+router.get('/parallel-bot/enhanced-stats', asyncHandler(async (req: Request, res: Response) => {
+  const { period = '24h' } = req.query;
+  
+  // Get basic stats (same logic as /stats)
+  let startDate = new Date();
+  switch (period) {
+    case '24h':
+      startDate.setHours(startDate.getHours() - 24);
+      break;
+    case '7d':
+      startDate.setDate(startDate.getDate() - 7);
+      break;
+    case '30d':
+      startDate.setDate(startDate.getDate() - 30);
+      break;
+    case 'all':
+      startDate = new Date(0);
+      break;
+  }
+  
+  const trades = await Trade.findAll({
+    where: {
+      createdAt: { [Op.gte]: startDate },
+      status: 'FILLED'
+    }
+  });
+  
+  const totalTrades = trades.length;
+  const winningTrades = trades.filter(t => t.realizedPnl > 0).length;
+  const losingTrades = trades.filter(t => t.realizedPnl < 0).length;
+  const totalPnl = trades.reduce((sum, t) => sum + parseFloat(t.realizedPnl.toString()), 0);
+  const totalVolume = trades.reduce((sum, t) => sum + (parseFloat(t.executedQty.toString()) * parseFloat(t.avgPrice.toString())), 0);
+  const winRate = totalTrades > 0 ? (winningTrades / totalTrades) * 100 : 0;
+  
+  // Get position manager metrics
+  const parallelBot = getParallelTradingBot();
+  const positionMetrics = parallelBot.getPositionMetrics();
+  const currentPositions = parallelBot.getManagedPositions();
+  
+  res.json({
+    success: true,
+    data: {
+      period,
+      trading: {
+        totalTrades,
+        winningTrades,
+        losingTrades,
+        winRate: winRate.toFixed(2),
+        totalPnl: totalPnl.toFixed(2),
+        totalVolume: totalVolume.toFixed(2),
+        averagePnl: totalTrades > 0 ? (totalPnl / totalTrades).toFixed(2) : '0'
+      },
+      positions: {
+        current: currentPositions.length,
+        metrics: positionMetrics
+      },
+      bot: {
+        isRunning: parallelBot.getStatus().isRunning,
+        architecture: 'parallel',
+        immediateExecution: parallelBot.getStatus().config.immediateExecution
+      }
+    }
   });
 }));
 
