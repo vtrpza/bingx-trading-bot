@@ -37,4 +37,25 @@ if (process.env.NODE_ENV !== 'production') {
   }));
 }
 
+// Wrap logger.error to catch [object Object] issues
+const originalError = logger.error.bind(logger);
+logger.error = function(message: any, ...args: any[]) {
+  // Check if first argument is an Error object without a proper message
+  if (message instanceof Error || (typeof message === 'object' && message !== null && !Array.isArray(message) && typeof message.message === 'string')) {
+    // If it's an Error object or looks like one, format it properly
+    if (message instanceof Error) {
+      return originalError(`Caught raw Error object: ${message.message}`, {
+        stack: message.stack,
+        name: message.name,
+        ...args[0]
+      });
+    } else if (typeof message === 'object' && message.message) {
+      // It's already a structured object, pass it through
+      return originalError(message, ...args);
+    }
+  }
+  
+  return originalError(message, ...args);
+};
+
 export { logger };

@@ -435,10 +435,8 @@ export class ParallelTradingBot extends EventEmitter {
         'LINK-USDT', 'UNI-USDT', 'LTC-USDT', 'BCH-USDT', 'ATOM-USDT'
       ];
 
-      // Convert to VST symbols if in demo mode
-      const popularSymbols = process.env.DEMO_MODE === 'true' 
-        ? baseSymbols.map(symbol => symbol.replace('-USDT', '-VST'))
-        : baseSymbols;
+      // Use same symbol format for both demo and live mode
+      const popularSymbols = baseSymbols;
 
       this.config.symbolsToScan = popularSymbols;
       

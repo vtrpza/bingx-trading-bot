@@ -47,7 +47,7 @@ export default function TradingFlowMonitor({
       enabled: config.autoRefresh
     }
   )
-
+  console.log('Flow state:', flowState)
   // Safe flow state with defaults
   const safeFlowState = flowState ? {
     currentStep: flowState.currentStep || '',

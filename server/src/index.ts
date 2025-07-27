@@ -134,6 +134,29 @@ async function startServer() {
   }
 }
 
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (reason: any, promise: Promise<any>) => {
+  logger.error('Unhandled Rejection at:', {
+    promise: promise.toString(),
+    reason: reason instanceof Error ? {
+      message: reason.message,
+      stack: reason.stack,
+      name: reason.name
+    } : reason
+  });
+});
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (error: Error) => {
+  logger.error('Uncaught Exception:', {
+    message: error.message,
+    stack: error.stack,
+    name: error.name
+  });
+  // In production, you might want to exit gracefully
+  // process.exit(1);
+});
+
 // Handle graceful shutdown
 process.on('SIGTERM', async () => {
   logger.info('SIGTERM received, shutting down gracefully');
