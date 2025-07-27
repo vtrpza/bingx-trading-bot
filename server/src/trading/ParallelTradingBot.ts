@@ -685,13 +685,6 @@ export class ParallelTradingBot extends EventEmitter {
   }
 
   private startScanning(): void {
-    // Check if force test mode is enabled
-    if (this.config.forceTestMode) {
-      this.startForceTestMode();
-      return;
-    }
-
-    // Regular scanning mode
     // Initial scan
     this.scanSymbols();
 
@@ -701,77 +694,6 @@ export class ParallelTradingBot extends EventEmitter {
         this.scanSymbols();
       }
     }, this.config.scanInterval);
-  }
-
-  private startForceTestMode(): void {
-    logger.info('🧪 FORCE TEST MODE ACTIVATED', {
-      symbols: this.config.testModeSymbols,
-      interval: this.config.testModeInterval,
-      signalStrength: this.config.testModeSignalStrength
-    });
-
-    this.addActivityEvent('info', 
-      `🧪 Modo Força Teste ativado: ${this.config.testModeSymbols?.join(', ')}`, 
-      'info'
-    );
-
-    // Generate test signal immediately
-    this.generateTestSignal();
-
-    // Set up test interval
-    this.scanInterval = setInterval(() => {
-      if (this.isRunning && this.config.forceTestMode) {
-        this.generateTestSignal();
-      }
-    }, this.config.testModeInterval || 30000);
-  }
-
-  private generateTestSignal(): void {
-    if (!this.config.testModeSymbols || this.config.testModeSymbols.length === 0) {
-      return;
-    }
-
-    // Select random symbol from test symbols
-    const symbol = this.config.testModeSymbols[Math.floor(Math.random() * this.config.testModeSymbols.length)];
-    
-    // Generate random action (favor BUY/SELL over HOLD for testing)
-    const actions = ['BUY', 'SELL', 'BUY', 'SELL', 'HOLD']; // 80% BUY/SELL, 20% HOLD
-    const action = actions[Math.floor(Math.random() * actions.length)];
-    
-    // Use configured test signal strength with some variation
-    const baseStrength = this.config.testModeSignalStrength || 85;
-    const strength = baseStrength + (Math.random() * 20 - 10); // ±10% variation
-    
-    const testSignal = {
-      symbol,
-      action,
-      strength: Math.round(Math.max(30, Math.min(100, strength))), // Clamp between 30-100
-      reason: `🧪 TESTE ARTIFICIAL: Sinal gerado para validar fluxo completo de trading`,
-      indicators: {
-        price: 50000 + (Math.random() * 10000), // Mock price
-        ma1: 49500 + (Math.random() * 1000),
-        ma2: 49000 + (Math.random() * 1000),
-        rsi: action === 'BUY' ? 25 + (Math.random() * 10) : action === 'SELL' ? 75 + (Math.random() * 10) : 50 + (Math.random() * 20 - 10),
-        volume: 1000000 + (Math.random() * 5000000),
-        avgVolume: 1500000
-      },
-      conditions: {
-        maCrossover: action !== 'HOLD',
-        rsiSignal: action !== 'HOLD',
-        volumeConfirmation: true,
-        trendAlignment: action !== 'HOLD'
-      },
-      timestamp: new Date().toISOString(),
-      isTestSignal: true
-    };
-
-    logger.info(`🧪 Test signal generated: ${symbol} ${action} (${strength}%)`, {
-      signal: testSignal,
-      forceTest: true
-    });
-
-    // Process the test signal through normal flow
-    this.handleSignalGenerated(testSignal);
   }
 
   private async scanSymbols(): Promise<void> {
