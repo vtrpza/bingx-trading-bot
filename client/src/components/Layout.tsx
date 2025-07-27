@@ -23,7 +23,7 @@ export default function Layout({ children }: LayoutProps) {
       retry: false,
     }
   )
-  console.log('Bot Status:', botStatus)
+
   useEffect(() => {
     if (location.pathname.includes('/trading')) {
       setCurrentTab('trading')
@@ -42,9 +42,14 @@ export default function Layout({ children }: LayoutProps) {
               <h1 className="text-2xl font-bold text-gray-900">
                 BingX Trading Bot
               </h1>
-              {botStatus?.demoMode && (
+              {botStatus?.data.demoMode && (
                 <span className="ml-3 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
                   {t('dashboard.demoMode')}
+                </span>
+              )}
+              {botStatus?.data.architecture && (
+                <span className="ml-3 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                  {botStatus.data.architecture === 'parallel' ? 'Parallel Bot' : 'Legacy Bot'}
                 </span>
               )}
             </div>
@@ -53,10 +58,10 @@ export default function Layout({ children }: LayoutProps) {
               {/* Bot Status Indicator */}
               <div className="flex items-center space-x-2">
                 <div className={`w-3 h-3 rounded-full ${
-                  botStatus?.isRunning ? 'bg-green-500' : 'bg-red-500'
+                  botStatus?.data.isRunning ? 'bg-green-500' : 'bg-red-500'
                 }`} />
                 <span className="text-sm text-gray-600">
-                  Bot {botStatus?.isRunning ? t('trading.running') : t('trading.stopped')}
+                  Bot {botStatus?.data.isRunning ? t('trading.running') : t('trading.stopped')}
                 </span>
               </div>
               
@@ -64,16 +69,16 @@ export default function Layout({ children }: LayoutProps) {
               {botStatus && (
                 <div className="flex items-center space-x-2">
                   <span className="text-sm text-gray-600">
-                    Posições: {botStatus.activePositions?.length || 0}
+                    Posições: {botStatus.data.managedPositions ?? botStatus.data.activePositions?.length ?? 0}
                   </span>
                 </div>
               )}
               
               {/* Balance */}
-              {botStatus?.balance && (
+              {botStatus && (
                 <div className="flex items-center space-x-2">
                   <span className="text-sm text-gray-600">
-                    Saldo: {parseFloat(botStatus.balance.balance || '0').toFixed(2)} {botStatus.demoMode ? 'VST' : 'USDT'}
+                    Saldo: {parseFloat( botStatus?.data.balance.balance || '0').toFixed(2)} {botStatus.data.demoMode ? 'VST' : 'USDT'}
                   </span>
                 </div>
               )} 

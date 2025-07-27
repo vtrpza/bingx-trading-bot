@@ -89,13 +89,30 @@ export interface TradingSignal {
 }
 
 export interface BotStatus {
-  isRunning: boolean;
-  activePositions: Position[];
-  config: BotConfig;
-  symbolsCount: number;
-  scannedSymbols: string[];
-  balance?: any;
-  demoMode: boolean;
+  data: {
+    isRunning: boolean;
+    activePositions: Position[];
+    config: BotConfig;
+    symbolsCount: number;
+    scannedSymbols: string[];
+    balance?: any;
+    demoMode: boolean;
+    // Parallel bot specific properties
+    architecture?: string;
+    managedPositions?: number;
+    immediateExecution?: boolean;
+    positionMetrics?: {
+    totalPositions: number;
+    activePositions: number;
+    closedPositions: number;
+    manuallyClosedCount: number;
+    stopLossTriggered: number;
+    takeProfitTriggered: number;
+    totalPnL: number;
+    avgHoldTime: number;
+  };
+  components?: any;
+  }
 }
 
 export interface BotConfig {

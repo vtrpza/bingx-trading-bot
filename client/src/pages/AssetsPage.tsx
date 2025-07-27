@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from 'react-query'
 import { api } from '../services/api'
 import { toast } from 'react-hot-toast'
-import type { Asset } from '../types'
+import type { Asset, PaginatedResponse } from '../types'
 import { useTranslation } from '../hooks/useTranslation'
 
 export default function AssetsPage() {
@@ -18,24 +18,26 @@ export default function AssetsPage() {
   const queryClient = useQueryClient()
 
   // Get assets data
-  const { data: assetsData, isLoading, refetch } = useQuery(
+  const { data: assetsData, isLoading, refetch } = useQuery<PaginatedResponse<Asset>>(
     ['assets', page, limit, sortBy, sortOrder, search, status],
     () => api.getAssets({ page, limit, sortBy, sortOrder, search, status }),
     {
       keepPreviousData: true,
     }
   )
-
+  console.log('Assets Data Debug:', { assetsData, isLoading, page, limit, sortBy, sortOrder, search, status })
   // Get asset statistics
-  const { data: stats } = useQuery('asset-stats', api.getAssetStats, {
+  const { data: statsResponse } = useQuery('asset-stats', api.getAssetStats, {
     onSuccess: (data) => {
       console.log('Asset stats received:', data)
     }
   })
+  
+  const stats = (statsResponse as any)?.data || statsResponse
 
 
-  const assets = assetsData?.assets || []
-  const pagination = assetsData?.pagination
+  const assets = (assetsData as any)?.data?.assets || []
+  const pagination = (assetsData as any)?.data?.pagination
 
   // Handle sort
   const handleSort = (column: string) => {
