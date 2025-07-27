@@ -255,18 +255,33 @@ export class MarketDataCache extends EventEmitter {
           let messageStr: string;
           
           // Check if data is compressed (starts with gzip magic bytes)
-          if (data[0] === 0x1f && data[1] === 0x8b) {
-            const inflateAsync = promisify(inflate);
-            const decompressed = await inflateAsync(data);
-            messageStr = decompressed.toString();
+          if (data.length >= 2 && data[0] === 0x1f && data[1] === 0x8b) {
+            try {
+              const inflateAsync = promisify(inflate);
+              const decompressed = await inflateAsync(data);
+              messageStr = decompressed.toString();
+            } catch (decompressError) {
+              // If decompression fails, try as plain text
+              messageStr = data.toString();
+            }
           } else {
+            // Try parsing as plain text first
             messageStr = data.toString();
+            
+            // If it's not valid UTF-8, skip this message
+            if (messageStr.includes('\u0000') || messageStr.length === 0) {
+              logger.debug(`Skipping invalid WebSocket message for ${symbol} (binary data)`);
+              return;
+            }
           }
           
           const message = JSON.parse(messageStr);
           this.handleWebSocketMessage(symbol, message);
-        } catch (error) {
-          logger.debug(`Failed to parse WebSocket message for ${symbol}:`, error);
+        } catch (error: any) {
+          // Only log if it's not a common binary data error
+          if (!error.message?.includes('Unexpected token') || !error.message?.includes('\u001f')) {
+            logger.debug(`Failed to parse WebSocket message for ${symbol}:`, error);
+          }
         }
       });
 
