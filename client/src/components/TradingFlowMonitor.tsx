@@ -10,7 +10,7 @@ import SignalJourneyTracker from './SignalJourneyTracker'
 import ActivityTimeline from './ActivityTimeline'
 
 export default function TradingFlowMonitor() {
-  const { t } = useTranslation()
+  // const { t } = useTranslation()
   const { lastMessage } = useWebSocket('/ws')
   
   // Configuration state
@@ -205,7 +205,7 @@ export default function TradingFlowMonitor() {
             <div className="card p-6">
               <h4 className="text-md font-medium text-gray-900 mb-4">Process Flow</h4>
               <div className="flex items-center justify-between">
-                {flowState.steps.map((step, index) => (
+                {flowState.steps.map((step, stepIndex) => (
                   <div key={step.id} className="flex items-center">
                     <div className={`p-3 rounded-full ${getStepStatusColor(step.status)}`}>
                       <span className="text-lg">{getStepIcon(step.id)}</span>
@@ -219,7 +219,7 @@ export default function TradingFlowMonitor() {
                       )}
                     </div>
                     
-                    {index < flowState.steps.length - 1 && (
+                    {stepIndex < flowState.steps.length - 1 && (
                       <div className="ml-4 mr-4">
                         <div className="w-8 h-px bg-gray-300"></div>
                       </div>
@@ -272,7 +272,7 @@ export default function TradingFlowMonitor() {
 
       {activeView === 'activity' && (
         <ActivityTimeline
-          events={activityEvents || []}
+          events={(activityEvents as ActivityEvent[]) || []}
           mode={config.mode}
           showErrors={config.showErrors}
         />

@@ -41,19 +41,19 @@ export default function ActivityTimeline({ events, mode, showErrors }: ActivityT
     }
   }
 
-  const getLevelColor = (level: string) => {
-    switch (level) {
-      case 'success':
-        return 'text-green-600'
-      case 'error':
-        return 'text-red-600'
-      case 'warning':
-        return 'text-yellow-600'
-      case 'info':
-      default:
-        return 'text-blue-600'
-    }
-  }
+  // const getLevelColor = (level: string) => {
+  //   switch (level) {
+  //     case 'success':
+  //       return 'text-green-600'
+  //     case 'error':
+  //       return 'text-red-600'
+  //     case 'warning':
+  //       return 'text-yellow-600'
+  //     case 'info':
+  //     default:
+  //       return 'text-blue-600'
+  //   }
+  // }
 
   const formatTime = (timestamp: number) => {
     const date = new Date(timestamp)

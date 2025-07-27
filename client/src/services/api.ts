@@ -9,7 +9,8 @@ import type {
   MarketData,
   Candle,
   TechnicalIndicators,
-  PaginatedResponse
+  PaginatedResponse,
+  ActivityEvent
 } from '../types'
 
 const axiosInstance = axios.create({
@@ -141,15 +142,7 @@ export const api = {
     return axiosInstance.get('/trading/bot/flow-state')
   },
 
-  async getBotActivityEvents(limit?: number): Promise<{
-    id: string
-    type: string
-    symbol?: string
-    message: string
-    timestamp: number
-    level: string
-    metadata?: any
-  }[]> {
+  async getBotActivityEvents(limit?: number): Promise<ActivityEvent[]> {
     return axiosInstance.get('/trading/bot/activity-events', { params: { limit } })
   },
 
