@@ -28,7 +28,18 @@ export function useWebSocket(url: string, options: UseWebSocketOptions = {}) {
 
   const connect = useCallback(() => {
     try {
-      const wsUrl = url.startsWith('ws') ? url : `ws://${window.location.host}${url}`
+      // Detect protocol based on current page protocol for Render compatibility
+      let wsUrl: string;
+      
+      if (url.startsWith('ws://') || url.startsWith('wss://')) {
+        wsUrl = url;
+      } else {
+        // Auto-detect protocol: use wss:// for HTTPS pages, ws:// for HTTP pages
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        wsUrl = `${protocol}//${window.location.host}${url}`;
+      }
+      
+      console.log('🔌 Connecting to WebSocket:', wsUrl);
       const ws = new WebSocket(wsUrl)
 
       ws.onopen = (event) => {
