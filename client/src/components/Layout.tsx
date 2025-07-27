@@ -49,7 +49,7 @@ export default function Layout({ children }: LayoutProps) {
             
             <div className="flex items-center space-x-4">
               {/* Bot Status Indicator */}
-              <div className="flex items-center space-x-2">
+              {/* <div className="flex items-center space-x-2">
                 <div className={`w-3 h-3 rounded-full ${
                   botStatus?.isRunning ? 'bg-green-500' : 'bg-red-500'
                 }`} />
@@ -59,22 +59,22 @@ export default function Layout({ children }: LayoutProps) {
               </div>
               
               {/* Active Positions Count */}
-              {botStatus && (
+              {/* {botStatus && (
                 <div className="flex items-center space-x-2">
                   <span className="text-sm text-gray-600">
                     Positions: {botStatus.activePositions?.length || 0}
                   </span>
                 </div>
-              )}
+              )} */}
               
               {/* Balance */}
-              {botStatus?.balance && (
+              {/* {botStatus?.balance && (
                 <div className="flex items-center space-x-2">
                   <span className="text-sm text-gray-600">
                     Balance: {parseFloat(botStatus.balance.balance || '0').toFixed(2)} {botStatus.demoMode ? 'VST' : 'USDT'}
                   </span>
                 </div>
-              )}
+              )}  */}
             </div>
           </div>
         </div>

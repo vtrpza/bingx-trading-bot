@@ -1,0 +1,50 @@
+{
+  "mcpServers": {
+    "puppeteer": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@smithery/cli@latest",
+        "run",
+        "@smithery-ai/puppeteer",
+        "--key",
+        "d2cf8148-3d5c-4b21-a2d4-b5f175a3911b",
+        "--profile",
+        "howling-grass-DrJ2p_"
+      ]
+    },
+    "context7-mcp": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@smithery/cli@latest",
+        "run",
+        "@upstash/context7-mcp",
+        "--key",
+        "d2cf8148-3d5c-4b21-a2d4-b5f175a3911b",
+        "--profile",
+        "howling-grass-DrJ2p_"
+      ]
+    },
+    "mcp-sequentialthinking-tools": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@smithery/cli@latest",
+        "run",
+        "@xinzhongyouhai/mcp-sequentialthinking-tools",
+        "--key",
+        "d2cf8148-3d5c-4b21-a2d4-b5f175a3911b",
+        "--profile",
+        "howling-grass-DrJ2p_"
+      ]
+    },
+      "mcp-server-firecrawl": {
+      "command": "npx",
+      "args": ["-y", "firecrawl-mcp"],
+      "env": {
+        "FIRECRAWL_API_KEY": "fc-b1729abc0f14452ca94f34638aed2f48"
+      }
+    }
+  }
+}

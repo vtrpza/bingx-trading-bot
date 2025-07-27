@@ -22,7 +22,7 @@ const PORT = process.env.PORT || 3001;
 
 // Middleware - Configure helmet with relaxed CSP
 app.use(helmet({
-  contentSecurityPolicy: process.env.NODE_ENV === 'production' ? {
+  contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
       scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https:"],
@@ -35,14 +35,6 @@ app.use(helmet({
       frameSrc: ["'none'"],
       baseUri: ["'self'"],
       formAction: ["'self'"]
-    }
-  } : {
-    directives: {
-      defaultSrc: ["'self'"],
-      imgSrc: ["'self'", "data:", "https:", "blob:"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
-      connectSrc: ["'self'", "wss:", "ws:", "https:"]
     }
   }
 }));
