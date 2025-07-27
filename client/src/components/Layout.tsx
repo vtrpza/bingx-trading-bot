@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useQuery } from 'react-query'
 import { api } from '../services/api'
+import { useTranslation } from '../hooks/useTranslation'
 import type { BotStatus } from '../types'
 
 interface LayoutProps {
@@ -9,6 +10,7 @@ interface LayoutProps {
 }
 
 export default function Layout({ children }: LayoutProps) {
+  const { t } = useTranslation()
   const location = useLocation()
   const [currentTab, setCurrentTab] = useState<'assets' | 'trading'>('assets')
 
@@ -42,7 +44,7 @@ export default function Layout({ children }: LayoutProps) {
               </h1>
               {botStatus?.demoMode && (
                 <span className="ml-3 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
-                  Demo Mode
+                  {t('dashboard.demoMode')}
                 </span>
               )}
             </div>
@@ -54,7 +56,7 @@ export default function Layout({ children }: LayoutProps) {
                   botStatus?.isRunning ? 'bg-green-500' : 'bg-red-500'
                 }`} />
                 <span className="text-sm text-gray-600">
-                  Bot {botStatus?.isRunning ? 'Running' : 'Stopped'}
+                  Bot {botStatus?.isRunning ? t('trading.running') : t('trading.stopped')}
                 </span>
               </div>
               
@@ -62,7 +64,7 @@ export default function Layout({ children }: LayoutProps) {
               {botStatus && (
                 <div className="flex items-center space-x-2">
                   <span className="text-sm text-gray-600">
-                    Positions: {botStatus.activePositions?.length || 0}
+                    Posições: {botStatus.activePositions?.length || 0}
                   </span>
                 </div>
               )}
@@ -71,7 +73,7 @@ export default function Layout({ children }: LayoutProps) {
               {botStatus?.balance && (
                 <div className="flex items-center space-x-2">
                   <span className="text-sm text-gray-600">
-                    Balance: {parseFloat(botStatus.balance.balance || '0').toFixed(2)} {botStatus.demoMode ? 'VST' : 'USDT'}
+                    Saldo: {parseFloat(botStatus.balance.balance || '0').toFixed(2)} {botStatus.demoMode ? 'VST' : 'USDT'}
                   </span>
                 </div>
               )} 
@@ -92,7 +94,7 @@ export default function Layout({ children }: LayoutProps) {
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
-              Asset Analysis
+              {t('assets.title')}
             </Link>
             <Link
               to="/trading"
@@ -102,7 +104,7 @@ export default function Layout({ children }: LayoutProps) {
                   : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
               }`}
             >
-              Trading Bot
+              {t('trading.title')}
             </Link>
           </div>
         </div>

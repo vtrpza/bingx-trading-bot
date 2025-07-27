@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from '../hooks/useTranslation'
 import type { BotStatus, BotConfig } from '../types'
 
 // Utility function for safe number parsing
@@ -67,10 +68,10 @@ const validateField = (field: string, value: number, config?: any): { isValid: b
 }
 
 // Predefined trading profiles
-const TRADING_PROFILES = {
+const getTradingProfiles = (t: any) => ({
   conservative: {
-    name: 'Conservative',
-    description: 'Low risk, stable returns',
+    name: t('trading.config.profiles.conservative'),
+    description: t('trading.config.profiles.conservativeDesc'),
     config: {
       maxConcurrentTrades: 2,
       defaultPositionSize: 50,
@@ -88,8 +89,8 @@ const TRADING_PROFILES = {
     }
   },
   balanced: {
-    name: 'Balanced',
-    description: 'Moderate risk and returns',
+    name: t('trading.config.profiles.balanced'),
+    description: t('trading.config.profiles.balancedDesc'),
     config: {
       maxConcurrentTrades: 3,
       defaultPositionSize: 100,
@@ -107,8 +108,8 @@ const TRADING_PROFILES = {
     }
   },
   aggressive: {
-    name: 'Aggressive',
-    description: 'Higher risk, potentially higher returns',
+    name: t('trading.config.profiles.aggressive'),
+    description: t('trading.config.profiles.aggressiveDesc'),
     config: {
       maxConcurrentTrades: 5,
       defaultPositionSize: 200,
@@ -125,7 +126,7 @@ const TRADING_PROFILES = {
       ma2Period: 14
     }
   }
-}
+})
 
 interface BotControlsProps {
   botStatus?: BotStatus
@@ -153,8 +154,9 @@ const InputField = ({
   error?: string
   currency?: string
 }) => {
+  const { t } = useTranslation()
   const rules = VALIDATION_RULES[field as keyof typeof VALIDATION_RULES]
-  const tooltip = TOOLTIPS[field as keyof typeof TOOLTIPS]
+  const tooltip = t(`trading.config.tooltips.${field}`)
   
   return (
     <div>
@@ -195,6 +197,7 @@ export default function BotControls({
   isStopping,
   isUpdatingConfig
 }: BotControlsProps) {
+  const { t } = useTranslation()
   const [showConfig, setShowConfig] = useState(false)
   const [activeTab, setActiveTab] = useState('basic')
   const [config, setConfig] = useState({
@@ -234,7 +237,7 @@ export default function BotControls({
     
     // Check if there are any validation errors
     if (Object.keys(validationErrors).length > 0) {
-      alert('Please fix validation errors before submitting')
+      alert('Por favor, corrija os erros de validação antes de enviar')
       return
     }
     
@@ -242,8 +245,9 @@ export default function BotControls({
     setShowConfig(false)
   }
 
-  const applyProfile = (profileKey: keyof typeof TRADING_PROFILES) => {
-    const profile = TRADING_PROFILES[profileKey]
+  const applyProfile = (profileKey: string) => {
+    const profiles = getTradingProfiles(t)
+    const profile = profiles[profileKey as keyof typeof profiles]
     setConfig({ ...config, ...profile.config })
     setValidationErrors({}) // Clear any validation errors when applying a profile
   }
@@ -254,7 +258,7 @@ export default function BotControls({
         return (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <InputField
-              label="Max Concurrent Trades"
+              label={t('trading.config.fields.maxConcurrentTrades')}
               field="maxConcurrentTrades"
               value={config.maxConcurrentTrades}
               onChange={(value) => updateField('maxConcurrentTrades', value)}
@@ -262,7 +266,7 @@ export default function BotControls({
             />
             
             <InputField
-              label="Default Position Size"
+              label={t('trading.config.fields.defaultPositionSize')}
               field="defaultPositionSize"
               value={config.defaultPositionSize}
               onChange={(value) => updateField('defaultPositionSize', value)}
@@ -271,7 +275,7 @@ export default function BotControls({
             />
             
             <InputField
-              label="Stop Loss (%)"
+              label={t('trading.config.fields.stopLoss')}
               field="stopLossPercent"
               value={config.stopLossPercent}
               onChange={(value) => updateField('stopLossPercent', value)}
@@ -279,7 +283,7 @@ export default function BotControls({
             />
             
             <InputField
-              label="Take Profit (%)"
+              label={t('trading.config.fields.takeProfit')}
               field="takeProfitPercent"
               value={config.takeProfitPercent}
               onChange={(value) => updateField('takeProfitPercent', value)}
@@ -287,7 +291,7 @@ export default function BotControls({
             />
             
             <InputField
-              label="Trailing Stop (%)"
+              label={t('trading.config.fields.trailingStop')}
               field="trailingStopPercent"
               value={config.trailingStopPercent}
               onChange={(value) => updateField('trailingStopPercent', value)}
@@ -295,7 +299,7 @@ export default function BotControls({
             />
             
             <InputField
-              label="Min Volume (USDT)"
+              label={t('trading.config.fields.minVolume')}
               field="minVolumeUSDT"
               value={config.minVolumeUSDT}
               onChange={(value) => updateField('minVolumeUSDT', value)}

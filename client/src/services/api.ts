@@ -65,7 +65,8 @@ export const api = {
     
     // Connect to SSE for progress updates
     if (onProgress) {
-      const eventSource = new EventSource(`/api/assets/refresh/progress/${sessionId}`);
+      const baseURL = window.location.protocol === 'https:' ? 'https://localhost:3001' : 'http://localhost:3001'
+      const eventSource = new EventSource(`${baseURL}/api/assets/refresh/progress/${sessionId}`);
       
       eventSource.onmessage = (event) => {
         try {

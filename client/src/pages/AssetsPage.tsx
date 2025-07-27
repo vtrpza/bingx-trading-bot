@@ -64,19 +64,19 @@ export default function AssetsPage() {
         // Update toast with progress
         if (progressData.type === 'progress') {
           toast.loading(
-            `${progressData.message}\nProgress: ${progressData.progress}%`,
+            `${progressData.message || 'Processando...'}\nProgresso: ${progressData.progress || 0}%`,
             { id: 'refresh-assets' }
           )
         } else if (progressData.type === 'completed') {
           toast.success(
-            `Assets refreshed successfully!\n${progressData.created} created, ${progressData.updated} updated\n${progressData.processed} processed, ${progressData.skipped} skipped from ${progressData.total} total contracts`,
+            `Ativos atualizados com sucesso!\n${progressData.created || 0} criados, ${progressData.updated || 0} atualizados\n${progressData.processed || 0} processados, ${progressData.skipped || 0} ignorados de ${progressData.total || 0} contratos totais`,
             { 
               id: 'refresh-assets',
               duration: 5000 
             }
           )
         } else if (progressData.type === 'error') {
-          toast.error(progressData.message, { id: 'refresh-assets' })
+          toast.error(progressData.message || 'Erro durante a atualização', { id: 'refresh-assets' })
         }
       })
       
@@ -84,7 +84,7 @@ export default function AssetsPage() {
       await refetch()
       
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Failed to refresh assets'
+      const errorMessage = error instanceof Error ? error.message : 'Falha ao atualizar ativos'
       toast.error(errorMessage, { id: 'refresh-assets' })
     } finally {
       setIsRefreshing(false)
@@ -183,7 +183,7 @@ export default function AssetsPage() {
               </>
             ) : (
               <p className="text-sm text-gray-500">
-                {stats.totalAssets > 0 ? 'No data available' : 'Loading...'}
+                {stats.totalAssets > 0 ? t('common.noData') : t('common.loading')}
               </p>
             )}
           </div>
@@ -199,7 +199,7 @@ export default function AssetsPage() {
               </>
             ) : (
               <p className="text-sm text-gray-500">
-                {stats.totalAssets > 0 ? 'No data available' : 'Loading...'}
+                {stats.totalAssets > 0 ? t('common.noData') : t('common.loading')}
               </p>
             )}
           </div>
@@ -368,14 +368,14 @@ export default function AssetsPage() {
                   disabled={page === 1}
                   className="btn btn-secondary"
                 >
-                  Previous
+                  {t('common.previous')}
                 </button>
                 <button
                   onClick={() => setPage(Math.min(pagination.totalPages, page + 1))}
                   disabled={page === pagination.totalPages}
                   className="btn btn-secondary"
                 >
-                  Next
+                  {t('common.next')}
                 </button>
               </div>
               <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
@@ -392,7 +392,7 @@ export default function AssetsPage() {
                       disabled={page === 1}
                       className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50"
                     >
-                      Previous
+                      {t('common.previous')}
                     </button>
                     
                     {/* Page numbers */}
@@ -418,7 +418,7 @@ export default function AssetsPage() {
                       disabled={page === pagination.totalPages}
                       className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50"
                     >
-                      Next
+                      {t('common.next')}
                     </button>
                   </nav>
                 </div>
