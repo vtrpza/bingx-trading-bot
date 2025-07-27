@@ -14,7 +14,7 @@ import type {
 
 const axiosInstance = axios.create({
   baseURL: '/api',
-  timeout: 30000,
+  timeout: 300000, // 5 minutes for refresh operations
 })
 
 // Request interceptor

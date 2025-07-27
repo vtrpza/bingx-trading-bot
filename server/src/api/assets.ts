@@ -165,13 +165,18 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
     
     const contracts = response.data;
     
+    // For testing, limit to first 50 contracts to avoid rate limiting issues
+    // Remove this limit once we confirm rate limiting works
+    const contractsToProcess = contracts.slice(0, 50);
+    logger.info(`Processing first ${contractsToProcess.length} contracts (out of ${contracts.length} total) for testing...`);
+    
     // Send progress with total count
     sendProgress(sessionId, {
       type: 'progress',
-      message: `Processing ${contracts.length} contracts...`,
+      message: `Processing ${contractsToProcess.length} contracts...`,
       progress: 5,
       processed: 0,
-      total: contracts.length
+      total: contractsToProcess.length
     });
     
     let created = 0;
@@ -181,19 +186,23 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
     
     logger.info(`Processing ${contracts.length} contracts from BingX...`);
     
-    // Process each contract
-    for (const contract of contracts) {
+    // Process each contract with rate limiting (100 requests/10 seconds = 10 requests/second max)
+    let tickerRequests = 0;
+    const maxRequestsPerSecond = 8; // Conservative limit below 10/sec
+    let lastRequestTime = Date.now();
+    
+    for (const contract of contractsToProcess) {
       processed++;
       
       // Send progress updates every 10 items or for first few
       if (processed % 10 === 0 || processed <= 5) {
-        const progress = Math.min(95, Math.round(10 + (processed / contracts.length) * 85));
+        const progress = Math.min(95, Math.round(10 + (processed / contractsToProcess.length) * 85));
         sendProgress(sessionId, {
           type: 'progress',
-          message: `Processing ${contract.symbol}... (${processed}/${contracts.length})`,
+          message: `Processing ${contract.symbol}... (${processed}/${contractsToProcess.length})`,
           progress,
           processed,
-          total: contracts.length,
+          total: contractsToProcess.length,
           current: contract.symbol
         });
       }
@@ -258,8 +267,21 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
         logger.debug(`Asset data ${processed}:`, assetData);
       }
       
-      // Get ticker data for volume and price info
+      // Get ticker data for volume and price info with rate limiting
       try {
+        // Rate limiting: max 8 requests per second
+        tickerRequests++;
+        if (tickerRequests >= maxRequestsPerSecond) {
+          const timeElapsed = Date.now() - lastRequestTime;
+          if (timeElapsed < 1000) {
+            const delay = 1000 - timeElapsed;
+            logger.debug(`Rate limiting: waiting ${delay}ms before next batch`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+          }
+          tickerRequests = 0;
+          lastRequestTime = Date.now();
+        }
+        
         const ticker = await bingxClient.getTicker(contract.symbol);
         if (ticker.code === 0 && ticker.data) {
           assetData.lastPrice = parseFloat(ticker.data.lastPrice);
@@ -271,7 +293,16 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
           assetData.openInterest = parseFloat(ticker.data.openInterest || 0);
         }
       } catch (error) {
-        logger.warn(`Failed to get ticker for ${contract.symbol}:`, error);
+        // Check if it's a rate limit error
+        if (error instanceof Error && (error.message.includes('1015') || error.message.includes('rate limit'))) {
+          logger.warn(`Rate limit hit for ${contract.symbol}, waiting 2 seconds...`);
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          tickerRequests = 0;
+          lastRequestTime = Date.now();
+        } else {
+          logger.warn(`Failed to get ticker for ${contract.symbol}:`, error);
+        }
+        // Continue processing other contracts even if ticker fails
       }
       
       // Upsert to database
@@ -298,6 +329,7 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
     
     logger.info(`Assets refresh completed:`, {
       totalContracts: contracts.length,
+      processedContracts: contractsToProcess.length,
       processed,
       skipped,
       created,
@@ -311,7 +343,7 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
       message: 'Assets refresh completed successfully!',
       progress: 100,
       processed,
-      total: contracts.length,
+      total: contractsToProcess.length,
       created,
       updated,
       skipped: processed - skipped
@@ -330,7 +362,7 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
         message: 'Assets refreshed successfully',
         created,
         updated,
-        total: contracts.length,
+        total: contractsToProcess.length,
         processed: processed - skipped,
         skipped,
         sessionId
@@ -339,6 +371,20 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
     
   } catch (error) {
     logger.error('Failed to refresh assets:', error);
+    
+    // Send error progress if session exists
+    sendProgress(sessionId, {
+      type: 'error',
+      message: error instanceof Error ? error.message : 'Unknown error during refresh'
+    });
+    
+    // Close SSE connection
+    const session = refreshSessions.get(sessionId);
+    if (session) {
+      session.end();
+      refreshSessions.delete(sessionId);
+    }
+    
     throw new AppError('Failed to refresh assets', 500);
   }
 }));
