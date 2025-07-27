@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
 import { api } from '../services/api'
-import type { Position, BotStatus2 } from '../types'
+import type { Position, BotStatus } from '../types'
 
 interface ToastMessage {
   id: string
@@ -22,16 +22,9 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
   const queryClient = useQueryClient()
 
   // Use shared bot status query  
-  const { data: botStatus } = useQuery<BotStatus2>(
+  const { data: botStatus } = useQuery(
     'bot-status',
-    async () => {
-      const response = await fetch('/api/trading/parallel-bot/status')
-      if (!response.ok) throw new Error('Failed to fetch bot status')
-      const result = await response.json()
-      console.log('🔍 DEBUG API Response:', result)
-      console.log('🔍 DEBUG Extracted data:', result.data)
-      return result.data // Extract data from wrapper
-    },
+    api.getBotStatus,
     {
       refetchInterval: 5000,
       retry: 1,
@@ -43,8 +36,12 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
 
   const isBotRunning = botStatus?.isRunning === true
 
-  // Clean up debug logs
-  console.log('Bot Status Check:', { isRunning: botStatus?.isRunning, isBotRunning })
+  // DEBUG: Log bot status for troubleshooting
+  console.log('Bot status check:', { 
+    botStatus, 
+    isRunning: botStatus?.isRunning, 
+    isBotRunning 
+  })
 
   // Close position mutation
   const closePositionMutation = useMutation(
@@ -151,7 +148,7 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
   }
 
   const handleClosePosition = async () => {
-    if (!selectedSymbol || !isBotRunning) return
+    if (!selectedSymbol) return
     
     setLoading(true)
     try {
@@ -168,7 +165,7 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
 
   const handleManageClick = (symbol: string) => {
     if (!isBotRunning) {
-      addToast('warning', 'Bot is not running. Start the bot to manage positions.')
+      addToast('warning', 'Bot precisa estar rodando para gerenciar posições.')
       return
     }
     setSelectedSymbol(symbol)
@@ -298,15 +295,10 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
                     <button
                       onClick={() => handleManageClick(position.symbol)}
-                      disabled={!isBotRunning}
-                      className={`px-3 py-1 rounded text-sm font-medium transition-colors ${
-                        isBotRunning 
-                          ? 'text-primary-600 hover:text-primary-900 hover:bg-primary-50' 
-                          : 'text-gray-400 cursor-not-allowed'
-                      }`}
-                      title={isBotRunning ? 'Manage position' : 'Bot is not running'}
+                      className="px-3 py-1 rounded text-sm font-medium transition-colors text-primary-600 hover:text-primary-900 hover:bg-primary-50"
+                      title="Gerenciar posição"
                     >
-                      {isBotRunning ? 'Manage' : 'Unavailable'}
+                      Gerenciar
                     </button>
                   </td>
                 </tr>
@@ -441,7 +433,7 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
                 </button>
                 <button
                   onClick={() => setShowConfirmation(true)}
-                  disabled={loading || closePositionMutation.isLoading || !isBotRunning}
+                  disabled={loading || closePositionMutation.isLoading}
                   className={`px-4 py-2 text-white rounded-lg ${
                     closePercentage === 100 
                       ? 'bg-red-600 hover:bg-red-700' 

@@ -267,7 +267,12 @@ export default function RealTimeSignals() {
             </div>
           </div>
 
-          {currentSignal.indicators ? (
+          {currentSignal.indicators && (
+            currentSignal.indicators.price !== null || 
+            currentSignal.indicators.ma1 !== null || 
+            currentSignal.indicators.ma2 !== null || 
+            currentSignal.indicators.rsi !== null
+          ) ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               {/* Price Info */}
               <div>
@@ -378,10 +383,21 @@ export default function RealTimeSignals() {
             </div>
           ) : (
             <div className="p-8 text-center">
-              <div className="text-gray-400 text-lg mb-2">Signal Data Unavailable</div>
-              <p className="text-gray-500">
-                Technical indicators are being calculated. Please wait for market data to be processed.
+              <div className="animate-pulse flex items-center justify-center mb-4">
+                <svg className="h-8 w-8 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+              </div>
+              <div className="text-blue-600 text-lg mb-2 font-medium">Calculando Indicadores Técnicos</div>
+              <p className="text-gray-600 mb-3">
+                Os indicadores técnicos estão sendo calculados. Aguarde enquanto os dados de mercado são processados.
               </p>
+              <div className="text-sm text-gray-500">
+                • Análise de médias móveis (MA1/MA2)<br/>
+                • Cálculo do RSI<br/>
+                • Análise de volume<br/>
+                • Verificação de condições de entrada
+              </div>
             </div>
           )}
 

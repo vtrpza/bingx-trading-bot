@@ -128,8 +128,9 @@ export const api = {
   },
 
   // Trading Bot
-  async getBotStatus(): Promise<BotStatus> {
-    return axiosInstance.get('/trading/bot/status')
+  async getBotStatus(): Promise<any> {
+    // The response interceptor already extracts the data field for us
+    return axiosInstance.get('/trading/parallel-bot/status')
   },
 
   async startBot(): Promise<{ message: string }> {
