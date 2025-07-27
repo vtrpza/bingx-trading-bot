@@ -86,7 +86,14 @@ export function useWebSocket(url: string, options: UseWebSocketOptions = {}) {
       setSocket(ws)
     } catch (error) {
       setConnectionStatus('error')
-      console.error('WebSocket connection failed:', error)
+      
+      if (enableWebSocketDebug) {
+        console.error('❌ WebSocket connection failed during setup:', error)
+        console.error('🔗 Target URL:', url)
+        console.error('🌐 Window location:', window.location.href)
+      } else {
+        console.error('WebSocket connection failed:', error)
+      }
     }
   }, [url, onOpen, onClose, onError, reconnectInterval, maxReconnectAttempts])
 
