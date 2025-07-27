@@ -77,7 +77,9 @@ app.get('/health', (_req: Request, res: Response) => {
   res.json({ 
     status: 'healthy', 
     timestamp: new Date().toISOString(),
-    mode: process.env.DEMO_MODE === 'true' ? 'demo' : 'live'
+    mode: process.env.DEMO_MODE === 'true' ? 'demo' : 'live',
+    websocket: 'enabled',
+    protocol: 'ws/wss'
   });
 });
 
