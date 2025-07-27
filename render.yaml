@@ -1,10 +1,9 @@
 services:
-    
   # Backend API
   - type: web
     name: bingx-trading-bot-lu0z
     env: node
-    plan: free
+    plan: starter
     buildCommand: cd server && npm install && npm run build
     startCommand: cd server && npm start
     healthCheckPath: /health
@@ -34,7 +33,7 @@ services:
   - type: web
     name: bingx-trading-bot-lu0z-frontend
     env: static
-    plan: free
+    plan: starter
     buildCommand: cd client && npm install && npm run build
     staticPublishPath: client/dist
     routes:
