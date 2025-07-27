@@ -575,6 +575,9 @@ export class ParallelTradingBot extends EventEmitter {
   }
 
   private async scanSymbols(): Promise<void> {
+    // Sync positions every scan cycle to maintain real-time accuracy
+    await this.syncPositionsWithBingX();
+    
     if (this.activePositions.size >= this.config.maxConcurrentTrades) {
       logger.debug('Max concurrent trades reached, skipping scan');
       return;
@@ -756,6 +759,107 @@ export class ParallelTradingBot extends EventEmitter {
     }
   }
 
+  // Get real-time positions directly from BingX API
+  private async getRealTimePositions(): Promise<any[]> {
+    try {
+      const positions = await apiRequestManager.getPositions() as any;
+      
+      if (positions.code === 0 && positions.data) {
+        const activePositions = positions.data
+          .filter((pos: any) => {
+            const amount = parseFloat(pos.positionAmt || '0');
+            return !isNaN(amount) && amount !== 0;
+          })
+          .map((pos: any) => {
+            const positionAmt = parseFloat(pos.positionAmt);
+            const isLong = positionAmt > 0;
+            
+            // Sync internal tracking with real positions
+            this.activePositions.set(pos.symbol, {
+              symbol: pos.symbol,
+              side: isLong ? 'LONG' : 'SHORT',
+              entryPrice: parseFloat(pos.entryPrice),
+              quantity: Math.abs(positionAmt),
+              unrealizedPnl: parseFloat(pos.unrealizedProfit || '0'),
+              orderId: ''
+            });
+            
+            return {
+              symbol: pos.symbol,
+              positionAmt: pos.positionAmt,
+              entryPrice: pos.entryPrice,
+              markPrice: pos.markPrice,
+              unrealizedProfit: pos.unrealizedProfit,
+              percentage: pos.percentage,
+              side: isLong ? 'LONG' : 'SHORT',
+              quantity: Math.abs(positionAmt),
+              // Additional fields for frontend compatibility
+              ...pos
+            };
+          });
+
+        logger.debug(`Retrieved ${activePositions.length} real-time positions from BingX`, {
+          positions: activePositions.map(p => ({ symbol: p.symbol, amount: p.positionAmt }))
+        });
+        
+        return activePositions;
+      }
+      
+      return [];
+    } catch (error) {
+      logger.error('Failed to get real-time positions:', error);
+      // Fallback to internal tracking
+      return Array.from(this.activePositions.values());
+    }
+  }
+
+  // Sync internal positions with real BingX positions
+  private async syncPositionsWithBingX(): Promise<void> {
+    try {
+      const positions = await apiRequestManager.getPositions() as any;
+      
+      if (positions.code === 0 && positions.data) {
+        const realPositions = new Set<string>();
+        
+        // Update/add positions that exist in BingX
+        positions.data.forEach((pos: any) => {
+          if (parseFloat(pos.positionAmt) !== 0) {
+            const symbol = pos.symbol;
+            realPositions.add(symbol);
+            
+            this.activePositions.set(symbol, {
+              symbol: symbol,
+              side: parseFloat(pos.positionAmt) > 0 ? 'LONG' : 'SHORT',
+              entryPrice: parseFloat(pos.entryPrice),
+              quantity: Math.abs(parseFloat(pos.positionAmt)),
+              unrealizedPnl: parseFloat(pos.unrealizedProfit || '0'),
+              orderId: ''
+            });
+          }
+        });
+        
+        // Remove positions that no longer exist in BingX
+        const currentTrackedSymbols = Array.from(this.activePositions.keys());
+        currentTrackedSymbols.forEach(symbol => {
+          if (!realPositions.has(symbol)) {
+            this.activePositions.delete(symbol);
+            logger.debug(`Removed closed position from tracking: ${symbol}`);
+          }
+        });
+        
+        const positionCount = this.activePositions.size;
+        if (positionCount > 0) {
+          logger.debug(`Synced ${positionCount} positions with BingX`);
+        }
+      }
+    } catch (error) {
+      // Only log error if it's not a common demo mode issue
+      if (process.env.DEMO_MODE !== 'true') {
+        logger.error('Failed to sync positions with BingX:', error);
+      }
+    }
+  }
+
   private async handleOrderUpdate(data: any): Promise<void> {
     if (data.o) {
       const order = data.o;
@@ -857,10 +961,13 @@ export class ParallelTradingBot extends EventEmitter {
   }
 
   // Public API methods
-  getStatus() {
+  async getStatus() {
+    // Get real-time positions from BingX API
+    const realTimePositions = await this.getRealTimePositions();
+    
     return {
       isRunning: this.isRunning,
-      activePositions: Array.from(this.activePositions.values()),
+      activePositions: realTimePositions,
       config: this.config,
       symbolsCount: this.config.symbolsToScan.length,
       scannedSymbols: this.config.symbolsToScan,

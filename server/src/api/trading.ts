@@ -20,7 +20,7 @@ router.get('/bot/status', asyncHandler(async (_req: Request, res: Response) => {
   // Try parallel bot first (preferred)
   try {
     const parallelBot = getParallelTradingBot();
-    const status = parallelBot.getStatus();
+    const status = await parallelBot.getStatus();
     
     // Get account balance using APIRequestManager
     let balance = null;
@@ -595,7 +595,7 @@ let performanceMonitor: PerformanceMonitor | null = null;
 // Get parallel bot status
 router.get('/parallel-bot/status', asyncHandler(async (_req: Request, res: Response) => {
   const parallelBot = getParallelTradingBot();
-  const status = parallelBot.getStatus();
+  const status = await parallelBot.getStatus();
   
   // Get account balance using APIRequestManager
   let balance = null;
@@ -628,8 +628,9 @@ router.get('/parallel-bot/status', asyncHandler(async (_req: Request, res: Respo
 // Start parallel trading bot
 router.post('/parallel-bot/start', asyncHandler(async (_req: Request, res: Response) => {
   const parallelBot = getParallelTradingBot();
+  const status = await parallelBot.getStatus();
   
-  if (parallelBot.getStatus().isRunning) {
+  if (status.isRunning) {
     throw new AppError('Parallel bot is already running', 400);
   }
   
@@ -646,11 +647,12 @@ router.post('/parallel-bot/start', asyncHandler(async (_req: Request, res: Respo
     performanceMonitor.start();
   }
   
+  const startedStatus = await parallelBot.getStatus();
   res.json({
     success: true,
     message: 'Parallel trading bot started successfully',
     data: {
-      config: parallelBot.getStatus().config,
+      config: startedStatus.config,
       rateLimitStatus: globalRateLimiter.getStatus()
     }
   });
@@ -659,8 +661,9 @@ router.post('/parallel-bot/start', asyncHandler(async (_req: Request, res: Respo
 // Stop parallel trading bot
 router.post('/parallel-bot/stop', asyncHandler(async (_req: Request, res: Response) => {
   const parallelBot = getParallelTradingBot();
+  const status = await parallelBot.getStatus();
   
-  if (!parallelBot.getStatus().isRunning) {
+  if (!status.isRunning) {
     throw new AppError('Parallel bot is not running', 400);
   }
   
@@ -740,10 +743,11 @@ router.put('/parallel-bot/config', asyncHandler(async (req: Request, res: Respon
   
   parallelBot.updateConfig(config);
   
+  const updatedStatus = await parallelBot.getStatus();
   res.json({
     success: true,
     message: 'Configuration updated successfully',
-    data: parallelBot.getStatus().config
+    data: updatedStatus.config
   });
 }));
 
@@ -751,8 +755,9 @@ router.put('/parallel-bot/config', asyncHandler(async (req: Request, res: Respon
 router.post('/parallel-bot/scan', asyncHandler(async (req: Request, res: Response) => {
   const parallelBot = getParallelTradingBot();
   const { symbols } = req.body;
+  const status = await parallelBot.getStatus();
   
-  if (!parallelBot.getStatus().isRunning) {
+  if (!status.isRunning) {
     throw new AppError('Parallel bot is not running', 400);
   }
   
@@ -961,8 +966,9 @@ router.post('/parallel-bot/positions/:symbol/close', asyncHandler(async (req: Re
   const parallelBot = getParallelTradingBot();
   const rawSymbol = req.params.symbol;
   const symbol = validateAndFormatSymbol(rawSymbol);
+  const status = await parallelBot.getStatus();
   
-  if (!parallelBot.getStatus().isRunning) {
+  if (!status.isRunning) {
     throw new AppError('Parallel bot is not running', 400);
   }
   
@@ -977,8 +983,9 @@ router.post('/parallel-bot/positions/:symbol/close', asyncHandler(async (req: Re
 // Signal close all positions
 router.post('/parallel-bot/positions/close-all', asyncHandler(async (_req: Request, res: Response) => {
   const parallelBot = getParallelTradingBot();
+  const status = await parallelBot.getStatus();
   
-  if (!parallelBot.getStatus().isRunning) {
+  if (!status.isRunning) {
     throw new AppError('Parallel bot is not running', 400);
   }
   
@@ -1010,8 +1017,9 @@ router.post('/parallel-bot/execute-immediate/:symbol', asyncHandler(async (req: 
   const parallelBot = getParallelTradingBot();
   const rawSymbol = req.params.symbol;
   const symbol = validateAndFormatSymbol(rawSymbol);
+  const status = await parallelBot.getStatus();
   
-  if (!parallelBot.getStatus().isRunning) {
+  if (!status.isRunning) {
     throw new AppError('Parallel bot is not running', 400);
   }
   
