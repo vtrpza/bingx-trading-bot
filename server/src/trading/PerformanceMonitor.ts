@@ -111,8 +111,8 @@ export class PerformanceMonitor extends EventEmitter {
     this.takeSnapshot();
     
     // Set up interval
-    this.snapshotInterval = setInterval(() => {
-      this.takeSnapshot();
+    this.snapshotInterval = setInterval(async () => {
+      await this.takeSnapshot();
       this.analyzePerformance();
       this.cleanupOldData();
     }, this.config.snapshotInterval);
@@ -135,11 +135,12 @@ export class PerformanceMonitor extends EventEmitter {
     logger.info('PerformanceMonitor stopped');
   }
 
-  private takeSnapshot(): void {
+  private async takeSnapshot(): Promise<void> {
     try {
       const now = Date.now();
       const botMetrics = this.bot.getMetrics();
-      const botStatus = this.bot.getStatus();
+      // Remove botStatus as it's not used
+      // const botStatus = this.bot.getStatus();
       
       // Calculate throughput metrics
       const timeDiff = (now - this.lastSnapshotTime) / 60000; // minutes
@@ -158,12 +159,15 @@ export class PerformanceMonitor extends EventEmitter {
       const uptime = process.uptime();
       const loadAverage = require('os').loadavg();
 
+      // Get bot status asynchronously
+      const botStatusData = await this.bot.getStatus();
+      
       // Component metrics
       const componentMetrics = {
-        signalWorkerPool: botStatus.components.signalWorkerPool,
-        signalQueue: botStatus.components.signalQueue,
-        tradeExecutorPool: botStatus.components.tradeExecutorPool,
-        marketDataCache: botStatus.components.marketDataCache
+        signalWorkerPool: botStatusData.components.signalWorkerPool,
+        signalQueue: botStatusData.components.signalQueue,
+        tradeExecutorPool: botStatusData.components.tradeExecutorPool,
+        marketDataCache: botStatusData.components.marketDataCache
       };
 
       // Calculate efficiency metrics

@@ -799,7 +799,7 @@ export class ParallelTradingBot extends EventEmitter {
           });
 
         logger.debug(`Retrieved ${activePositions.length} real-time positions from BingX`, {
-          positions: activePositions.map(p => ({ symbol: p.symbol, amount: p.positionAmt }))
+          positions: activePositions.map((p: any) => ({ symbol: p.symbol, amount: p.positionAmt }))
         });
         
         return activePositions;

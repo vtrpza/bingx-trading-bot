@@ -414,7 +414,7 @@ router.get('/stats', asyncHandler(async (req: Request, res: Response) => {
     const parallelBot = getParallelTradingBot();
     const positionMetrics = parallelBot.getPositionMetrics();
     const currentPositions = parallelBot.getManagedPositions();
-    const status = parallelBot.getStatus();
+    const status = await parallelBot.getStatus();
     
     positionData = {
       currentActive: currentPositions.length,
@@ -1090,6 +1090,7 @@ router.get('/parallel-bot/enhanced-stats', asyncHandler(async (req: Request, res
   const parallelBot = getParallelTradingBot();
   const positionMetrics = parallelBot.getPositionMetrics();
   const currentPositions = parallelBot.getManagedPositions();
+  const botStatus = await parallelBot.getStatus();
   
   res.json({
     success: true,
@@ -1109,9 +1110,9 @@ router.get('/parallel-bot/enhanced-stats', asyncHandler(async (req: Request, res
         metrics: positionMetrics
       },
       bot: {
-        isRunning: parallelBot.getStatus().isRunning,
+        isRunning: botStatus.isRunning,
         architecture: 'parallel',
-        immediateExecution: parallelBot.getStatus().config.immediateExecution
+        immediateExecution: botStatus.config.immediateExecution
       }
     }
   });
