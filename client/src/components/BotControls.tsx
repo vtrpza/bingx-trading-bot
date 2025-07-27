@@ -10,6 +10,62 @@ const safeParseNumber = (value: string, fallback: number): number => {
   return isNaN(parsed) ? fallback : parsed;
 }
 
+// Validation rules for each field
+const VALIDATION_RULES = {
+  maxConcurrentTrades: { min: 1, max: 10, step: 1 },
+  defaultPositionSize: { min: 10, max: 10000, step: 10 },
+  stopLossPercent: { min: 0.5, max: 10, step: 0.1 },
+  takeProfitPercent: { min: 0.5, max: 20, step: 0.1 },
+  trailingStopPercent: { min: 0.1, max: 5, step: 0.1 },
+  minVolumeUSDT: { min: 100000, max: 10000000, step: 100000 },
+  rsiOversold: { min: 10, max: 40, step: 1 },
+  rsiOverbought: { min: 60, max: 90, step: 1 },
+  volumeSpikeThreshold: { min: 1, max: 5, step: 0.1 },
+  minSignalStrength: { min: 30, max: 90, step: 5 },
+  ma1Period: { min: 5, max: 20, step: 1 },
+  ma2Period: { min: 10, max: 50, step: 1 }
+}
+
+// Tooltips for each field
+const TOOLTIPS = {
+  maxConcurrentTrades: 'Maximum number of trades the bot can have open at the same time',
+  defaultPositionSize: 'Default amount to invest in each trade',
+  stopLossPercent: 'Percentage loss at which to close a losing position',
+  takeProfitPercent: 'Percentage profit at which to close a winning position',
+  trailingStopPercent: 'Percentage for trailing stop to protect profits',
+  minVolumeUSDT: 'Minimum 24h volume required to trade a symbol',
+  rsiOversold: 'RSI level below which a symbol is considered oversold (buy signal)',
+  rsiOverbought: 'RSI level above which a symbol is considered overbought (sell signal)',
+  volumeSpikeThreshold: 'Multiplier for detecting abnormal volume spikes',
+  minSignalStrength: 'Minimum signal strength percentage required to execute trades',
+  ma1Period: 'Period for the fast moving average',
+  ma2Period: 'Period for the slow moving average',
+  confirmationRequired: 'Require multiple technical indicators to confirm before trading'
+}
+
+// Validation function
+const validateField = (field: string, value: number, config?: any): { isValid: boolean; error?: string } => {
+  const rules = VALIDATION_RULES[field as keyof typeof VALIDATION_RULES]
+  if (!rules) return { isValid: true }
+  
+  if (value < rules.min) {
+    return { isValid: false, error: `Minimum value is ${rules.min}` }
+  }
+  if (value > rules.max) {
+    return { isValid: false, error: `Maximum value is ${rules.max}` }
+  }
+  
+  // Special validation for MA periods
+  if (field === 'ma2Period' && config && value <= config.ma1Period) {
+    return { isValid: false, error: 'MA2 period must be greater than MA1 period' }
+  }
+  if (field === 'ma1Period' && config && value >= config.ma2Period) {
+    return { isValid: false, error: 'MA1 period must be less than MA2 period' }
+  }
+  
+  return { isValid: true }
+}
+
 // Predefined trading profiles
 const TRADING_PROFILES = {
   conservative: {
@@ -81,6 +137,55 @@ interface BotControlsProps {
   isUpdatingConfig: boolean
 }
 
+// Input field component with tooltip and validation
+const InputField = ({ 
+  label, 
+  field, 
+  value, 
+  onChange, 
+  error, 
+  currency 
+}: {
+  label: string
+  field: string
+  value: number
+  onChange: (value: number) => void
+  error?: string
+  currency?: string
+}) => {
+  const rules = VALIDATION_RULES[field as keyof typeof VALIDATION_RULES]
+  const tooltip = TOOLTIPS[field as keyof typeof TOOLTIPS]
+  
+  return (
+    <div>
+      <label className="label flex items-center">
+        <span>{label}</span>
+        {tooltip && (
+          <div className="group relative ml-2">
+            <svg className="w-4 h-4 text-gray-400 hover:text-gray-600 cursor-help" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+            </svg>
+            <div className="hidden group-hover:block absolute z-10 left-0 bottom-full mb-2 w-64 p-2 text-xs text-white bg-gray-800 rounded shadow-lg">
+              {tooltip}
+            </div>
+          </div>
+        )}
+        {currency && <span className="ml-auto text-sm text-gray-500">({currency})</span>}
+      </label>
+      <input
+        type="number"
+        min={rules?.min}
+        max={rules?.max}
+        step={rules?.step}
+        value={value}
+        onChange={(e) => onChange(safeParseNumber(e.target.value, value))}
+        className={`input ${error ? 'border-red-500' : ''}`}
+      />
+      {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
+    </div>
+  )
+}
+
 export default function BotControls({
   botStatus,
   onStart,
@@ -107,9 +212,32 @@ export default function BotControls({
     ma1Period: botStatus?.config?.ma1Period || 9,
     ma2Period: botStatus?.config?.ma2Period || 21
   })
+  const [validationErrors, setValidationErrors] = useState<Record<string, string>>({})
+  
+  // Validate field and update config
+  const updateField = (field: string, value: number) => {
+    const validation = validateField(field, value, config)
+    
+    setConfig({ ...config, [field]: value })
+    
+    if (validation.isValid) {
+      const errors = { ...validationErrors }
+      delete errors[field]
+      setValidationErrors(errors)
+    } else {
+      setValidationErrors({ ...validationErrors, [field]: validation.error || '' })
+    }
+  }
 
   const handleConfigSubmit = (e: React.FormEvent) => {
     e.preventDefault()
+    
+    // Check if there are any validation errors
+    if (Object.keys(validationErrors).length > 0) {
+      alert('Please fix validation errors before submitting')
+      return
+    }
+    
     onUpdateConfig(config)
     setShowConfig(false)
   }
@@ -117,6 +245,7 @@ export default function BotControls({
   const applyProfile = (profileKey: keyof typeof TRADING_PROFILES) => {
     const profile = TRADING_PROFILES[profileKey]
     setConfig({ ...config, ...profile.config })
+    setValidationErrors({}) // Clear any validation errors when applying a profile
   }
 
   const renderTabContent = () => {
@@ -124,199 +253,107 @@ export default function BotControls({
       case 'basic':
         return (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="label">Max Concurrent Trades</label>
-              <input
-                type="number"
-                min="1"
-                max="10"
-                value={config.maxConcurrentTrades}
-                onChange={(e) => setConfig({
-                  ...config,
-                  maxConcurrentTrades: safeParseNumber(e.target.value, config.maxConcurrentTrades)
-                })}
-                className="input"
-              />
-            </div>
+            <InputField
+              label="Max Concurrent Trades"
+              field="maxConcurrentTrades"
+              value={config.maxConcurrentTrades}
+              onChange={(value) => updateField('maxConcurrentTrades', value)}
+              error={validationErrors.maxConcurrentTrades}
+            />
             
-            <div>
-              <label className="label">Default Position Size ({botStatus?.demoMode ? 'VST' : 'USDT'})</label>
-              <input
-                type="number"
-                min="10"
-                step="10"
-                value={config.defaultPositionSize}
-                onChange={(e) => setConfig({
-                  ...config,
-                  defaultPositionSize: safeParseNumber(e.target.value, config.defaultPositionSize)
-                })}
-                className="input"
-              />
-            </div>
+            <InputField
+              label="Default Position Size"
+              field="defaultPositionSize"
+              value={config.defaultPositionSize}
+              onChange={(value) => updateField('defaultPositionSize', value)}
+              error={validationErrors.defaultPositionSize}
+              currency={botStatus?.demoMode ? 'VST' : 'USDT'}
+            />
             
-            <div>
-              <label className="label">Stop Loss (%)</label>
-              <input
-                type="number"
-                min="0.5"
-                max="10"
-                step="0.1"
-                value={config.stopLossPercent}
-                onChange={(e) => setConfig({
-                  ...config,
-                  stopLossPercent: safeParseNumber(e.target.value, config.stopLossPercent)
-                })}
-                className="input"
-              />
-            </div>
+            <InputField
+              label="Stop Loss (%)"
+              field="stopLossPercent"
+              value={config.stopLossPercent}
+              onChange={(value) => updateField('stopLossPercent', value)}
+              error={validationErrors.stopLossPercent}
+            />
             
-            <div>
-              <label className="label">Take Profit (%)</label>
-              <input
-                type="number"
-                min="0.5"
-                max="20"
-                step="0.1"
-                value={config.takeProfitPercent}
-                onChange={(e) => setConfig({
-                  ...config,
-                  takeProfitPercent: safeParseNumber(e.target.value, config.takeProfitPercent)
-                })}
-                className="input"
-              />
-            </div>
+            <InputField
+              label="Take Profit (%)"
+              field="takeProfitPercent"
+              value={config.takeProfitPercent}
+              onChange={(value) => updateField('takeProfitPercent', value)}
+              error={validationErrors.takeProfitPercent}
+            />
             
-            <div>
-              <label className="label">Trailing Stop (%)</label>
-              <input
-                type="number"
-                min="0.1"
-                max="5"
-                step="0.1"
-                value={config.trailingStopPercent}
-                onChange={(e) => setConfig({
-                  ...config,
-                  trailingStopPercent: safeParseNumber(e.target.value, config.trailingStopPercent)
-                })}
-                className="input"
-              />
-            </div>
+            <InputField
+              label="Trailing Stop (%)"
+              field="trailingStopPercent"
+              value={config.trailingStopPercent}
+              onChange={(value) => updateField('trailingStopPercent', value)}
+              error={validationErrors.trailingStopPercent}
+            />
             
-            <div>
-              <label className="label">Min Volume (USDT)</label>
-              <input
-                type="number"
-                min="100000"
-                step="100000"
-                value={config.minVolumeUSDT}
-                onChange={(e) => setConfig({
-                  ...config,
-                  minVolumeUSDT: safeParseNumber(e.target.value, config.minVolumeUSDT)
-                })}
-                className="input"
-              />
-            </div>
+            <InputField
+              label="Min Volume (USDT)"
+              field="minVolumeUSDT"
+              value={config.minVolumeUSDT}
+              onChange={(value) => updateField('minVolumeUSDT', value)}
+              error={validationErrors.minVolumeUSDT}
+            />
           </div>
         )
       
       case 'signals':
         return (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="label">RSI Oversold Level</label>
-              <input
-                type="number"
-                min="10"
-                max="40"
-                step="1"
-                value={config.rsiOversold}
-                onChange={(e) => setConfig({
-                  ...config,
-                  rsiOversold: safeParseNumber(e.target.value, config.rsiOversold)
-                })}
-                className="input"
-              />
-            </div>
+            <InputField
+              label="RSI Oversold Level"
+              field="rsiOversold"
+              value={config.rsiOversold}
+              onChange={(value) => updateField('rsiOversold', value)}
+              error={validationErrors.rsiOversold}
+            />
             
-            <div>
-              <label className="label">RSI Overbought Level</label>
-              <input
-                type="number"
-                min="60"
-                max="90"
-                step="1"
-                value={config.rsiOverbought}
-                onChange={(e) => setConfig({
-                  ...config,
-                  rsiOverbought: safeParseNumber(e.target.value, config.rsiOverbought)
-                })}
-                className="input"
-              />
-            </div>
+            <InputField
+              label="RSI Overbought Level"
+              field="rsiOverbought"
+              value={config.rsiOverbought}
+              onChange={(value) => updateField('rsiOverbought', value)}
+              error={validationErrors.rsiOverbought}
+            />
             
-            <div>
-              <label className="label">Volume Spike Threshold</label>
-              <input
-                type="number"
-                min="1"
-                max="5"
-                step="0.1"
-                value={config.volumeSpikeThreshold}
-                onChange={(e) => setConfig({
-                  ...config,
-                  volumeSpikeThreshold: safeParseNumber(e.target.value, config.volumeSpikeThreshold)
-                })}
-                className="input"
-              />
-            </div>
+            <InputField
+              label="Volume Spike Threshold"
+              field="volumeSpikeThreshold"
+              value={config.volumeSpikeThreshold}
+              onChange={(value) => updateField('volumeSpikeThreshold', value)}
+              error={validationErrors.volumeSpikeThreshold}
+            />
             
-            <div>
-              <label className="label">Min Signal Strength (%)</label>
-              <input
-                type="number"
-                min="30"
-                max="90"
-                step="5"
-                value={config.minSignalStrength}
-                onChange={(e) => setConfig({
-                  ...config,
-                  minSignalStrength: safeParseNumber(e.target.value, config.minSignalStrength)
-                })}
-                className="input"
-              />
-            </div>
+            <InputField
+              label="Min Signal Strength (%)"
+              field="minSignalStrength"
+              value={config.minSignalStrength}
+              onChange={(value) => updateField('minSignalStrength', value)}
+              error={validationErrors.minSignalStrength}
+            />
             
-            <div>
-              <label className="label">MA1 Period</label>
-              <input
-                type="number"
-                min="5"
-                max="20"
-                step="1"
-                value={config.ma1Period}
-                onChange={(e) => setConfig({
-                  ...config,
-                  ma1Period: safeParseNumber(e.target.value, config.ma1Period)
-                })}
-                className="input"
-              />
-            </div>
+            <InputField
+              label="MA1 Period"
+              field="ma1Period"
+              value={config.ma1Period}
+              onChange={(value) => updateField('ma1Period', value)}
+              error={validationErrors.ma1Period}
+            />
             
-            <div>
-              <label className="label">MA2 Period</label>
-              <input
-                type="number"
-                min="10"
-                max="50"
-                step="1"
-                value={config.ma2Period}
-                onChange={(e) => setConfig({
-                  ...config,
-                  ma2Period: safeParseNumber(e.target.value, config.ma2Period)
-                })}
-                className="input"
-              />
-            </div>
+            <InputField
+              label="MA2 Period"
+              field="ma2Period"
+              value={config.ma2Period}
+              onChange={(value) => updateField('ma2Period', value)}
+              error={validationErrors.ma2Period}
+            />
             
             <div className="md:col-span-2">
               <label className="flex items-center space-x-2">
@@ -330,10 +367,17 @@ export default function BotControls({
                   className="rounded border-gray-300 text-primary-600 focus:border-primary-300 focus:ring focus:ring-primary-200 focus:ring-opacity-50"
                 />
                 <span className="text-sm font-medium text-gray-700">Require Multiple Confirmations</span>
+                {TOOLTIPS.confirmationRequired && (
+                  <div className="group relative ml-2">
+                    <svg className="w-4 h-4 text-gray-400 hover:text-gray-600 cursor-help" fill="currentColor" viewBox="0 0 20 20">
+                      <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
+                    </svg>
+                    <div className="hidden group-hover:block absolute z-10 left-0 bottom-full mb-2 w-64 p-2 text-xs text-white bg-gray-800 rounded shadow-lg">
+                      {TOOLTIPS.confirmationRequired}
+                    </div>
+                  </div>
+                )}
               </label>
-              <p className="text-xs text-gray-500 mt-1">
-                When enabled, signals need multiple technical indicator confirmations to trigger trades
-              </p>
             </div>
           </div>
         )
@@ -462,8 +506,9 @@ export default function BotControls({
               </button>
               <button
                 type="submit"
-                disabled={isUpdatingConfig}
-                className="btn btn-primary"
+                disabled={isUpdatingConfig || Object.keys(validationErrors).length > 0}
+                className={`btn ${Object.keys(validationErrors).length > 0 ? 'btn-secondary opacity-50 cursor-not-allowed' : 'btn-primary'}`}
+                title={Object.keys(validationErrors).length > 0 ? 'Please fix validation errors before submitting' : ''}
               >
                 {isUpdatingConfig ? 'Updating...' : 'Update Configuration'}
               </button>

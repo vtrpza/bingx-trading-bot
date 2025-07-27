@@ -2,11 +2,12 @@ import { useState } from 'react'
 import { useQuery } from 'react-query'
 import { api } from '../services/api'
 import { format } from 'date-fns'
+import { useLocalStorage } from '../hooks/useLocalStorage'
 import type { Trade } from '../types'
 
 export default function TradeHistory() {
   const [page, setPage] = useState(1)
-  const [filters, setFilters] = useState({
+  const [filters, setFilters] = useLocalStorage('tradeHistoryFilters', {
     symbol: '',
     status: '',
     startDate: '',

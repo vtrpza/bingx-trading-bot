@@ -2,11 +2,12 @@ import { useState, useEffect } from 'react'
 import { useQuery } from 'react-query'
 import { api } from '../services/api'
 import { useWebSocket } from '../hooks/useWebSocket'
+import { useLocalStorage } from '../hooks/useLocalStorage'
 import type { TradingSignal } from '../types'
 
 export default function RealTimeSignals() {
   const [signals, setSignals] = useState<TradingSignal[]>([])
-  const [selectedSymbol, setSelectedSymbol] = useState('BTC-USDT')
+  const [selectedSymbol, setSelectedSymbol] = useLocalStorage('realTimeSignalsSelectedSymbol', 'BTC-USDT')
 
   const { lastMessage } = useWebSocket('/ws')
 

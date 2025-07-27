@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
 import { toast } from 'react-hot-toast'
 import { api } from '../services/api'
@@ -9,10 +9,12 @@ import TradeHistory from '../components/TradeHistory'
 import RealTimeSignals from '../components/RealTimeSignals'
 import type { BotStatus, BotConfig } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
+import { useLocalStorage } from '../hooks/useLocalStorage'
 
 export default function TradingPage() {
-  const [activeTab, setActiveTab] = useState<'overview' | 'positions' | 'history' | 'signals' | 'logs'>('overview')
-  const [logsLevel, setLogsLevel] = useState<'all' | 'error'>('all')
+  // Use localStorage for persistent state
+  const [activeTab, setActiveTab] = useLocalStorage<'overview' | 'positions' | 'history' | 'signals' | 'logs'>('tradingPageActiveTab', 'overview')
+  const [logsLevel, setLogsLevel] = useLocalStorage<'all' | 'error'>('tradingPageLogsLevel', 'all')
   const queryClient = useQueryClient()
 
   // Get bot status

@@ -262,7 +262,17 @@ export class SignalGenerator {
       action = 'SELL';
       strength = sellStrength;
     } else {
-      reasons = ['No clear signal'];
+      // Still show the highest strength even for HOLD signals
+      strength = Math.max(buyStrength, sellStrength);
+      if (strength === 0) {
+        reasons = ['No clear signal'];
+      } else if (buyStrength > sellStrength) {
+        reasons.unshift(`Buy signal too weak (${buyStrength}% < ${this.config.minSignalStrength}% required)`);
+      } else if (sellStrength > buyStrength) {
+        reasons.unshift(`Sell signal too weak (${sellStrength}% < ${this.config.minSignalStrength}% required)`);
+      } else {
+        reasons.unshift(`Equal buy/sell signals (${strength}%)`);
+      }
     }
 
     // Additional confirmation check

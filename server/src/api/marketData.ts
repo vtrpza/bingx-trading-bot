@@ -44,15 +44,15 @@ router.get('/klines/:symbol', asyncHandler(async (req: Request, res: Response) =
     if (klines.code === 0 && klines.data) {
       // Format klines data
       const formattedKlines = klines.data.map((k: any) => ({
-        timestamp: k[0],
-        open: parseFloat(k[1]),
-        high: parseFloat(k[2]),
-        low: parseFloat(k[3]),
-        close: parseFloat(k[4]),
-        volume: parseFloat(k[5]),
-        closeTime: k[6],
-        quoteVolume: parseFloat(k[7]),
-        trades: k[8]
+        timestamp: parseInt(k.time || k[0]),
+        open: parseFloat(k.open !== undefined ? k.open : k[1]),
+        high: parseFloat(k.high !== undefined ? k.high : k[2]),
+        low: parseFloat(k.low !== undefined ? k.low : k[3]),
+        close: parseFloat(k.close !== undefined ? k.close : k[4]),
+        volume: parseFloat(k.volume !== undefined ? k.volume : k[5]),
+        closeTime: k.closeTime || k[6],
+        quoteVolume: parseFloat(k.quoteVolume || k[7]),
+        trades: k.trades || k[8]
       }));
       
       res.json({
@@ -115,12 +115,12 @@ router.get('/indicators/:symbol', asyncHandler(async (req: Request, res: Respons
     
     // Convert to candle format
     const candles = klines.data.map((k: any) => ({
-      timestamp: k[0],
-      open: parseFloat(k[1]),
-      high: parseFloat(k[2]),
-      low: parseFloat(k[3]),
-      close: parseFloat(k[4]),
-      volume: parseFloat(k[5])
+        timestamp: parseInt(k.time || k[0]),
+        open: parseFloat(k.open !== undefined ? k.open : k[1]),
+        high: parseFloat(k.high !== undefined ? k.high : k[2]),
+        low: parseFloat(k.low !== undefined ? k.low : k[3]),
+        close: parseFloat(k.close !== undefined ? k.close : k[4]),
+        volume: parseFloat(k.volume !== undefined ? k.volume : k[5])
     }));
     
     // Calculate indicators
@@ -189,24 +189,22 @@ router.get('/signal/:symbol', asyncHandler(async (req: Request, res: Response) =
     // Convert to candle format with validation
     const candles = klines.data.map((k: any, index: number) => {
       const candle = {
-        timestamp: k[0],
-        open: parseFloat(k[1]),
-        high: parseFloat(k[2]),
-        low: parseFloat(k[3]),
-        close: parseFloat(k[4]),
-        volume: parseFloat(k[5])
+        timestamp: parseInt(k.time || k[0]),
+        open: parseFloat(k.open !== undefined ? k.open : k[1]),
+        high: parseFloat(k.high !== undefined ? k.high : k[2]),
+        low: parseFloat(k.low !== undefined ? k.low : k[3]),
+        close: parseFloat(k.close !== undefined ? k.close : k[4]),
+        volume: parseFloat(k.volume !== undefined ? k.volume : k[5])
       };
       
       // Validate candle data
-      if (isNaN(candle.open) || isNaN(candle.high) || isNaN(candle.low) || isNaN(candle.close)) {
+      if (isNaN(candle.open) || isNaN(candle.high) || isNaN(candle.low) || isNaN(candle.close) || isNaN(candle.volume)) {
         logger.warn(`Invalid candle data at index ${index} for ${symbol}:`, k);
+        return null;
       }
       
       return candle;
-    }).filter((candle: any) => 
-      !isNaN(candle.open) && !isNaN(candle.high) && 
-      !isNaN(candle.low) && !isNaN(candle.close)
-    );
+    }).filter((candle: any) => candle !== null);
     
     logger.debug(`Processed ${candles.length} valid candles for ${symbol}`);
     
@@ -217,7 +215,7 @@ router.get('/signal/:symbol', asyncHandler(async (req: Request, res: Response) =
     
     // Generate signal
     const signalGenerator = new SignalGenerator();
-    const signal = signalGenerator.generateSignal(symbol, candles);
+    const signal = signalGenerator.generateSignal(symbol, candles as any);
     
     logger.debug(`Generated signal for ${symbol}:`, { 
       action: signal.action, 
