@@ -12,6 +12,7 @@ export default function AssetsPage() {
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('TRADING')
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [refreshProgress, setRefreshProgress] = useState({ progress: 0, message: '', processed: 0, total: 0 })
 
   // Get assets data
   const { data: assetsData, isLoading, refetch } = useQuery(
@@ -42,25 +43,47 @@ export default function AssetsPage() {
   // Handle refresh
   const handleRefresh = async () => {
     setIsRefreshing(true)
+    setRefreshProgress({ progress: 0, message: 'Starting refresh...', processed: 0, total: 0 })
     toast.loading('Refreshing assets from BingX...', { id: 'refresh-assets' })
     
     try {
-      const result = await api.refreshAssets()
-      const { created = 0, updated = 0, total = 0, processed = 0, skipped = 0 } = result || {}
-      
-      toast.success(
-        `Assets refreshed successfully!\n${created} created, ${updated} updated\n${processed} processed, ${skipped} skipped from ${total} total contracts`,
-        { 
-          id: 'refresh-assets',
-          duration: 5000
+      const result = await api.refreshAssets((progressData) => {
+        // Update progress state
+        setRefreshProgress({
+          progress: progressData.progress || 0,
+          message: progressData.message || '',
+          processed: progressData.processed || 0,
+          total: progressData.total || 0
+        })
+        
+        // Update toast with progress
+        if (progressData.type === 'progress') {
+          toast.loading(
+            `${progressData.message}\nProgress: ${progressData.progress}%`,
+            { id: 'refresh-assets' }
+          )
+        } else if (progressData.type === 'completed') {
+          toast.success(
+            `Assets refreshed successfully!\n${progressData.created} created, ${progressData.updated} updated\n${progressData.processed} processed, ${progressData.skipped} skipped from ${progressData.total} total contracts`,
+            { 
+              id: 'refresh-assets',
+              duration: 5000 
+            }
+          )
+        } else if (progressData.type === 'error') {
+          toast.error(progressData.message, { id: 'refresh-assets' })
         }
-      )
-      refetch()
+      })
+      
+      // Refetch the assets list after completion
+      await refetch()
+      
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to refresh assets'
       toast.error(errorMessage, { id: 'refresh-assets' })
     } finally {
       setIsRefreshing(false)
+      setRefreshProgress({ progress: 0, message: '', processed: 0, total: 0 })
     }
   }
 
