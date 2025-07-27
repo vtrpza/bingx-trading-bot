@@ -5,6 +5,70 @@ import { SignalGenerator } from './signalGenerator';
 import { logger } from '../utils/logger';
 import Trade from '../models/Trade';
 import { EventEmitter } from 'events';
+import { v4 as uuidv4 } from 'uuid';
+
+interface ProcessStep {
+  id: string;
+  name: string;
+  status: 'idle' | 'processing' | 'completed' | 'error' | 'warning';
+  startTime?: number;
+  endTime?: number;
+  duration?: number;
+  metadata?: any;
+  error?: string;
+}
+
+interface SignalInProcess {
+  id: string;
+  symbol: string;
+  stage: 'analyzing' | 'evaluating' | 'decided' | 'queued' | 'executing' | 'completed' | 'rejected';
+  signal?: any;
+  startTime: number;
+  decision?: 'execute' | 'reject';
+  rejectionReason?: string;
+  executionTime?: number;
+}
+
+interface TradeInQueue {
+  id: string;
+  symbol: string;
+  action: 'BUY' | 'SELL';
+  quantity: number;
+  estimatedPrice: number;
+  priority: number;
+  queueTime: number;
+  status: 'queued' | 'processing' | 'executed' | 'failed';
+  signalId?: string;
+}
+
+interface ProcessMetrics {
+  scanningRate: number;
+  signalGenerationRate: number;
+  executionSuccessRate: number;
+  averageProcessingTime: {
+    scanning: number;
+    analysis: number;
+    decision: number;
+    execution: number;
+  };
+  performance: {
+    totalScanned: number;
+    signalsGenerated: number;
+    tradesExecuted: number;
+    errors: number;
+  };
+  bottlenecks: string[];
+}
+
+interface ActivityEvent {
+  id: string;
+  type: 'scan_started' | 'signal_generated' | 'trade_executed' | 'error' | 'position_closed' | 'market_data_updated';
+  symbol?: string;
+  message: string;
+  timestamp: number;
+  level: 'info' | 'warning' | 'error' | 'success';
+  metadata?: any;
+}
 
 interface BotConfig {
   enabled: boolean;
@@ -41,6 +105,15 @@ export class TradingBot extends EventEmitter {
   private scanInterval: NodeJS.Timeout | null = null;
   private activePositions: Map<string, Position> = new Map();
   private isRunning: boolean = false;
+  
+  // Process tracking
+  private currentStep: string = 'idle';
+  private processSteps: Map<string, ProcessStep> = new Map();
+  private activeSignals: Map<string, SignalInProcess> = new Map();
+  private executionQueue: TradeInQueue[] = [];
+  private activityEvents: ActivityEvent[] = [];
+  private processMetrics!: ProcessMetrics;
+  // private performanceTimers: Map<string, number> = new Map();
 
   constructor() {
     super();
@@ -72,8 +145,133 @@ export class TradingBot extends EventEmitter {
       confirmationRequired: this.config.confirmationRequired
     });
 
+    // Initialize process tracking
+    this.initializeProcessSteps();
+    this.initializeMetrics();
+
     this.setupWebSocketListeners();
   }
+
+  private initializeProcessSteps() {
+    const steps = [
+      { id: 'scanning', name: 'Market Scanning', status: 'idle' as const },
+      { id: 'analysis', name: 'Signal Analysis', status: 'idle' as const },
+      { id: 'decision', name: 'Decision Making', status: 'idle' as const },
+      { id: 'execution', name: 'Trade Execution', status: 'idle' as const }
+    ];
+
+    steps.forEach(step => {
+      this.processSteps.set(step.id, step);
+    });
+  }
+
+  private initializeMetrics() {
+    this.processMetrics = {
+      scanningRate: 0,
+      signalGenerationRate: 0,
+      executionSuccessRate: 0,
+      averageProcessingTime: {
+        scanning: 0,
+        analysis: 0,
+        decision: 0,
+        execution: 0
+      },
+      performance: {
+        totalScanned: 0,
+        signalsGenerated: 0,
+        tradesExecuted: 0,
+        errors: 0
+      },
+      bottlenecks: []
+    };
+  }
+
+  private updateProcessStep(stepId: string, status: ProcessStep['status'], metadata?: any, error?: string) {
+    const step = this.processSteps.get(stepId);
+    if (!step) return;
+
+    const now = Date.now();
+    
+    if (status === 'processing') {
+      step.startTime = now;
+    } else if (status === 'completed' || status === 'error') {
+      step.endTime = now;
+      if (step.startTime) {
+        step.duration = step.endTime - step.startTime;
+        this.updateAverageProcessingTime(stepId, step.duration);
+      }
+    }
+
+    step.status = status;
+    step.metadata = metadata;
+    step.error = error;
+
+    this.currentStep = stepId;
+    this.emitProcessUpdate();
+
+    if (status === 'error') {
+      this.processMetrics.performance.errors++;
+    }
+  }
+
+  private updateAverageProcessingTime(stepId: string, duration: number) {
+    const metrics = this.processMetrics.averageProcessingTime;
+    if (stepId in metrics) {
+      // Simple moving average (could be improved with weighted average)
+      const currentAvg = metrics[stepId as keyof typeof metrics];
+      metrics[stepId as keyof typeof metrics] = currentAvg === 0 ? duration : (currentAvg + duration) / 2;
+    }
+  }
+
+  private addActivityEvent(type: ActivityEvent['type'], message: string, level: ActivityEvent['level'] = 'info', symbol?: string, metadata?: any) {
+    const event: ActivityEvent = {
+      id: uuidv4(),
+      type,
+      symbol,
+      message,
+      timestamp: Date.now(),
+      level,
+      metadata
+    };
+
+    this.activityEvents.unshift(event);
+    
+    // Keep only last 100 events
+    if (this.activityEvents.length > 100) {
+      this.activityEvents = this.activityEvents.slice(0, 100);
+    }
+
+    this.emit('activityEvent', event);
+  }
+
+  private emitProcessUpdate() {
+    const flowState = {
+      currentStep: this.currentStep,
+      steps: Array.from(this.processSteps.values()),
+      activeSignals: Array.from(this.activeSignals.values()),
+      executionQueue: this.executionQueue,
+      metrics: this.processMetrics,
+      lastUpdate: Date.now()
+    };
+
+    this.emit('processUpdate', flowState);
+  }
+
+  // Performance timing methods (for future use)
+  // private startTimer(operation: string): string {
+  //   const timerId = `${operation}_${Date.now()}`;
+  //   this.performanceTimers.set(timerId, Date.now());
+  //   return timerId;
+  // }
+
+  // private endTimer(timerId: string): number {
+  //   const startTime = this.performanceTimers.get(timerId);
+  //   if (startTime) {
+  //     this.performanceTimers.delete(timerId);
+  //     return Date.now() - startTime;
+  //   }
+  //   return 0;
+  // }
 
   private setupWebSocketListeners() {
     wsManager.on('orderUpdate', (data) => {
@@ -268,9 +466,14 @@ export class TradingBot extends EventEmitter {
     );
 
     logger.debug(`Scanning ${symbolsToScan.length} symbols (${this.activePositions.size} positions active)...`);
+    
+    // Start scanning process tracking
+    this.updateProcessStep('scanning', 'processing', { symbolsCount: symbolsToScan.length });
+    this.addActivityEvent('scan_started', `Starting scan of ${symbolsToScan.length} symbols`, 'info');
 
     if (symbolsToScan.length === 0) {
       logger.debug('No new symbols to scan');
+      this.updateProcessStep('scanning', 'completed', { symbolsCount: 0 });
       return;
     }
 
@@ -285,8 +488,17 @@ export class TradingBot extends EventEmitter {
           setTimeout(() => reject(new Error('Symbol scanning timeout')), timeout)
         )
       ]);
+      
+      this.updateProcessStep('scanning', 'completed', { 
+        symbolsScanned: symbolsToScan.length,
+        duration: this.processSteps.get('scanning')?.duration 
+      });
+      this.processMetrics.performance.totalScanned += symbolsToScan.length;
+      
     } catch (error) {
       logger.warn('Symbol scanning completed with timeout:', error instanceof Error ? error.message : String(error));
+      this.updateProcessStep('scanning', 'error', { symbolsCount: symbolsToScan.length }, error instanceof Error ? error.message : String(error));
+      this.addActivityEvent('error', `Scanning failed: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error');
     }
   }
 
@@ -328,17 +540,36 @@ export class TradingBot extends EventEmitter {
   }
 
   private async processSymbolSignal(symbol: string): Promise<void> {
+    const signalId = uuidv4();
+    
     try {
+      // Start signal processing tracking
+      const signalInProcess: SignalInProcess = {
+        id: signalId,
+        symbol,
+        stage: 'analyzing',
+        startTime: Date.now()
+      };
+      
+      this.activeSignals.set(signalId, signalInProcess);
+      this.updateProcessStep('analysis', 'processing', { symbol, signalId });
+      
       // Get candle data with error handling
       const klines = await bingxClient.getKlines(symbol, '5m', 100);
       
       if (!klines || klines.code !== 0 || !klines.data || !Array.isArray(klines.data)) {
         logger.debug(`No valid klines data for ${symbol}: ${klines?.code || 'unknown error'}`);
+        signalInProcess.stage = 'rejected';
+        signalInProcess.rejectionReason = 'No valid market data';
+        this.activeSignals.delete(signalId);
         return;
       }
 
       if (klines.data.length < 50) {
         logger.debug(`Insufficient klines data for ${symbol}: ${klines.data.length} candles`);
+        signalInProcess.stage = 'rejected';
+        signalInProcess.rejectionReason = 'Insufficient historical data';
+        this.activeSignals.delete(signalId);
         return;
       }
 
@@ -390,30 +621,106 @@ export class TradingBot extends EventEmitter {
         return;
       }
 
+      // Update signal processing stage
+      signalInProcess.stage = 'evaluating';
+      
       // Generate signal with MA period configuration
       const signal = this.signalGenerator.generateSignal(symbol, candles, {
         ma1Period: this.config.ma1Period,
         ma2Period: this.config.ma2Period
       });
       
+      signalInProcess.signal = signal;
+      signalInProcess.stage = 'decided';
+      
       this.emit('signal', signal);
-
+      this.addActivityEvent('signal_generated', `${signal.action} signal for ${symbol} (${signal.strength}%)`, 'info', symbol, { signalId, strength: signal.strength });
+      this.processMetrics.performance.signalsGenerated++;
+      
+      // Decision making process
+      this.updateProcessStep('decision', 'processing', { symbol, signal: signal.action, strength: signal.strength });
+      
       // Execute trade if signal is strong enough
       if (signal.action !== 'HOLD' && signal.strength >= 65) {
-        await this.executeTrade(signal);
+        signalInProcess.decision = 'execute';
+        signalInProcess.stage = 'queued';
+        
+        // Add to execution queue
+        const tradeInQueue: TradeInQueue = {
+          id: uuidv4(),
+          symbol,
+          action: signal.action as 'BUY' | 'SELL',
+          quantity: this.config.defaultPositionSize,
+          estimatedPrice: signal.indicators.price,
+          priority: signal.strength,
+          queueTime: Date.now(),
+          status: 'queued',
+          signalId
+        };
+        
+        this.executionQueue.push(tradeInQueue);
+        this.updateProcessStep('decision', 'completed', { decision: 'execute', queuePosition: this.executionQueue.length });
+        this.addActivityEvent('trade_executed', `Trade queued for execution: ${signal.action} ${symbol}`, 'success', symbol, { signalId, tradeId: tradeInQueue.id });
+        
+        await this.executeTrade(signal, signalId, tradeInQueue.id);
+      } else {
+        signalInProcess.decision = 'reject';
+        signalInProcess.rejectionReason = signal.action === 'HOLD' ? 'No clear signal' : `Signal strength too low (${signal.strength}%)`;
+        signalInProcess.stage = 'rejected';
+        this.updateProcessStep('decision', 'completed', { decision: 'reject', reason: signalInProcess.rejectionReason });
+        this.activeSignals.delete(signalId);
       }
+      
     } catch (error) {
       logger.debug(`Error processing signal for ${symbol}:`, {
         error: error instanceof Error ? error.message : error
       });
+      
+      const signalInProcess = this.activeSignals.get(signalId);
+      if (signalInProcess) {
+        signalInProcess.stage = 'rejected';
+        signalInProcess.rejectionReason = error instanceof Error ? error.message : 'Unknown error';
+        this.activeSignals.delete(signalId);
+      }
+      
+      this.updateProcessStep('analysis', 'error', { symbol }, error instanceof Error ? error.message : String(error));
+      this.addActivityEvent('error', `Signal processing failed for ${symbol}: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error', symbol);
     }
   }
 
-  private async executeTrade(signal: any) {
+  private async executeTrade(signal: any, signalId?: string, tradeId?: string) {
     try {
+      this.updateProcessStep('execution', 'processing', { symbol: signal.symbol, signalId, tradeId });
+      
+      // Update trade queue status
+      if (tradeId) {
+        const tradeInQueue = this.executionQueue.find(t => t.id === tradeId);
+        if (tradeInQueue) {
+          tradeInQueue.status = 'processing';
+        }
+      }
+      
       // Check if we can take more trades
       if (this.activePositions.size >= this.config.maxConcurrentTrades) {
         logger.warn('Cannot execute trade - max concurrent trades reached');
+        
+        if (signalId) {
+          const signalInProcess = this.activeSignals.get(signalId);
+          if (signalInProcess) {
+            signalInProcess.stage = 'rejected';
+            signalInProcess.rejectionReason = 'Max concurrent trades reached';
+            this.activeSignals.delete(signalId);
+          }
+        }
+        
+        if (tradeId) {
+          const tradeIndex = this.executionQueue.findIndex(t => t.id === tradeId);
+          if (tradeIndex !== -1) {
+            this.executionQueue[tradeIndex].status = 'failed';
+          }
+        }
+        
+        this.updateProcessStep('execution', 'error', { symbol: signal.symbol }, 'Max concurrent trades reached');
         return;
       }
 
@@ -484,6 +791,23 @@ export class TradingBot extends EventEmitter {
           orderId: order.data.orderId
         });
 
+        // Update tracking
+        if (signalId) {
+          const signalInProcess = this.activeSignals.get(signalId);
+          if (signalInProcess) {
+            signalInProcess.stage = 'completed';
+            signalInProcess.executionTime = Date.now() - signalInProcess.startTime;
+            this.activeSignals.delete(signalId);
+          }
+        }
+        
+        if (tradeId) {
+          const tradeIndex = this.executionQueue.findIndex(t => t.id === tradeId);
+          if (tradeIndex !== -1) {
+            this.executionQueue[tradeIndex].status = 'executed';
+          }
+        }
+
         this.emit('tradeExecuted', {
           symbol: signal.symbol,
           orderId: order.data.orderId,
@@ -492,13 +816,67 @@ export class TradingBot extends EventEmitter {
           price: currentPrice
         });
 
+        this.updateProcessStep('execution', 'completed', { 
+          symbol: signal.symbol, 
+          orderId: order.data.orderId,
+          side: signal.action,
+          price: currentPrice
+        });
+        
+        this.processMetrics.performance.tradesExecuted++;
+        this.addActivityEvent('trade_executed', `Trade executed: ${signal.action} ${signal.symbol} at $${currentPrice}`, 'success', signal.symbol, { 
+          orderId: order.data.orderId,
+          signalId,
+          tradeId
+        });
+
         logger.info(`Trade executed successfully: ${order.data.orderId}`);
       } else {
         logger.error('Failed to execute trade:', order);
+        
+        // Update tracking for failed execution
+        if (signalId) {
+          const signalInProcess = this.activeSignals.get(signalId);
+          if (signalInProcess) {
+            signalInProcess.stage = 'rejected';
+            signalInProcess.rejectionReason = 'Order execution failed';
+            this.activeSignals.delete(signalId);
+          }
+        }
+        
+        if (tradeId) {
+          const tradeIndex = this.executionQueue.findIndex(t => t.id === tradeId);
+          if (tradeIndex !== -1) {
+            this.executionQueue[tradeIndex].status = 'failed';
+          }
+        }
+        
+        this.updateProcessStep('execution', 'error', { symbol: signal.symbol }, 'Order execution failed');
+        this.addActivityEvent('error', `Trade execution failed for ${signal.symbol}: Order rejected`, 'error', signal.symbol);
       }
 
     } catch (error) {
       logger.error('Error executing trade:', error);
+      
+      // Update tracking for error
+      if (signalId) {
+        const signalInProcess = this.activeSignals.get(signalId);
+        if (signalInProcess) {
+          signalInProcess.stage = 'rejected';
+          signalInProcess.rejectionReason = error instanceof Error ? error.message : 'Unknown error';
+          this.activeSignals.delete(signalId);
+        }
+      }
+      
+      if (tradeId) {
+        const tradeIndex = this.executionQueue.findIndex(t => t.id === tradeId);
+        if (tradeIndex !== -1) {
+          this.executionQueue[tradeIndex].status = 'failed';
+        }
+      }
+      
+      this.updateProcessStep('execution', 'error', { symbol: signal.symbol }, error instanceof Error ? error.message : String(error));
+      this.addActivityEvent('error', `Trade execution error for ${signal.symbol}: ${error instanceof Error ? error.message : 'Unknown error'}`, 'error', signal.symbol);
     }
   }
 
@@ -588,6 +966,25 @@ export class TradingBot extends EventEmitter {
 
   getScannedSymbols(): string[] {
     return [...this.config.symbolsToScan];
+  }
+
+  getFlowState() {
+    return {
+      currentStep: this.currentStep,
+      steps: Array.from(this.processSteps.values()),
+      activeSignals: Array.from(this.activeSignals.values()),
+      executionQueue: this.executionQueue,
+      metrics: this.processMetrics,
+      lastUpdate: Date.now()
+    };
+  }
+
+  getActivityEvents(limit: number = 50) {
+    return this.activityEvents.slice(0, limit);
+  }
+
+  getProcessMetrics() {
+    return { ...this.processMetrics };
   }
 
   updateConfig(config: Partial<BotConfig>) {

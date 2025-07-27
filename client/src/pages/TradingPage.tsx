@@ -7,6 +7,7 @@ import PositionsTable from '../components/PositionsTable'
 import TradingStats from '../components/TradingStats'
 import TradeHistory from '../components/TradeHistory'
 import RealTimeSignals from '../components/RealTimeSignals'
+import TradingFlowMonitor from '../components/TradingFlowMonitor'
 import type { BotStatus, BotConfig } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { useLocalStorage } from '../hooks/useLocalStorage'
@@ -251,6 +252,10 @@ export default function TradingPage() {
         {activeTab === 'overview' && (
           <div className="space-y-6">
             <TradingStats stats={tradingStats} />
+            
+            {/* Trading Flow Monitor */}
+            <TradingFlowMonitor />
+            
             {botStatus?.activePositions && botStatus.activePositions.length > 0 && (
               <PositionsTable positions={botStatus.activePositions} />
             )}

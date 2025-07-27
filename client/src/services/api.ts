@@ -130,6 +130,50 @@ export const api = {
     return axiosInstance.put('/trading/bot/config', config)
   },
 
+  async getBotFlowState(): Promise<{
+    currentStep: string
+    steps: any[]
+    activeSignals: any[]
+    executionQueue: any[]
+    metrics: any
+    lastUpdate: number
+  }> {
+    return axiosInstance.get('/trading/bot/flow-state')
+  },
+
+  async getBotActivityEvents(limit?: number): Promise<{
+    id: string
+    type: string
+    symbol?: string
+    message: string
+    timestamp: number
+    level: string
+    metadata?: any
+  }[]> {
+    return axiosInstance.get('/trading/bot/activity-events', { params: { limit } })
+  },
+
+  async getBotProcessMetrics(): Promise<{
+    scanningRate: number
+    signalGenerationRate: number
+    executionSuccessRate: number
+    averageProcessingTime: {
+      scanning: number
+      analysis: number
+      decision: number
+      execution: number
+    }
+    performance: {
+      totalScanned: number
+      signalsGenerated: number
+      tradesExecuted: number
+      errors: number
+    }
+    bottlenecks: string[]
+  }> {
+    return axiosInstance.get('/trading/bot/process-metrics')
+  },
+
   async getPositions(): Promise<Position[]> {
     return axiosInstance.get('/trading/positions')
   },

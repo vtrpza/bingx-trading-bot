@@ -3,11 +3,13 @@ import { useQuery } from 'react-query'
 import { api } from '../services/api'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { useLocalStorage } from '../hooks/useLocalStorage'
+import { useTranslation } from '../hooks/useTranslation'
 import type { TradingSignal } from '../types'
 
 export default function RealTimeSignals() {
-  const [signals, setSignals] = useState<TradingSignal[]>([])
+  const [signals, setSignals] = useLocalStorage<TradingSignal[]>('realTimeSignals', [])
   const [selectedSymbol, setSelectedSymbol] = useLocalStorage('realTimeSignalsSelectedSymbol', 'BTC-USDT')
+  const { t } = useTranslation()
 
   const { lastMessage } = useWebSocket('/ws')
 
@@ -32,16 +34,28 @@ export default function RealTimeSignals() {
     }
   )
 
+  // Clean old signals (older than 1 hour) on component mount
+  useEffect(() => {
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000)
+    setSignals(prev => prev.filter(signal => 
+      signal.timestamp && new Date(signal.timestamp) > oneHourAgo
+    ))
+  }, [])
+
   useEffect(() => {
     if (lastMessage) {
       const data = JSON.parse(lastMessage.data)
       
       if (data.type === 'signal') {
-        // Add new signal to the list
-        setSignals(prev => [data.data, ...prev.slice(0, 19)]) // Keep only 20 latest signals
+        // Add new signal to the list and keep only 50 latest signals
+        setSignals(prev => {
+          const newSignals = [data.data, ...prev]
+          // Keep only 50 most recent signals
+          return newSignals.slice(0, 50)
+        })
       }
     }
-  }, [lastMessage])
+  }, [lastMessage, setSignals])
 
   const getSignalStrengthColor = (strength: number) => {
     if (strength >= 80) return 'text-green-600'
@@ -69,11 +83,11 @@ export default function RealTimeSignals() {
     <div className="space-y-6">
       {/* Symbol Selection */}
       <div className="card p-6">
-        <h3 className="text-lg font-medium text-gray-900 mb-4">Signal Analysis</h3>
+        <h3 className="text-lg font-medium text-gray-900 mb-4">{t('trading.signals.title')}</h3>
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           <div>
-            <label className="label">Select Symbol</label>
+            <label className="label">{t('trading.signals.selectedSymbol')}</label>
             <select
               value={selectedSymbol}
               onChange={(e) => setSelectedSymbol(e.target.value)}
@@ -92,7 +106,7 @@ export default function RealTimeSignals() {
           </div>
           
           <div>
-            <label className="label">Watched Symbols</label>
+            <label className="label">{t('trading.signals.watchedSymbols')}</label>
             <div className="flex flex-wrap gap-2">
               {watchedSymbols.map((symbol: string) => (
                 <button
@@ -288,8 +302,19 @@ export default function RealTimeSignals() {
 
       {/* Live Signals Feed */}
       <div className="card">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h3 className="text-lg font-medium text-gray-900">Live Signals Feed</h3>
+        <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
+          <h3 className="text-lg font-medium text-gray-900">{t('trading.signals.recentSignals')}</h3>
+          <div className="flex items-center space-x-2">
+            <span className="text-sm text-gray-500">{signals.length} signals</span>
+            {signals.length > 0 && (
+              <button
+                onClick={() => setSignals([])}
+                className="text-sm text-red-600 hover:text-red-800 px-2 py-1 rounded border border-red-300 hover:bg-red-50"
+              >
+                {t('common.clear')}
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="divide-y divide-gray-200">
@@ -298,25 +323,33 @@ export default function RealTimeSignals() {
               No signals received yet. Signals will appear here as they are generated.
             </div>
           ) : (
-            signals.map((signal, index) => (
-              <div key={index} className="p-4 hover:bg-gray-50">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-4">
-                    <div className="font-medium text-gray-900">{signal.symbol || 'Unknown'}</div>
-                    {getActionBadge(signal.action || 'HOLD')}
-                    <span className={`font-bold ${getSignalStrengthColor(signal.strength || 0)}`}>
-                      {signal.strength || 0}%
-                    </span>
+            signals.map((signal, index) => {
+              const isNew = signal.timestamp && (Date.now() - new Date(signal.timestamp).getTime()) < 30000 // 30 seconds
+              return (
+                <div key={index} className={`p-4 hover:bg-gray-50 ${isNew ? 'bg-blue-50 border-l-4 border-blue-400' : ''}`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-4">
+                      <div className="font-medium text-gray-900">{signal.symbol || 'Unknown'}</div>
+                      {getActionBadge(signal.action || 'HOLD')}
+                      <span className={`font-bold ${getSignalStrengthColor(signal.strength || 0)}`}>
+                        {signal.strength || 0}%
+                      </span>
+                      {isNew && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                          NEW
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-sm text-gray-500">
+                      {signal.timestamp ? new Date(signal.timestamp).toLocaleTimeString() : 'Unknown time'}
+                    </div>
                   </div>
-                  <div className="text-sm text-gray-500">
-                    {signal.timestamp ? new Date(signal.timestamp).toLocaleTimeString() : 'Unknown time'}
+                  <div className="mt-2 text-sm text-gray-600">
+                    {signal.reason || 'No reason provided'}
                   </div>
                 </div>
-                <div className="mt-2 text-sm text-gray-600">
-                  {signal.reason || 'No reason provided'}
-                </div>
-              </div>
-            ))
+              )
+            })
           )}
         </div>
       </div>

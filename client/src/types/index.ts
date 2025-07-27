@@ -177,3 +177,85 @@ export interface WebSocketMessage {
   type: string;
   data: any;
 }
+
+// Trading Flow & Process Monitoring Types
+export interface ProcessStep {
+  id: string;
+  name: string;
+  status: 'idle' | 'processing' | 'completed' | 'error' | 'warning';
+  startTime?: number;
+  endTime?: number;
+  duration?: number;
+  metadata?: any;
+  error?: string;
+}
+
+export interface TradingFlowState {
+  currentStep: string;
+  steps: ProcessStep[];
+  activeSignals: SignalInProcess[];
+  executionQueue: TradeInQueue[];
+  metrics: ProcessMetrics;
+  lastUpdate: number;
+}
+
+export interface SignalInProcess {
+  id: string;
+  symbol: string;
+  stage: 'analyzing' | 'evaluating' | 'decided' | 'queued' | 'executing' | 'completed' | 'rejected';
+  signal?: TradingSignal;
+  startTime: number;
+  decision?: 'execute' | 'reject';
+  rejectionReason?: string;
+  executionTime?: number;
+}
+
+export interface TradeInQueue {
+  id: string;
+  symbol: string;
+  action: 'BUY' | 'SELL';
+  quantity: number;
+  estimatedPrice: number;
+  priority: number;
+  queueTime: number;
+  status: 'queued' | 'processing' | 'executed' | 'failed';
+  signalId?: string;
+}
+
+export interface ProcessMetrics {
+  scanningRate: number; // symbols per minute
+  signalGenerationRate: number; // signals per hour
+  executionSuccessRate: number; // percentage
+  averageProcessingTime: {
+    scanning: number;
+    analysis: number;
+    decision: number;
+    execution: number;
+  };
+  performance: {
+    totalScanned: number;
+    signalsGenerated: number;
+    tradesExecuted: number;
+    errors: number;
+  };
+  bottlenecks: string[];
+}
+
+export interface ActivityEvent {
+  id: string;
+  type: 'scan_started' | 'signal_generated' | 'trade_executed' | 'error' | 'position_closed' | 'market_data_updated';
+  symbol?: string;
+  message: string;
+  timestamp: number;
+  level: 'info' | 'warning' | 'error' | 'success';
+  metadata?: any;
+}
+
+export interface FlowMonitorConfig {
+  mode: 'professional' | 'simplified';
+  autoRefresh: boolean;
+  refreshInterval: number;
+  showMetrics: boolean;
+  showErrors: boolean;
+  maxActivityEvents: number;
+}

@@ -379,6 +379,16 @@ export function setupWebSocket(server: Server) {
     broadcast(wss, { type: 'positionClosed', data: position });
   });
 
+  // Process update events
+  tradingBot.on('processUpdate', (flowState: any) => {
+    broadcast(wss, { type: 'processUpdate', data: flowState });
+  });
+
+  // Activity events
+  tradingBot.on('activityEvent', (event: any) => {
+    broadcast(wss, { type: 'activityEvent', data: event });
+  });
+
   // Connect to BingX WebSocket
   wsManager.connect();
 }

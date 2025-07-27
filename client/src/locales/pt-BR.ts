@@ -256,7 +256,7 @@ export const translations = {
     },
     
     // Preferências
-    preferences: {
+    preferenceSystem: {
       title: 'Preferências do Sistema',
       theme: 'Tema',
       themeLight: 'Claro',
@@ -294,6 +294,7 @@ export const translations = {
     search: 'Buscar',
     filter: 'Filtrar',
     refresh: 'Atualizar',
+    clear: 'Limpar',
     export: 'Exportar',
     import: 'Importar',
     download: 'Baixar',
@@ -324,7 +325,7 @@ export const translations = {
     high: 'Máxima',
     low: 'Mínima',
     open: 'Abertura',
-    close: 'Fechamento',
+    closeX: 'Fechamento',
     change: 'Variação',
     market: 'Mercado',
     limit: 'Limite',
@@ -345,9 +346,9 @@ export const translations = {
     offline: 'Offline',
     syncing: 'Sincronizando',
     synced: 'Sincronizado',
-    error: 'Erro',
-    warning: 'Aviso',
-    info: 'Info',
+    errorWarning: 'Erro',
+    warningWarning: 'Aviso',
+    infoInfo: 'Info',
     debug: 'Debug',
     trace: 'Trace'
   },

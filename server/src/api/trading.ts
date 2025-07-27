@@ -454,4 +454,38 @@ router.delete('/orders/:orderId', asyncHandler(async (req: Request, res: Respons
   }
 }));
 
+// Get trading flow state
+router.get('/bot/flow-state', asyncHandler(async (_req: Request, res: Response) => {
+  const bot = getTradingBot();
+  const flowState = bot.getFlowState();
+  
+  res.json({
+    success: true,
+    data: flowState
+  });
+}));
+
+// Get activity events
+router.get('/bot/activity-events', asyncHandler(async (req: Request, res: Response) => {
+  const { limit = 50 } = req.query;
+  const bot = getTradingBot();
+  const events = bot.getActivityEvents(parseInt(limit as string));
+  
+  res.json({
+    success: true,
+    data: events
+  });
+}));
+
+// Get process metrics
+router.get('/bot/process-metrics', asyncHandler(async (_req: Request, res: Response) => {
+  const bot = getTradingBot();
+  const metrics = bot.getProcessMetrics();
+  
+  res.json({
+    success: true,
+    data: metrics
+  });
+}));
+
 export default router;
