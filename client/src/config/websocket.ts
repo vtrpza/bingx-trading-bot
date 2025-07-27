@@ -1,5 +1,5 @@
 // WebSocket configuration with automatic protocol detection
-export const getWebSocketUrl = (path: string = '/ws'): string => {
+export const getWebSocketUrl = (path: string = '/ws', fallback: boolean = false): string => {
   // In development, always use the local server
   if (process.env.NODE_ENV === 'development') {
     return `ws://localhost:3001${path}`;
@@ -10,6 +10,15 @@ export const getWebSocketUrl = (path: string = '/ws'): string => {
   const host = window.location.host;
   
   // For Render deployment, use the same host with secure WebSocket
+  return `${protocol}//${host}${path}`;
+};
+
+// Fallback WebSocket URL for cases where WSS fails
+export const getFallbackWebSocketUrl = (path: string = '/ws'): string => {
+  // Try the opposite protocol if the main one fails
+  const protocol = window.location.protocol === 'https:' ? 'ws:' : 'wss:';
+  const host = window.location.host;
+  
   return `${protocol}//${host}${path}`;
 };
 
