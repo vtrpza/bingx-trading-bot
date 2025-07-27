@@ -7,19 +7,27 @@ import type { TradingSignal } from '../types'
 export default function RealTimeSignals() {
   const [signals, setSignals] = useState<TradingSignal[]>([])
   const [selectedSymbol, setSelectedSymbol] = useState('BTC-USDT')
-  const [watchedSymbols] = useState(['BTC-USDT', 'ETH-USDT', 'BNB-USDT'])
 
   const { lastMessage } = useWebSocket('/ws')
 
-  // Get market overview for popular symbols
+  // Get bot status to access scanned symbols
+  const { data: botStatus } = useQuery('bot-status', api.getBotStatus)
+  
+  // Get market overview for fallback
   const { data: marketOverview } = useQuery('market-overview', api.getMarketOverview)
+  
+  // Use symbols from bot or fallback to market overview
+  const availableSymbols = botStatus?.scannedSymbols || marketOverview?.topVolume?.map((item: any) => item.symbol) || []
+  const watchedSymbols = availableSymbols
 
   // Get signal for selected symbol
-  const { data: currentSignal } = useQuery(
+  const { data: currentSignal, isLoading: signalLoading, error: signalError } = useQuery(
     ['signal', selectedSymbol],
     () => api.getSignal(selectedSymbol),
     {
       refetchInterval: 10000, // Refresh every 10 seconds
+      enabled: !!selectedSymbol, // Only fetch if symbol is selected
+      retry: 2, // Retry failed requests
     }
   )
 
@@ -70,18 +78,22 @@ export default function RealTimeSignals() {
               onChange={(e) => setSelectedSymbol(e.target.value)}
               className="input"
             >
-              {marketOverview?.topVolume?.map((item: any) => (
-                <option key={item.symbol} value={item.symbol}>
-                  {item.symbol} (Vol: ${(Number(item.volume) / 1000000).toFixed(1)}M)
-                </option>
-              ))}
+              {availableSymbols.length === 0 ? (
+                <option value="">Loading symbols...</option>
+              ) : (
+                availableSymbols.map((symbol: string) => (
+                  <option key={symbol} value={symbol}>
+                    {symbol} {botStatus?.scannedSymbols ? '(Bot Scanning)' : '(High Volume)'}
+                  </option>
+                ))
+              )}
             </select>
           </div>
           
           <div>
             <label className="label">Watched Symbols</label>
             <div className="flex flex-wrap gap-2">
-              {watchedSymbols.map((symbol) => (
+              {watchedSymbols.map((symbol: string) => (
                 <button
                   key={symbol}
                   onClick={() => setSelectedSymbol(symbol)}
@@ -100,7 +112,28 @@ export default function RealTimeSignals() {
       </div>
 
       {/* Current Signal Analysis */}
-      {currentSignal && (
+      {signalLoading ? (
+        <div className="card p-6">
+          <div className="flex items-center justify-center h-32">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto mb-2"></div>
+              <div className="text-gray-600">Loading signal for {selectedSymbol}...</div>
+            </div>
+          </div>
+        </div>
+      ) : signalError ? (
+        <div className="card p-6">
+          <div className="flex items-center justify-center h-32">
+            <div className="text-center">
+              <div className="text-red-600 text-lg mb-2">⚠️</div>
+              <div className="text-gray-600">Failed to load signal for {selectedSymbol}</div>
+              <div className="text-sm text-gray-500 mt-1">
+                {signalError instanceof Error ? signalError.message : 'Unknown error'}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : currentSignal ? (
         <div className="card p-6">
           <div className="flex justify-between items-center mb-4">
             <h3 className="text-lg font-medium text-gray-900">
@@ -123,19 +156,22 @@ export default function RealTimeSignals() {
                   <div className="flex justify-between">
                     <span className="text-sm text-gray-600">Current:</span>
                     <span className="text-sm font-medium">
-                      ${currentSignal.indicators.price ? Number(currentSignal.indicators.price).toFixed(4) : 'N/A'}
+                      {currentSignal.indicators.price && currentSignal.indicators.price !== null ? 
+                        `$${Number(currentSignal.indicators.price).toFixed(4)}` : 'N/A'}
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-sm text-gray-600">MA1 (9):</span>
                     <span className="text-sm font-medium">
-                      ${currentSignal.indicators.ma1 ? Number(currentSignal.indicators.ma1).toFixed(4) : 'N/A'}
+                      {currentSignal.indicators.ma1 && currentSignal.indicators.ma1 !== null ? 
+                        `$${Number(currentSignal.indicators.ma1).toFixed(4)}` : 'N/A'}
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-sm text-gray-600">MA2 (21):</span>
                     <span className="text-sm font-medium">
-                      ${currentSignal.indicators.ma2 ? Number(currentSignal.indicators.ma2).toFixed(4) : 'N/A'}
+                      {currentSignal.indicators.ma2 && currentSignal.indicators.ma2 !== null ? 
+                        `$${Number(currentSignal.indicators.ma2).toFixed(4)}` : 'N/A'}
                     </span>
                   </div>
                 </div>
@@ -162,22 +198,26 @@ export default function RealTimeSignals() {
                   <div className="flex justify-between">
                     <span className="text-sm text-gray-600">Current:</span>
                     <span className="text-sm font-medium">
-                      {currentSignal.indicators.volume ? (Number(currentSignal.indicators.volume) / 1000).toFixed(1) + 'K' : 'N/A'}
+                      {currentSignal.indicators.volume && currentSignal.indicators.volume !== null ? 
+                        (Number(currentSignal.indicators.volume) / 1000).toFixed(1) + 'K' : 'N/A'}
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-sm text-gray-600">Average:</span>
                     <span className="text-sm font-medium">
-                      {currentSignal.indicators.avgVolume ? (Number(currentSignal.indicators.avgVolume) / 1000).toFixed(1) + 'K' : 'N/A'}
+                      {currentSignal.indicators.avgVolume && currentSignal.indicators.avgVolume !== null ? 
+                        (Number(currentSignal.indicators.avgVolume) / 1000).toFixed(1) + 'K' : 'N/A'}
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-sm text-gray-600">Ratio:</span>
                     <span className={`text-sm font-medium ${
                       currentSignal.indicators.volume && currentSignal.indicators.avgVolume &&
+                      currentSignal.indicators.volume !== null && currentSignal.indicators.avgVolume !== null &&
                       currentSignal.indicators.volume / currentSignal.indicators.avgVolume > 1.5 ? 'text-green-600' : 'text-gray-600'
                     }`}>
-                      {currentSignal.indicators.volume && currentSignal.indicators.avgVolume ? 
+                      {currentSignal.indicators.volume && currentSignal.indicators.avgVolume && 
+                       currentSignal.indicators.volume !== null && currentSignal.indicators.avgVolume !== null ? 
                         (Number(currentSignal.indicators.volume) / Number(currentSignal.indicators.avgVolume)).toFixed(2) + 'x' : 'N/A'
                       }
                     </span>
@@ -229,6 +269,18 @@ export default function RealTimeSignals() {
             <p className="text-sm text-gray-700">
               <strong>Reason:</strong> {currentSignal.reason || 'No reason provided'}
             </p>
+          </div>
+        </div>
+      ) : (
+        <div className="card p-6">
+          <div className="flex items-center justify-center h-32">
+            <div className="text-center">
+              <div className="text-gray-400 text-lg mb-2">📊</div>
+              <div className="text-gray-600">No signal data available</div>
+              <div className="text-sm text-gray-500 mt-1">
+                Please select a valid symbol to view trading signals
+              </div>
+            </div>
           </div>
         </div>
       )}

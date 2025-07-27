@@ -93,6 +93,7 @@ export interface BotStatus {
   activePositions: Position[];
   config: BotConfig;
   symbolsCount: number;
+  scannedSymbols: string[];
   balance?: any;
   demoMode: boolean;
 }

@@ -538,8 +538,13 @@ export class TradingBot extends EventEmitter {
       isRunning: this.isRunning,
       activePositions: Array.from(this.activePositions.values()),
       config: this.config,
-      symbolsCount: this.config.symbolsToScan.length
+      symbolsCount: this.config.symbolsToScan.length,
+      scannedSymbols: this.config.symbolsToScan
     };
+  }
+
+  getScannedSymbols(): string[] {
+    return [...this.config.symbolsToScan];
   }
 
   updateConfig(config: Partial<BotConfig>) {

@@ -84,15 +84,36 @@ export class SignalGenerator {
 
       // Check for sufficient data
       const latestIndex = candles.length - 1;
-      if (isNaN(indicators.latestValues.ma1) || isNaN(indicators.latestValues.ma2) || 
-          isNaN(indicators.latestValues.rsi) || isNaN(indicators.latestValues.price)) {
-        logger.warn(`Invalid indicator values for ${symbol}:`, {
+      
+      // Validate technical indicators - be more lenient
+      if (!indicators.latestValues) {
+        logger.warn(`No latest values for ${symbol}`);
+        return this.createHoldSignal(symbol, null, 'No technical indicators available');
+      }
+
+      // Check if we have sufficient data to generate a meaningful signal
+      const hasValidPrice = indicators.latestValues.price && !isNaN(indicators.latestValues.price);
+      const hasValidMA1 = indicators.latestValues.ma1 && !isNaN(indicators.latestValues.ma1);
+      const hasValidMA2 = indicators.latestValues.ma2 && !isNaN(indicators.latestValues.ma2);
+      const hasValidRSI = indicators.latestValues.rsi && !isNaN(indicators.latestValues.rsi);
+
+      if (!hasValidPrice) {
+        logger.warn(`No valid price data for ${symbol}`);
+        return this.createHoldSignal(symbol, indicators.latestValues, 'No current price data available');
+      }
+
+      // If some indicators are missing, still try to generate signal with available data
+      if (!hasValidMA1 || !hasValidMA2 || !hasValidRSI) {
+        logger.debug(`Some technical indicators missing for ${symbol}:`, {
+          hasMA1: hasValidMA1,
+          hasMA2: hasValidMA2,
+          hasRSI: hasValidRSI,
           ma1: indicators.latestValues.ma1,
           ma2: indicators.latestValues.ma2,
           rsi: indicators.latestValues.rsi,
           price: indicators.latestValues.price
         });
-        return this.createHoldSignal(symbol, indicators.latestValues, 'Invalid technical indicators');
+        // Still generate a basic signal with available data instead of failing
       }
 
       // Analyze conditions
@@ -281,13 +302,14 @@ export class SignalGenerator {
     reason: string
   ): TradingSignal {
     // Ensure indicators is always a valid object with required properties
+    // Use null/undefined to show N/A in frontend instead of misleading zeros
     const safeIndicators = {
-      price: (indicators?.price && !isNaN(indicators.price)) ? indicators.price : 0,
-      ma1: (indicators?.ma1 && !isNaN(indicators.ma1)) ? indicators.ma1 : 0,
-      ma2: (indicators?.ma2 && !isNaN(indicators.ma2)) ? indicators.ma2 : 0,
-      rsi: (indicators?.rsi && !isNaN(indicators.rsi)) ? indicators.rsi : 50, // Neutral RSI
-      volume: (indicators?.volume && !isNaN(indicators.volume)) ? indicators.volume : 0,
-      avgVolume: (indicators?.avgVolume && !isNaN(indicators.avgVolume)) ? indicators.avgVolume : 0
+      price: (indicators?.price && !isNaN(indicators.price)) ? indicators.price : null,
+      ma1: (indicators?.ma1 && !isNaN(indicators.ma1)) ? indicators.ma1 : null,
+      ma2: (indicators?.ma2 && !isNaN(indicators.ma2)) ? indicators.ma2 : null,
+      rsi: (indicators?.rsi && !isNaN(indicators.rsi)) ? indicators.rsi : 50, // Default to neutral RSI
+      volume: (indicators?.volume && !isNaN(indicators.volume)) ? indicators.volume : null,
+      avgVolume: (indicators?.avgVolume && !isNaN(indicators.avgVolume)) ? indicators.avgVolume : null
     };
 
     return {

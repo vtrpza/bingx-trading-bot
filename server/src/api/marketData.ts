@@ -161,6 +161,8 @@ router.get('/signal/:symbol', asyncHandler(async (req: Request, res: Response) =
   const { interval = '5m', limit = '100' } = req.query;
   
   try {
+    logger.debug(`Generating signal for ${symbol} with interval ${interval} and limit ${limit}`);
+    
     // Get kline data
     const klines = await bingxClient.getKlines(
       symbol, 
@@ -168,23 +170,60 @@ router.get('/signal/:symbol', asyncHandler(async (req: Request, res: Response) =
       parseInt(limit as string)
     );
     
+    logger.debug(`Klines response for ${symbol}:`, { 
+      code: klines.code, 
+      dataLength: klines.data?.length,
+      hasData: !!klines.data 
+    });
+    
     if (klines.code !== 0 || !klines.data) {
-      throw new AppError('Failed to fetch kline data', 500);
+      logger.error(`Failed to fetch klines for ${symbol}:`, { code: klines.code, msg: klines.msg });
+      throw new AppError(`Failed to fetch kline data: ${klines.msg || 'Unknown error'}`, 500);
     }
     
-    // Convert to candle format
-    const candles = klines.data.map((k: any) => ({
-      timestamp: k[0],
-      open: parseFloat(k[1]),
-      high: parseFloat(k[2]),
-      low: parseFloat(k[3]),
-      close: parseFloat(k[4]),
-      volume: parseFloat(k[5])
-    }));
+    if (klines.data.length === 0) {
+      logger.warn(`No kline data available for ${symbol}`);
+      throw new AppError('No market data available for this symbol', 404);
+    }
+    
+    // Convert to candle format with validation
+    const candles = klines.data.map((k: any, index: number) => {
+      const candle = {
+        timestamp: k[0],
+        open: parseFloat(k[1]),
+        high: parseFloat(k[2]),
+        low: parseFloat(k[3]),
+        close: parseFloat(k[4]),
+        volume: parseFloat(k[5])
+      };
+      
+      // Validate candle data
+      if (isNaN(candle.open) || isNaN(candle.high) || isNaN(candle.low) || isNaN(candle.close)) {
+        logger.warn(`Invalid candle data at index ${index} for ${symbol}:`, k);
+      }
+      
+      return candle;
+    }).filter((candle: any) => 
+      !isNaN(candle.open) && !isNaN(candle.high) && 
+      !isNaN(candle.low) && !isNaN(candle.close)
+    );
+    
+    logger.debug(`Processed ${candles.length} valid candles for ${symbol}`);
+    
+    if (candles.length < 50) {
+      logger.warn(`Insufficient candle data for ${symbol}: ${candles.length} candles`);
+      // Still generate signal but note the limitation
+    }
     
     // Generate signal
     const signalGenerator = new SignalGenerator();
     const signal = signalGenerator.generateSignal(symbol, candles);
+    
+    logger.debug(`Generated signal for ${symbol}:`, { 
+      action: signal.action, 
+      strength: signal.strength, 
+      reason: signal.reason 
+    });
     
     res.json({
       success: true,
@@ -192,7 +231,13 @@ router.get('/signal/:symbol', asyncHandler(async (req: Request, res: Response) =
     });
   } catch (error) {
     logger.error(`Failed to generate signal for ${symbol}:`, error);
-    throw new AppError('Failed to generate signal', 500);
+    
+    // Return a meaningful error response instead of throwing
+    if (error instanceof AppError) {
+      throw error;
+    }
+    
+    throw new AppError(`Signal generation failed: ${error instanceof Error ? error.message : 'Unknown error'}`, 500);
   }
 }));
 
