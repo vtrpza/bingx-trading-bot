@@ -11,15 +11,23 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null)
 
   // Get real-time positions from API
-  const { data: realTimePositions } = useQuery(
+  const { data: realTimePositions, error } = useQuery(
     'positions',
     api.getPositions,
     {
       refetchInterval: 3000,
+      onError: (error) => {
+        console.error('Failed to fetch positions:', error)
+      }
     }
   )
 
-  const displayPositions = realTimePositions || positions
+  // Ensure we always have a valid array
+  const displayPositions = Array.isArray(realTimePositions) 
+    ? realTimePositions 
+    : Array.isArray(positions) 
+      ? positions 
+      : []
 
   const formatNumber = (value: number | string, decimals = 4) => {
     return Number(value).toFixed(decimals)
@@ -35,6 +43,20 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
     const numValue = Number(value)
     const formatted = numValue.toFixed(2)
     return numValue >= 0 ? `+${formatted} ${currency}` : `${formatted} ${currency}`
+  }
+
+  // Show error state if API failed
+  if (error) {
+    return (
+      <div className="card p-8">
+        <div className="text-center">
+          <div className="text-red-400 text-lg mb-2">⚠️ Error Loading Positions</div>
+          <p className="text-gray-500">
+            Unable to fetch position data. The bot may still be running normally.
+          </p>
+        </div>
+      </div>
+    )
   }
 
   if (!displayPositions || displayPositions.length === 0) {
@@ -89,7 +111,7 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
             </tr>
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
-            {displayPositions.map((position, index) => {
+            {Array.isArray(displayPositions) && displayPositions.map((position, index) => {
               const isLong = parseFloat(position.positionAmt) > 0
               const size = Math.abs(parseFloat(position.positionAmt))
               const entryPrice = parseFloat(position.entryPrice)
