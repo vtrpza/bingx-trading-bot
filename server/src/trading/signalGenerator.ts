@@ -113,7 +113,17 @@ export class SignalGenerator {
           rsi: indicators.latestValues.rsi,
           price: indicators.latestValues.price
         });
-        // Still generate a basic signal with available data instead of failing
+        
+        // Use fallback values for missing indicators to ensure we can still generate signals
+        if (!hasValidMA1 && hasValidPrice) {
+          indicators.latestValues.ma1 = indicators.latestValues.price;
+        }
+        if (!hasValidMA2 && hasValidPrice) {
+          indicators.latestValues.ma2 = indicators.latestValues.price;
+        }
+        if (!hasValidRSI) {
+          indicators.latestValues.rsi = 50; // Neutral RSI
+        }
       }
 
       // Analyze conditions
@@ -147,13 +157,18 @@ export class SignalGenerator {
       crossoverType: null as 'bullish' | 'bearish' | null
     };
 
-    // Check MA crossover
-    const recentBullishCrossover = indicators.crossovers.bullish.some(
-      (index: number) => index >= latestIndex - 3
-    );
-    const recentBearishCrossover = indicators.crossovers.bearish.some(
-      (index: number) => index >= latestIndex - 3
-    );
+    // Check MA crossover - handle missing crossover data gracefully
+    let recentBullishCrossover = false;
+    let recentBearishCrossover = false;
+    
+    if (indicators.crossovers && indicators.crossovers.bullish && indicators.crossovers.bearish) {
+      recentBullishCrossover = indicators.crossovers.bullish.some(
+        (index: number) => index >= latestIndex - 3
+      );
+      recentBearishCrossover = indicators.crossovers.bearish.some(
+        (index: number) => index >= latestIndex - 3
+      );
+    }
 
     if (recentBullishCrossover) {
       conditions.maCrossover = true;
@@ -171,21 +186,28 @@ export class SignalGenerator {
       conditions.rsiSignal = true; // Overbought - potential sell
     }
 
-    // Check volume confirmation
-    const volumeRatio = indicators.latestValues.volume / indicators.latestValues.avgVolume;
+    // Check volume confirmation - handle missing volume data gracefully
+    let volumeRatio = 1; // Default to neutral ratio
+    if (indicators.latestValues.volume && indicators.latestValues.avgVolume && 
+        indicators.latestValues.volume > 0 && indicators.latestValues.avgVolume > 0) {
+      volumeRatio = indicators.latestValues.volume / indicators.latestValues.avgVolume;
+    }
     conditions.volumeConfirmation = volumeRatio >= this.config.volumeSpikeThreshold;
 
-    // Check trend alignment
+    // Check trend alignment - handle missing MA data gracefully
     const ma1 = indicators.latestValues.ma1;
     const ma2 = indicators.latestValues.ma2;
     const price = indicators.latestValues.price;
     
-    // Bullish trend: price > MA1 > MA2
-    // Bearish trend: price < MA1 < MA2
-    if (price > ma1 && ma1 > ma2) {
-      conditions.trendAlignment = true;
-    } else if (price < ma1 && ma1 < ma2) {
-      conditions.trendAlignment = true;
+    // Only check trend alignment if we have valid MA data
+    if (ma1 && ma2 && price && !isNaN(ma1) && !isNaN(ma2) && !isNaN(price)) {
+      // Bullish trend: price > MA1 > MA2
+      // Bearish trend: price < MA1 < MA2
+      if (price > ma1 && ma1 > ma2) {
+        conditions.trendAlignment = true;
+      } else if (price < ma1 && ma1 < ma2) {
+        conditions.trendAlignment = true;
+      }
     }
 
     return conditions;

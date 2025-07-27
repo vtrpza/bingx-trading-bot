@@ -266,7 +266,7 @@ export default function RealTimeSignals() {
             </div>
           </div>
 
-          {currentSignal.indicators && Object.keys(currentSignal.indicators).length > 0 ? (
+          {currentSignal.indicators ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               {/* Price Info */}
               <div>
