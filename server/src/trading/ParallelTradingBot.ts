@@ -131,7 +131,7 @@ export class ParallelTradingBot extends EventEmitter {
     
     this.config = {
       enabled: false,
-      scanInterval: 900000, // 15 minutes - increased to further reduce API pressure and respect rate limits
+      scanInterval: parseInt(process.env.SCAN_INTERVAL || '60000'), // 1 minute - FASTER scanning
       symbolsToScan: [],
       maxConcurrentTrades: 5,
       defaultPositionSize: 100,

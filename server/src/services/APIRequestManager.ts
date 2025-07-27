@@ -39,19 +39,20 @@ export class APIRequestManager {
   private requestQueue: RequestQueueItem[] = [];
   private isProcessingQueue = false;
   
-  // Cache durations in milliseconds
+  // Cache durations in milliseconds - OPTIMIZED
   private cacheDurations = {
-    balance: 120000,      // 2 minutes - less critical for precise timing
-    positions: 90000,     // 1.5 minutes - reduce frequent calls  
-    klines: 180000,       // 3 minutes - historical data changes slowly
-    ticker: 45000,        // 45 seconds - price data less critical for caching
+    balance: 60000,       // 1 minute - faster updates
+    positions: 30000,     // 30 seconds - real-time positions  
+    klines: 120000,       // 2 minutes - reduce API load
+    ticker: 20000,        // 20 seconds - faster price updates
     symbols: 300000,      // 5 minutes - rarely changes
-    openOrders: 30000,    // 30 seconds - more dynamic
-    depth: 15000          // 15 seconds - order book changes frequently
+    openOrders: 15000,    // 15 seconds - faster order tracking
+    depth: 10000          // 10 seconds - faster order book
   };
 
-  // Request spacing - more conservative than BingX limits
-  private readonly requestSpacing = 1200; // 1.2 seconds between requests
+  // Request spacing - OPTIMIZED for speed
+  private readonly requestSpacing = 600; // 0.6 seconds between requests
+  private readonly queueTimeout = parseInt(process.env.API_TIMEOUT || '5000'); // 5 second timeout
   private lastRequestTime = 0;
 
   /**
