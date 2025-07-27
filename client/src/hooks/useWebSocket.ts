@@ -44,6 +44,11 @@ export function useWebSocket(url: string, options: UseWebSocketOptions = {}) {
         setReadyState(WebSocket.OPEN)
         setConnectionStatus('connected')
         reconnectAttempts.current = 0
+        
+        if (enableWebSocketDebug) {
+          console.log('✅ WebSocket connection opened successfully');
+        }
+        
         onOpen?.(event)
       }
 
