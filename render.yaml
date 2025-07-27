@@ -47,16 +47,16 @@ services:
     routes:
       - type: rewrite
         source: /api/*
-        destination: https://bingx-trading-bot-api.onrender.com$request_uri
+        destination: https://bingx-trading-bot-lu0z.onrender.com/api/*
       - type: rewrite
         source: /health
-        destination: https://bingx-trading-bot-api.onrender.com/health
+        destination: https://bingx-trading-bot-lu0z.onrender.com/health
       - type: rewrite
         source: /favicon.ico
-        destination: https://bingx-trading-bot-api.onrender.com/favicon.ico
+        destination: https://bingx-trading-bot-lu0z.onrender.com/favicon.ico
       - type: rewrite
         source: /manifest.json
-        destination: https://bingx-trading-bot-api.onrender.com/manifest.json
+        destination: https://bingx-trading-bot-lu0z.onrender.com/manifest.json
       - type: rewrite
         source: /*
         destination: /index.html
