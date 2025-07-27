@@ -47,7 +47,7 @@ export default function AssetsPage() {
     toast.loading('Refreshing assets from BingX...', { id: 'refresh-assets' })
     
     try {
-      const result = await api.refreshAssets((progressData) => {
+      await api.refreshAssets((progressData) => {
         // Update progress state
         setRefreshProgress({
           progress: progressData.progress || 0,
