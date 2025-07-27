@@ -46,6 +46,7 @@ export interface MonitoringConfig {
   enabled: boolean;
   snapshotInterval: number; // milliseconds
   retentionPeriod: number; // milliseconds
+  warmupPeriod: number; // milliseconds - delay before alerting starts
   alertThresholds: {
     highLatency: number;
     lowThroughput: number;
@@ -73,6 +74,7 @@ export class PerformanceMonitor extends EventEmitter {
   private lastTradeCount: number = 0;
   private lastSnapshotTime: number = 0;
   private cpuStartUsage: NodeJS.CpuUsage = process.cpuUsage();
+  private startTime: number = 0;
 
   constructor(bot: ParallelTradingBot, config: Partial<MonitoringConfig> = {}) {
     super();
@@ -82,6 +84,7 @@ export class PerformanceMonitor extends EventEmitter {
       enabled: true,
       snapshotInterval: 5000, // 5 seconds
       retentionPeriod: 3600000, // 1 hour
+      warmupPeriod: 30000, // 30 seconds warmup before alerts
       alertThresholds: {
         highLatency: 5000, // 5 seconds
         lowThroughput: 10, // signals per minute
@@ -101,6 +104,7 @@ export class PerformanceMonitor extends EventEmitter {
     }
 
     this.isRunning = true;
+    this.startTime = Date.now();
     this.lastSnapshotTime = Date.now();
     
     // Take initial snapshot
@@ -169,9 +173,10 @@ export class PerformanceMonitor extends EventEmitter {
       const queueEfficiency = componentMetrics.signalQueue.active > 0 ? 
         (componentMetrics.signalQueue.processing / componentMetrics.signalQueue.active) * 100 : 100;
 
-      const errorRate = botMetrics.signalMetrics.totalGenerated > 0 ?
-        ((botMetrics.signalMetrics.totalGenerated - botMetrics.signalMetrics.processedSignals) / 
-         botMetrics.signalMetrics.totalGenerated) * 100 : 0;
+      // Calculate error rate based on actual signal generation failures
+      const totalSignalAttempts = botMetrics.signalMetrics.totalGenerated + (botMetrics.signalMetrics.failedSignals || 0);
+      const errorRate = totalSignalAttempts > 0 ?
+        ((botMetrics.signalMetrics.failedSignals || 0) / totalSignalAttempts) * 100 : 0;
 
       const snapshot: PerformanceSnapshot = {
         timestamp: now,
@@ -217,6 +222,12 @@ export class PerformanceMonitor extends EventEmitter {
       return;
     }
 
+    // Check if we're still in warmup period
+    const now = Date.now();
+    if (now - this.startTime < this.config.warmupPeriod) {
+      return; // Skip alerts during warmup
+    }
+
     const latest = this.snapshots[this.snapshots.length - 1];
     const thresholds = this.config.alertThresholds;
 
@@ -247,8 +258,11 @@ export class PerformanceMonitor extends EventEmitter {
       );
     }
 
-    // Check error rate
-    if (latest.efficiencyMetrics.errorRate > thresholds.highErrorRate) {
+    // Check error rate - only alert if there have been actual attempts/failures
+    const hasSignalActivity = latest.botMetrics.signalMetrics.totalGenerated > 0 || 
+                             (latest.botMetrics.signalMetrics.failedSignals || 0) > 0;
+    
+    if (hasSignalActivity && latest.efficiencyMetrics.errorRate > thresholds.highErrorRate) {
       this.createAlert('high_error_rate', 'warning',
         `High error rate: ${latest.efficiencyMetrics.errorRate.toFixed(1)}%`,
         latest.efficiencyMetrics.errorRate,

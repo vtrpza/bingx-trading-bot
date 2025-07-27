@@ -51,6 +51,7 @@ export interface ParallelBotMetrics {
     totalGenerated: number;
     queuedSignals: number;
     processedSignals: number;
+    failedSignals: number;
     avgSignalLatency: number;
   };
   executionMetrics: {
@@ -105,6 +106,7 @@ export class ParallelTradingBot extends EventEmitter {
   private metrics!: ParallelBotMetrics;
   private scanStartTime: number = 0;
   private totalScans: number = 0;
+  private lastScanIndex: number = 0; // Track where scanner left off
 
   constructor(config?: Partial<ParallelBotConfig>) {
     super();
@@ -193,6 +195,7 @@ export class ParallelTradingBot extends EventEmitter {
         totalGenerated: 0,
         queuedSignals: 0,
         processedSignals: 0,
+        failedSignals: 0,
         avgSignalLatency: 0
       },
       executionMetrics: {
@@ -262,6 +265,7 @@ export class ParallelTradingBot extends EventEmitter {
     });
 
     this.signalWorkerPool.on('taskFailed', (error) => {
+      this.metrics.signalMetrics.failedSignals++;
       this.handleSymbolError(error.task.symbol, error.error);
       this.addActivityEvent('error', `Signal generation failed: ${error.error}`, 'error', error.task.symbol);
     });
@@ -479,12 +483,34 @@ export class ParallelTradingBot extends EventEmitter {
       return;
     }
 
-    const symbolsToScan = this.config.symbolsToScan.filter(symbol => 
-      !this.activePositions.has(symbol) && !this.isSymbolBlacklisted(symbol)
-    );
+    // Get available symbols starting from where we left off
+    const allSymbols = this.config.symbolsToScan;
+    const availableSymbols = [];
+    
+    // Continue scanning from last index, wrapping around if needed
+    let currentIndex = this.lastScanIndex;
+    let scannedCount = 0;
+    
+    while (scannedCount < allSymbols.length && availableSymbols.length < 8) { // Limit batch size
+      const symbol = allSymbols[currentIndex];
+      
+      // Check if symbol is available for scanning
+      if (!this.activePositions.has(symbol) && !this.isSymbolBlacklisted(symbol)) {
+        availableSymbols.push(symbol);
+      } else if (this.isSymbolBlacklisted(symbol)) {
+        logger.debug(`Skipping blacklisted symbol: ${symbol}`);
+      }
+      
+      // Move to next symbol, wrap around if at end
+      currentIndex = (currentIndex + 1) % allSymbols.length;
+      scannedCount++;
+    }
+    
+    // Update scan position for next iteration
+    this.lastScanIndex = currentIndex;
 
-    if (symbolsToScan.length === 0) {
-      logger.debug('No new symbols to scan');
+    if (availableSymbols.length === 0) {
+      logger.debug('No available symbols to scan (all blacklisted or in positions)');
       return;
     }
 
@@ -495,13 +521,13 @@ export class ParallelTradingBot extends EventEmitter {
     const batchSize = 4; // Process symbols in smaller batches
     const batches = [];
     
-    for (let i = 0; i < symbolsToScan.length; i += batchSize) {
-      batches.push(symbolsToScan.slice(i, i + batchSize));
+    for (let i = 0; i < availableSymbols.length; i += batchSize) {
+      batches.push(availableSymbols.slice(i, i + batchSize));
     }
 
-    logger.debug(`Starting batched scan of ${symbolsToScan.length} symbols in ${batches.length} batches`);
+    logger.debug(`Starting batched scan of ${availableSymbols.length} symbols in ${batches.length} batches (resume from index ${this.lastScanIndex})`);
     this.addActivityEvent('scan_started', 
-      `Starting batched scan of ${symbolsToScan.length} symbols (${batches.length} batches)`, 
+      `Starting batched scan of ${availableSymbols.length} symbols (${batches.length} batches, resume from index ${this.lastScanIndex})`, 
       'info'
     );
     
@@ -520,9 +546,9 @@ export class ParallelTradingBot extends EventEmitter {
     }
     
     // Update metrics
-    this.updateScanMetrics(symbolsToScan.length);
+    this.updateScanMetrics(availableSymbols.length);
     
-    logger.debug(`Completed batched processing of ${symbolsToScan.length} symbols`);
+    logger.debug(`Completed batched processing of ${availableSymbols.length} symbols`);
   }
 
   private handleSignalGenerated(signal: any): void {

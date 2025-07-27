@@ -58,6 +58,11 @@ class TradeExecutor extends EventEmitter {
   private metrics: ExecutorMetrics;
   private config: TradeExecutorConfig;
 
+  // Helper method to get the base currency (USDT for live, VST for demo)
+  private getBaseCurrency(): string {
+    return process.env.DEMO_MODE === 'true' ? 'VST' : 'USDT';
+  }
+
   constructor(id: string, config: TradeExecutorConfig) {
     super();
     this.id = id;
@@ -164,18 +169,45 @@ class TradeExecutor extends EventEmitter {
 
     // Handle different balance data structures
     let balanceData;
+    let usdtBalance;
+    
+    const baseCurrency = this.getBaseCurrency();
+    
     if (Array.isArray(balanceResponse.data)) {
+      // Array of balances
       balanceData = balanceResponse.data;
+      usdtBalance = balanceData.find((b: any) => b.asset === 'USDT' || b.asset === 'VST' || b.asset === baseCurrency);
     } else if (balanceResponse.data.balance && Array.isArray(balanceResponse.data.balance)) {
+      // Nested array in balance property
       balanceData = balanceResponse.data.balance;
+      usdtBalance = balanceData.find((b: any) => b.asset === 'USDT' || b.asset === 'VST' || b.asset === baseCurrency);
+    } else if (balanceResponse.data.balance && balanceResponse.data.balance.asset) {
+      // Single balance object structure
+      const balance = balanceResponse.data.balance;
+      if (balance.asset === 'USDT' || balance.asset === 'VST' || balance.asset === baseCurrency) {
+        // VST is the demo trading currency, treat it like USDT
+        usdtBalance = balance;
+        if (balance.asset === 'VST') {
+          logger.debug('Using VST balance from demo trading environment');
+        }
+      } else {
+        logger.warn(`Single balance returned for ${balance.asset}, expected ${baseCurrency}. Using available balance as reference.`);
+        // Assume sufficient balance if we have any balance
+        usdtBalance = { asset: balance.asset, balance: balance.balance, availableMargin: balance.availableMargin };
+      }
     } else {
       logger.error('Unexpected balance data structure:', balanceResponse.data);
       throw new Error('Invalid balance data structure');
     }
 
-    const usdtBalance = balanceData.find((b: any) => b.asset === 'USDT');
-    if (!usdtBalance || parseFloat(usdtBalance.balance) < task.positionSize) {
-      throw new Error('Insufficient USDT balance');
+    if (!usdtBalance) {
+      logger.error(`${baseCurrency} balance not found in response:`, balanceResponse.data);
+      throw new Error(`${baseCurrency} balance not found`);
+    }
+
+    const availableBalance = parseFloat(usdtBalance.availableMargin || usdtBalance.balance || '0');
+    if (availableBalance < task.positionSize) {
+      throw new Error(`Insufficient balance: ${availableBalance} < ${task.positionSize}`);
     }
 
     // Check if position already exists for this symbol
