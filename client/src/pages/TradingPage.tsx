@@ -324,7 +324,11 @@ export default function TradingPage() {
             <TradingStats stats={tradingStats} />
             
             {/* Trading Flow Monitor */}
-            <TradingFlowMonitor />
+            <TradingFlowMonitor 
+              activityEvents={activityEvents}
+              parallelMetrics={parallelMetrics}
+              isParallelBot={true}
+            />
             
             {botStatus?.activePositions && botStatus.activePositions.length > 0 && (
               <PositionsTable positions={botStatus.activePositions} />

@@ -31,11 +31,15 @@ axiosInstance.interceptors.request.use(
 // Response interceptor
 axiosInstance.interceptors.response.use(
   (response) => {
-    // Se a resposta tem o formato padrão { success: true, data: {...} }, extrair só os dados
+    // For API responses with format { success: true, data: {...} }, return the data field directly
     if (response.data && response.data.success && response.data.data !== undefined) {
-      return { ...response, data: response.data.data }
+      // Preserve axios response structure but replace data content
+      return {
+        ...response,
+        data: response.data.data
+      }
     }
-    // Caso contrário, retornar a resposta completa
+    // For other responses, return as-is
     return response
   },
   (error) => {

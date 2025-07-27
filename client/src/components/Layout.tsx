@@ -23,7 +23,7 @@ export default function Layout({ children }: LayoutProps) {
       retry: false,
     }
   )
-
+  console.log('Bot Status:', botStatus)
   useEffect(() => {
     if (location.pathname.includes('/trading')) {
       setCurrentTab('trading')

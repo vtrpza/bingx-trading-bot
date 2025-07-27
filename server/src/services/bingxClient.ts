@@ -64,11 +64,22 @@ export class BingXClient {
           
           logger.warn('BingX rate limit exceeded (109400), implementing backoff and retry', {
             url: originalRequest.url,
-            retryAfter: error.response.data.retryAfter || 'unknown'
+            retryAfter: error.response.data.retryAfter || 'unknown',
+            message: error.response.data.msg || 'Rate limit exceeded'
           });
           
-          // Wait for the retry time specified in error or default to 2 seconds
-          const retryAfter = error.response.data.retryAfter || 2000;
+          // Parse retry time from error message if available
+          const errorMsg = error.response.data.msg || '';
+          const retryTimeMatch = errorMsg.match(/retry after time: (\d+)/);
+          let retryAfter = 3000; // Default 3 seconds
+          
+          if (retryTimeMatch) {
+            const retryTimestamp = parseInt(retryTimeMatch[1]);
+            const currentTime = Date.now();
+            retryAfter = Math.max(1000, retryTimestamp - currentTime); // At least 1 second
+            logger.info(`BingX specified retry time: ${new Date(retryTimestamp).toISOString()}, waiting ${retryAfter}ms`);
+          }
+          
           await new Promise(resolve => setTimeout(resolve, retryAfter));
           
           // Reset rate limiter to prevent immediate subsequent failures

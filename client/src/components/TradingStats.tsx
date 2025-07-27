@@ -10,16 +10,32 @@ export default function TradingStats({ stats: initialStats }: TradingStatsProps)
   const [period, setPeriod] = useState('24h')
 
   // Get trading statistics for different periods
-  const { data: stats } = useQuery(
+  const { data: stats, error, isLoading } = useQuery(
     ['trading-stats', period],
     () => api.getTradingStats(period),
     {
       initialData: period === '24h' ? initialStats : undefined,
       refetchInterval: 30000,
+      retry: 3,
+      onError: (error) => {
+        console.error('Failed to fetch trading stats:', error)
+      }
     }
   )
-
-  if (!stats) {
+  
+  console.log('Trading Stats Debug:', { stats, error, isLoading, period })
+  
+  if (error) {
+    return (
+      <div className="card p-6">
+        <div className="text-center text-red-500">
+          Error loading trading statistics: {error instanceof Error ? error.message : 'Unknown error'}
+        </div>
+      </div>
+    )
+  }
+  
+  if (isLoading || !stats) {
     return (
       <div className="card p-6">
         <div className="text-center text-gray-500">Loading trading statistics...</div>
@@ -69,25 +85,25 @@ export default function TradingStats({ stats: initialStats }: TradingStatsProps)
         <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-5 gap-6">
           {/* Total Trades */}
           <div className="text-center">
-            <div className="text-2xl font-bold text-gray-900">{stats.totalTrades}</div>
+            <div className="text-2xl font-bold text-gray-900">{stats.totalTrades || 0}</div>
             <div className="text-sm text-gray-500">Total Trades</div>
           </div>
 
           {/* Win Rate */}
           <div className="text-center">
-            <div className="text-2xl font-bold text-green-600">{stats.winRate}%</div>
+            <div className="text-2xl font-bold text-green-600">{stats.winRate || '0'}%</div>
             <div className="text-sm text-gray-500">Win Rate</div>
             <div className="text-xs text-gray-400 mt-1">
-              {stats.winningTrades}W / {stats.losingTrades}L
+              {stats.winningTrades || 0}W / {stats.losingTrades || 0}L
             </div>
           </div>
 
           {/* Total P&L */}
           <div className="text-center">
             <div className={`text-2xl font-bold ${
-              parseFloat(stats.totalPnl) >= 0 ? 'text-green-600' : 'text-red-600'
+              parseFloat(stats.totalPnl || '0') >= 0 ? 'text-green-600' : 'text-red-600'
             }`}>
-              {formatCurrency(stats.totalPnl)}
+              {formatCurrency(stats.totalPnl || '0.00')}
             </div>
             <div className="text-sm text-gray-500">Total P&L</div>
           </div>
@@ -95,9 +111,9 @@ export default function TradingStats({ stats: initialStats }: TradingStatsProps)
           {/* Average P&L */}
           <div className="text-center">
             <div className={`text-2xl font-bold ${
-              parseFloat(stats.averagePnl) >= 0 ? 'text-green-600' : 'text-red-600'
+              parseFloat(stats.averagePnl || '0') >= 0 ? 'text-green-600' : 'text-red-600'
             }`}>
-              {formatCurrency(stats.averagePnl)}
+              {formatCurrency(stats.averagePnl || '0.00')}
             </div>
             <div className="text-sm text-gray-500">Avg P&L</div>
           </div>
@@ -105,7 +121,7 @@ export default function TradingStats({ stats: initialStats }: TradingStatsProps)
           {/* Total Volume */}
           <div className="text-center">
             <div className="text-2xl font-bold text-gray-900">
-              ${formatNumber(parseFloat(stats.totalVolume))}
+              ${formatNumber(parseFloat(stats.totalVolume || '0'))}
             </div>
             <div className="text-sm text-gray-500">Volume</div>
           </div>

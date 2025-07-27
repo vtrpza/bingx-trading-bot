@@ -3,12 +3,12 @@ import { logger } from '../utils/logger';
 /**
  * Global rate limiter for BingX API calls
  * Enforces conservative rate limits to prevent 109400 errors
- * BingX limit: 5 requests per 900ms, implemented as 8 per 1000ms (balanced approach)
+ * BingX limit: 5 requests per 900ms, implemented as 4 per 900ms (conservative approach)
  */
 export class GlobalRateLimiter {
   private requestLog: number[] = [];
-  private readonly maxRequests: number = 8; // Increased from 3 to 8 requests per second
-  private readonly windowMs: number = 1000; // 1 second window
+  private readonly maxRequests: number = 4; // Conservative: 4 requests per 900ms (BingX limit is 5)
+  private readonly windowMs: number = 900; // BingX window: 900ms
 
   /**
    * Check if a request can be made within rate limits
@@ -54,22 +54,23 @@ export class GlobalRateLimiter {
    */
   async waitForSlot(): Promise<void> {
     let retryCount = 0;
-    const maxRetries = 5;
+    const maxRetries = 10; // Increased retries for better reliability
     
     while (!this.canMakeRequest() && retryCount < maxRetries) {
       const now = Date.now();
       const oldestRequest = this.requestLog[0];
-      const baseWaitTime = this.windowMs - (now - oldestRequest) + 200; // Extra buffer
+      const baseWaitTime = this.windowMs - (now - oldestRequest) + 300; // Increased buffer
       
-      // Exponential backoff: base delay * 2^retryCount
-      const waitTime = Math.max(200, baseWaitTime * Math.pow(1.5, retryCount));
+      // Conservative backoff for BingX rate limits
+      const waitTime = Math.max(300, baseWaitTime * Math.pow(1.2, retryCount));
       
-      logger.debug(`Rate limited - waiting ${waitTime}ms (attempt ${retryCount + 1}/${maxRetries})`);
+      logger.info(`Rate limited - waiting ${waitTime}ms (attempt ${retryCount + 1}/${maxRetries}) to comply with BingX limits`);
       await new Promise(resolve => setTimeout(resolve, waitTime));
       retryCount++;
     }
     
     if (retryCount >= maxRetries) {
+      logger.error('Rate limit exceeded - max retries reached. BingX API may be overloaded.');
       throw new Error('Rate limit exceeded - max retries reached');
     }
   }

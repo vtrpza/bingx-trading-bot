@@ -9,7 +9,18 @@ import ProcessStepCard from './ProcessStepCard'
 import SignalJourneyTracker from './SignalJourneyTracker'
 import ActivityTimeline from './ActivityTimeline'
 
-export default function TradingFlowMonitor() {
+interface TradingFlowMonitorProps {
+  // Optional props to receive already loaded data from parent
+  activityEvents?: ActivityEvent[]
+  parallelMetrics?: any
+  isParallelBot?: boolean
+}
+
+export default function TradingFlowMonitor({ 
+  activityEvents: propActivityEvents, 
+  parallelMetrics: propParallelMetrics,
+  isParallelBot = true 
+}: TradingFlowMonitorProps = {}) {
   // const { t } = useTranslation()
   const { lastMessage } = useWebSocket('/ws')
   
@@ -47,25 +58,45 @@ export default function TradingFlowMonitor() {
     lastUpdate: flowState.lastUpdate || Date.now()
   } : null
 
-  // Get activity events
-  const { data: activityEvents } = useQuery<ActivityEvent[]>(
-    'bot-activity-events',
-    () => api.getBotActivityEvents(config.maxActivityEvents),
+  // Get activity events - use parallel bot API or fallback to legacy
+  const { data: queryActivityEvents } = useQuery<ActivityEvent[]>(
+    isParallelBot ? 'parallel-bot-activity' : 'bot-activity-events',
+    () => {
+      if (isParallelBot) {
+        return fetch(`/api/trading/parallel-bot/activity?limit=${config.maxActivityEvents}`)
+          .then(res => res.json())
+          .then(data => data.data)
+      } else {
+        return api.getBotActivityEvents(config.maxActivityEvents)
+      }
+    },
     {
       refetchInterval: config.autoRefresh ? config.refreshInterval : false,
-      enabled: config.autoRefresh
+      enabled: config.autoRefresh && !propActivityEvents // Don't fetch if props provided
     }
   )
 
-  // Get process metrics
-  const { data: processMetrics } = useQuery<ProcessMetrics>(
-    'bot-process-metrics',
-    api.getBotProcessMetrics,
+  // Get process metrics - use parallel bot API or fallback to legacy  
+  const { data: queryProcessMetrics } = useQuery<ProcessMetrics>(
+    isParallelBot ? 'parallel-bot-metrics' : 'bot-process-metrics',
+    () => {
+      if (isParallelBot) {
+        return fetch('/api/trading/parallel-bot/metrics')
+          .then(res => res.json())
+          .then(data => data.data)
+      } else {
+        return api.getBotProcessMetrics()
+      }
+    },
     {
       refetchInterval: config.autoRefresh ? config.refreshInterval * 2 : false,
-      enabled: config.autoRefresh && config.showMetrics
+      enabled: config.autoRefresh && config.showMetrics && !propParallelMetrics // Don't fetch if props provided
     }
   )
+
+  // Use props if provided, otherwise use query data
+  const activityEvents = propActivityEvents || queryActivityEvents || []
+  const processMetrics = propParallelMetrics || queryProcessMetrics
 
   // Handle WebSocket updates
   useEffect(() => {
@@ -296,16 +327,37 @@ export default function TradingFlowMonitor() {
             <div className="space-y-4">
               <div className="flex justify-between">
                 <span className="text-sm text-gray-600">Scanning Rate:</span>
-                <span className="text-sm font-medium">{processMetrics.scanningRate.toFixed(1)} symbols/min</span>
+                <span className="text-sm font-medium">
+                  {isParallelBot && processMetrics.scanningMetrics 
+                    ? (processMetrics.scanningMetrics.symbolsPerSecond * 60).toFixed(1)
+                    : processMetrics.scanningRate?.toFixed(1) || '0'
+                  } symbols/min
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-sm text-gray-600">Signal Generation Rate:</span>
-                <span className="text-sm font-medium">{processMetrics.signalGenerationRate.toFixed(1)} signals/hour</span>
+                <span className="text-sm font-medium">
+                  {isParallelBot && processMetrics.signalMetrics 
+                    ? processMetrics.signalMetrics.totalGenerated
+                    : processMetrics.signalGenerationRate?.toFixed(1) || '0'
+                  } signals/hour
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-sm text-gray-600">Execution Success Rate:</span>
-                <span className="text-sm font-medium">{processMetrics.executionSuccessRate.toFixed(1)}%</span>
+                <span className="text-sm font-medium">
+                  {isParallelBot && processMetrics.executionMetrics 
+                    ? processMetrics.executionMetrics.successRate?.toFixed(1)
+                    : processMetrics.executionSuccessRate?.toFixed(1) || '0'
+                  }%
+                </span>
               </div>
+              {isParallelBot && processMetrics.systemMetrics && (
+                <div className="flex justify-between">
+                  <span className="text-sm text-gray-600">Worker Utilization:</span>
+                  <span className="text-sm font-medium">{processMetrics.systemMetrics.workerUtilization?.toFixed(1) || '0'}%</span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -313,12 +365,29 @@ export default function TradingFlowMonitor() {
           <div className="card p-6">
             <h4 className="text-md font-medium text-gray-900 mb-4">Average Processing Times</h4>
             <div className="space-y-4">
-              {Object.entries(processMetrics.averageProcessingTime).map(([step, time]) => (
-                <div key={step} className="flex justify-between">
-                  <span className="text-sm text-gray-600 capitalize">{step}:</span>
-                  <span className="text-sm font-medium">{time.toFixed(0)}ms</span>
-                </div>
-              ))}
+              {isParallelBot && processMetrics.scanningMetrics ? (
+                <>
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-600">Scanning:</span>
+                    <span className="text-sm font-medium">{processMetrics.scanningMetrics.avgScanTime?.toFixed(0) || '0'}ms</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-600">Signal Latency:</span>
+                    <span className="text-sm font-medium">{processMetrics.signalMetrics?.avgSignalLatency?.toFixed(0) || '0'}ms</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-sm text-gray-600">Execution:</span>
+                    <span className="text-sm font-medium">{processMetrics.executionMetrics?.avgExecutionTime?.toFixed(0) || '0'}ms</span>
+                  </div>
+                </>
+              ) : (
+                processMetrics.averageProcessingTime && Object.entries(processMetrics.averageProcessingTime).map(([step, time]) => (
+                  <div key={step} className="flex justify-between">
+                    <span className="text-sm text-gray-600 capitalize">{step}:</span>
+                    <span className="text-sm font-medium">{(time as number).toFixed(0)}ms</span>
+                  </div>
+                ))
+              )}
             </div>
           </div>
 
@@ -328,29 +397,67 @@ export default function TradingFlowMonitor() {
             <div className="space-y-4">
               <div className="flex justify-between">
                 <span className="text-sm text-gray-600">Total Scanned:</span>
-                <span className="text-sm font-medium">{processMetrics.performance.totalScanned}</span>
+                <span className="text-sm font-medium">
+                  {isParallelBot && processMetrics.scanningMetrics 
+                    ? processMetrics.scanningMetrics.totalScans
+                    : processMetrics.performance?.totalScanned || '0'
+                  }
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-sm text-gray-600">Signals Generated:</span>
-                <span className="text-sm font-medium">{processMetrics.performance.signalsGenerated}</span>
+                <span className="text-sm font-medium">
+                  {isParallelBot && processMetrics.signalMetrics 
+                    ? processMetrics.signalMetrics.totalGenerated
+                    : processMetrics.performance?.signalsGenerated || '0'
+                  }
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-sm text-gray-600">Trades Executed:</span>
-                <span className="text-sm font-medium">{processMetrics.performance.tradesExecuted}</span>
+                <span className="text-sm font-medium">
+                  {isParallelBot && processMetrics.executionMetrics 
+                    ? processMetrics.executionMetrics.totalExecuted
+                    : processMetrics.performance?.tradesExecuted || '0'
+                  }
+                </span>
               </div>
               <div className="flex justify-between">
                 <span className="text-sm text-gray-600">Errors:</span>
-                <span className="text-sm font-medium text-red-600">{processMetrics.performance.errors}</span>
+                <span className="text-sm font-medium text-red-600">
+                  {activityEvents.filter((e: ActivityEvent) => e.level === 'error').length}
+                </span>
               </div>
             </div>
           </div>
 
+          {/* System Metrics (Parallel Bot Only) */}
+          {isParallelBot && processMetrics.systemMetrics && (
+            <div className="card p-6">
+              <h4 className="text-md font-medium text-gray-900 mb-4">System Performance</h4>
+              <div className="space-y-4">
+                <div className="flex justify-between">
+                  <span className="text-sm text-gray-600">Cache Hit Rate:</span>
+                  <span className="text-sm font-medium">{processMetrics.systemMetrics.cacheHitRate?.toFixed(1) || '0'}%</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-sm text-gray-600">Throughput:</span>
+                  <span className="text-sm font-medium">{processMetrics.systemMetrics.throughput || '0'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-sm text-gray-600">Memory Usage:</span>
+                  <span className="text-sm font-medium">{processMetrics.systemMetrics.memoryUsage?.toFixed(1) || '0'}MB</span>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Bottlenecks */}
-          {processMetrics.bottlenecks.length > 0 && (
+          {processMetrics.bottlenecks && processMetrics.bottlenecks.length > 0 && (
             <div className="card p-6">
               <h4 className="text-md font-medium text-gray-900 mb-4">Identified Bottlenecks</h4>
               <div className="space-y-2">
-                {processMetrics.bottlenecks.map((bottleneck, index) => (
+                {processMetrics.bottlenecks.map((bottleneck: any, index: number) => (
                   <div key={index} className="flex items-center space-x-2">
                     <span className="w-2 h-2 bg-red-500 rounded-full" />
                     <span className="text-sm text-red-700">{bottleneck}</span>

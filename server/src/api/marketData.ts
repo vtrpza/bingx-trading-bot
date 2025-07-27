@@ -324,24 +324,35 @@ router.get('/overview', asyncHandler(async (_req: Request, res: Response) => {
     const popularSymbols = ['BTC-USDT', 'ETH-USDT', 'BNB-USDT', 'ADA-USDT', 'XRP-USDT', 
                           'DOGE-USDT', 'MATIC-USDT', 'SOL-USDT', 'DOT-USDT', 'LINK-USDT'];
     
-    // Get tickers for popular symbols with sequential requests to avoid rate limiting
+    // Get tickers for popular symbols with proper rate limiting
     const tickers = [];
-    for (const symbol of popularSymbols) {
-      try {
-        const ticker = await bingxClient.getTicker(symbol);
-        if (ticker.code === 0 && ticker.data) {
-          tickers.push({
-            symbol: symbol,
-            lastPrice: parseFloat(ticker.data.lastPrice),
-            priceChangePercent: parseFloat(ticker.data.priceChangePercent),
-            volume: parseFloat(ticker.data.quoteVolume)
-          });
+    
+    // Process symbols in smaller batches to respect rate limits
+    const batchSize = 3; // Process 3 symbols at a time
+    for (let i = 0; i < popularSymbols.length; i += batchSize) {
+      const batch = popularSymbols.slice(i, i + batchSize);
+      
+      // Process each symbol in the batch with proper delay
+      for (const symbol of batch) {
+        try {
+          const ticker = await bingxClient.getTicker(symbol);
+          if (ticker.code === 0 && ticker.data) {
+            tickers.push({
+              symbol: symbol,
+              lastPrice: parseFloat(ticker.data.lastPrice),
+              priceChangePercent: parseFloat(ticker.data.priceChangePercent),
+              volume: parseFloat(ticker.data.quoteVolume)
+            });
+          }
+        } catch (error) {
+          logger.error(`Failed to get ticker for ${symbol}:`, error);
+          // Continue with next symbol on error
         }
-        // Small delay between requests to prevent rate limiting
-        await new Promise(resolve => setTimeout(resolve, 100));
-      } catch (error) {
-        logger.error(`Failed to get ticker for ${symbol}:`, error);
-        // Continue with next symbol on error
+      }
+      
+      // Longer delay between batches to ensure rate limit compliance
+      if (i + batchSize < popularSymbols.length) {
+        await new Promise(resolve => setTimeout(resolve, 250));
       }
     }
     
