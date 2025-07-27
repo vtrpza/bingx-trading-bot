@@ -28,7 +28,7 @@ app.use(helmet({
       scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https:"],
       styleSrc: ["'self'", "'unsafe-inline'", "https:", "fonts.googleapis.com"],
       imgSrc: ["'self'", "data:", "https:", "blob:"],
-      connectSrc: ["'self'", "wss:", "ws:", "https:", "wss://open-api-ws.bingx.com"],
+      connectSrc: ["'self'", "wss:", "ws:", "https:", "wss://open-api-ws.bingx.com", "wss://*.onrender.com", "ws://*.onrender.com"],
       fontSrc: ["'self'", "https:", "fonts.gstatic.com"],
       objectSrc: ["'none'"],
       mediaSrc: ["'self'"],
