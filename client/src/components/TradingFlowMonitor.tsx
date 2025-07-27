@@ -3,7 +3,7 @@ import { useQuery } from 'react-query'
 import { api } from '../services/api'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { useLocalStorage } from '../hooks/useLocalStorage'
-import { useTranslation } from '../hooks/useTranslation'
+// import { useTranslation } from '../hooks/useTranslation'
 import type { TradingFlowState, ActivityEvent, ProcessMetrics, FlowMonitorConfig } from '../types'
 import ProcessStepCard from './ProcessStepCard'
 import SignalJourneyTracker from './SignalJourneyTracker'
@@ -159,7 +159,7 @@ export default function TradingFlowMonitor() {
               { id: 'signals', name: 'Signal Journey', icon: '📡' },
               { id: 'activity', name: 'Live Activity', icon: '📊' },
               ...(config.mode === 'professional' ? [{ id: 'metrics', name: 'Performance', icon: '⚡' }] : [])
-            ].map((tab) => (
+            ].map((tab, _index) => (
               <button
                 key={tab.id}
                 onClick={() => setActiveView(tab.id as any)}
