@@ -7,6 +7,42 @@ import { Op } from 'sequelize';
 
 const router = Router();
 
+// Store active refresh sessions for progress tracking
+const refreshSessions = new Map<string, Response>();
+
+// SSE endpoint for refresh progress
+router.get('/refresh/progress/:sessionId', (req: Request, res: Response) => {
+  const sessionId = req.params.sessionId;
+  
+  // Set up SSE headers
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Cache-Control'
+  });
+  
+  // Store session
+  refreshSessions.set(sessionId, res);
+  
+  // Send initial connection message
+  res.write(`data: ${JSON.stringify({ type: 'connected', sessionId })}\n\n`);
+  
+  // Clean up on client disconnect
+  req.on('close', () => {
+    refreshSessions.delete(sessionId);
+  });
+});
+
+// Helper function to send progress updates
+function sendProgress(sessionId: string, data: any) {
+  const session = refreshSessions.get(sessionId);
+  if (session) {
+    session.write(`data: ${JSON.stringify(data)}\n\n`);
+  }
+}
+
 // Get all assets with pagination, sorting, and filtering
 router.get('/', asyncHandler(async (req: Request, res: Response) => {
   const { 
@@ -91,8 +127,9 @@ router.get('/:symbol', asyncHandler(async (req: Request, res: Response) => {
 }));
 
 // Refresh assets from BingX API
-router.post('/refresh', asyncHandler(async (_req: Request, res: Response) => {
-  logger.info('Refreshing assets from BingX API...');
+router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
+  const sessionId = req.body.sessionId || `refresh_${Date.now()}`;
+  logger.info('Refreshing assets from BingX API...', { sessionId });
   
   try {
     // Get all contracts from BingX

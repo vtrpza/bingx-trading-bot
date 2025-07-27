@@ -14,7 +14,7 @@ import type {
 
 const axiosInstance = axios.create({
   baseURL: '/api',
-  timeout: 420000,
+  timeout: 30000,
 })
 
 // Request interceptor
@@ -56,7 +56,7 @@ export const api = {
     return axiosInstance.get(`/assets/${symbol}`)
   },
 
-  async refreshAssets(): Promise<{ message: string; created: number; updated: number; total: number; processed: number; skipped: number }> {
+  async refreshAssets(): Promise<{ message: string; created: number; updated: number; total: number }> {
     return axiosInstance.post('/assets/refresh')
   },
 

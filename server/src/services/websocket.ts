@@ -271,7 +271,7 @@ class BingXWebSocketManager extends EventEmitter {
           });
         }
       }
-    }, 420000); // 30 seconds
+    }, 30000); // 30 seconds
   }
 
   private scheduleReconnect() {

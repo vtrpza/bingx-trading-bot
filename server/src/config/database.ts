@@ -15,7 +15,7 @@ if (databaseUrl && databaseUrl.includes('postgresql')) {
     pool: {
       max: 5,
       min: 0,
-      acquire: 420000,
+      acquire: 30000,
       idle: 10000
     },
     dialectOptions: {
