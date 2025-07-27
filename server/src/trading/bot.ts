@@ -343,21 +343,42 @@ export class TradingBot extends EventEmitter {
       }
 
       // Convert to candle format with validation
-      const candles = klines.data.map((k: any) => {
+      const candles = klines.data.map((k: any, index: number) => {
         const candle = {
           timestamp: parseInt(k.time || k[0]),
-          open: parseFloat(k.open || k[1]),
-          high: parseFloat(k.high || k[2]),
-          low: parseFloat(k.low || k[3]),
-          close: parseFloat(k.close || k[4]),
-          volume: parseFloat(k.volume || k[5])
+          open: parseFloat(k.open !== undefined ? k.open : k[1]),
+          high: parseFloat(k.high !== undefined ? k.high : k[2]),
+          low: parseFloat(k.low !== undefined ? k.low : k[3]),
+          close: parseFloat(k.close !== undefined ? k.close : k[4]),
+          volume: parseFloat(k.volume !== undefined ? k.volume : k[5])
         };
         
-        // Validate candle data
-        if (isNaN(candle.open) || isNaN(candle.high) || isNaN(candle.low) || 
-            isNaN(candle.close) || isNaN(candle.volume) || 
-            candle.open <= 0 || candle.high <= 0 || candle.low <= 0 || candle.close <= 0) {
-          logger.warn(`Invalid candle data for ${symbol}:`, candle);
+        // Validate candle data with detailed error reporting
+        const validationErrors = [];
+        if (isNaN(candle.open)) validationErrors.push(`open: ${k.open} -> ${candle.open}`);
+        if (isNaN(candle.high)) validationErrors.push(`high: ${k.high} -> ${candle.high}`);
+        if (isNaN(candle.low)) validationErrors.push(`low: ${k.low} -> ${candle.low}`);
+        if (isNaN(candle.close)) validationErrors.push(`close: ${k.close} -> ${candle.close}`);
+        if (isNaN(candle.volume)) validationErrors.push(`volume: ${k.volume} -> ${candle.volume}`);
+        if (candle.open <= 0) validationErrors.push(`open <= 0: ${candle.open}`);
+        if (candle.high <= 0) validationErrors.push(`high <= 0: ${candle.high}`);
+        if (candle.low <= 0) validationErrors.push(`low <= 0: ${candle.low}`);
+        if (candle.close <= 0) validationErrors.push(`close <= 0: ${candle.close}`);
+        
+        // Validate OHLC relationships
+        if (candle.high < candle.low) validationErrors.push(`high < low: ${candle.high} < ${candle.low}`);
+        if (candle.high < Math.max(candle.open, candle.close)) {
+          validationErrors.push(`high < max(open,close): ${candle.high} < ${Math.max(candle.open, candle.close)}`);
+        }
+        if (candle.low > Math.min(candle.open, candle.close)) {
+          validationErrors.push(`low > min(open,close): ${candle.low} > ${Math.min(candle.open, candle.close)}`);
+        }
+        
+        if (validationErrors.length > 0) {
+          logger.warn(`Invalid candle data at index ${index} for ${symbol}: ${validationErrors.join(', ')}`, {
+            raw: k,
+            parsed: candle
+          });
           return null;
         }
         
