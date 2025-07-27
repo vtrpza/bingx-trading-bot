@@ -21,13 +21,15 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
   const [showConfirmation, setShowConfirmation] = useState(false)
   const queryClient = useQueryClient()
 
-  // Use shared bot status query
+  // Use shared bot status query  
   const { data: botStatus } = useQuery<BotStatus2>(
     'bot-status',
     async () => {
       const response = await fetch('/api/trading/parallel-bot/status')
       if (!response.ok) throw new Error('Failed to fetch bot status')
       const result = await response.json()
+      console.log('🔍 DEBUG API Response:', result)
+      console.log('🔍 DEBUG Extracted data:', result.data)
       return result.data // Extract data from wrapper
     },
     {
@@ -40,6 +42,9 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
   )
 
   const isBotRunning = botStatus?.isRunning === true
+
+  // Clean up debug logs
+  console.log('Bot Status Check:', { isRunning: botStatus?.isRunning, isBotRunning })
 
   // Close position mutation
   const closePositionMutation = useMutation(
