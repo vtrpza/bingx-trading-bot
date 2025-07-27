@@ -32,14 +32,15 @@ export default function TradingStats({ stats: initialStats }: TradingStatsProps)
     return num >= 0 ? `+${value}` : value
   }
 
-  const formatNumber = (value: number) => {
-    if (value >= 1000000) {
-      return (value / 1000000).toFixed(1) + 'M'
+  const formatNumber = (value: number | string) => {
+    const numValue = Number(value)
+    if (numValue >= 1000000) {
+      return (numValue / 1000000).toFixed(1) + 'M'
     }
-    if (value >= 1000) {
-      return (value / 1000).toFixed(1) + 'K'
+    if (numValue >= 1000) {
+      return (numValue / 1000).toFixed(1) + 'K'
     }
-    return value.toString()
+    return numValue.toString()
   }
 
   return (

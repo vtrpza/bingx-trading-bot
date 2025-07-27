@@ -89,17 +89,19 @@ export default function AssetsPage() {
   }
 
   // Format number
-  const formatNumber = (value: number, decimals = 2) => {
-    if (value >= 1e9) return (value / 1e9).toFixed(1) + 'B'
-    if (value >= 1e6) return (value / 1e6).toFixed(1) + 'M'
-    if (value >= 1e3) return (value / 1e3).toFixed(1) + 'K'
-    return value.toFixed(decimals)
+  const formatNumber = (value: number | string, decimals = 2) => {
+    const numValue = Number(value)
+    if (numValue >= 1e9) return (numValue / 1e9).toFixed(1) + 'B'
+    if (numValue >= 1e6) return (numValue / 1e6).toFixed(1) + 'M'
+    if (numValue >= 1e3) return (numValue / 1e3).toFixed(1) + 'K'
+    return numValue.toFixed(decimals)
   }
 
   // Format percentage
-  const formatPercent = (value: number) => {
-    const formatted = value.toFixed(2)
-    return value >= 0 ? `+${formatted}%` : `${formatted}%`
+  const formatPercent = (value: number | string) => {
+    const numValue = Number(value)
+    const formatted = numValue.toFixed(2)
+    return numValue >= 0 ? `+${formatted}%` : `${formatted}%`
   }
 
 
