@@ -201,7 +201,7 @@ export class SignalWorkerPool extends EventEmitter {
     this.config = {
       maxWorkers: 1, // Only 1 worker to force sequential processing
       maxConcurrentTasks: 1, // Only 1 concurrent task
-      taskTimeout: 30000, // 30s timeout to handle rate limiting delays
+      taskTimeout: 60000, // 60s timeout to handle rate limiting delays and increased symbol processing
       retryAttempts: 2,
       taskDelay: 2000, // 2 second delay between tasks
       signalConfig: {},

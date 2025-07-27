@@ -272,7 +272,18 @@ class TradeExecutor extends EventEmitter {
     const order = await bingxClient.placeOrder(orderData);
     
     if (!order.data || order.code !== 0) {
+      logger.error('Order placement failed:', {
+        orderData,
+        response: order,
+        code: order.code,
+        message: order.msg
+      });
       throw new Error(`Order placement failed: ${order.msg || 'Unknown error'}`);
+    }
+
+    if (!order.data.orderId) {
+      logger.error('Order response missing orderId:', order.data);
+      throw new Error('Order response missing orderId');
     }
 
     return {
@@ -289,6 +300,12 @@ class TradeExecutor extends EventEmitter {
 
   private async saveTrade(task: TradeTask, orderResult: any, positionDetails: any) {
     try {
+      // Ensure we have a valid orderId before saving
+      if (!orderResult.orderId) {
+        logger.error('Cannot save trade without orderId', { orderResult, task: task.symbol });
+        throw new Error('Order execution failed - no orderId returned');
+      }
+
       const tradeRecord = await Trade.create({
         orderId: orderResult.orderId,
         symbol: task.symbol,
