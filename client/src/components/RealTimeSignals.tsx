@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useQuery } from 'react-query'
 import { api } from '../services/api'
 import { useWebSocket } from '../hooks/useWebSocket'
@@ -13,8 +13,30 @@ export default function RealTimeSignals() {
 
   const { lastMessage } = useWebSocket('/ws')
 
-  // Get bot status to access scanned symbols
-  const { data: botStatus } = useQuery('bot-status', api.getBotStatus)
+  // Get parallel bot status (only parallel mode now)
+  const { data: botStatus } = useQuery(
+    'parallel-bot-status', 
+    () => fetch('/api/trading/parallel-bot/status').then(res => res.json()).then(data => data.data)
+  )
+
+  // Get parallel bot metrics
+  const { data: parallelMetrics } = useQuery(
+    'parallel-bot-metrics',
+    () => fetch('/api/trading/parallel-bot/metrics').then(res => res.json()).then(data => data.data),
+    { 
+      enabled: botStatus?.isRunning,
+      refetchInterval: 5000 
+    }
+  )
+
+  // Get parallel bot activity events for signal display
+  const { data: parallelActivity } = useQuery(
+    'parallel-bot-activity',
+    () => fetch('/api/trading/parallel-bot/activity?limit=20&type=signal_generated').then(res => res.json()).then(data => data.data),
+    { 
+      refetchInterval: 3000 
+    }
+  )
   
   // Get market overview for fallback
   const { data: marketOverview } = useQuery('market-overview', api.getMarketOverview)
@@ -98,7 +120,7 @@ export default function RealTimeSignals() {
               ) : (
                 availableSymbols.map((symbol: string) => (
                   <option key={symbol} value={symbol}>
-                    {symbol} {botStatus?.scannedSymbols ? '(Bot Scanning)' : '(High Volume)'}
+                    {symbol} {botStatus?.scannedSymbols ? '(Parallel Bot)' : '(High Volume)'}
                   </option>
                 ))
               )}

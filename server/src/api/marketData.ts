@@ -324,29 +324,28 @@ router.get('/overview', asyncHandler(async (_req: Request, res: Response) => {
     const popularSymbols = ['BTC-USDT', 'ETH-USDT', 'BNB-USDT', 'ADA-USDT', 'XRP-USDT', 
                           'DOGE-USDT', 'MATIC-USDT', 'SOL-USDT', 'DOT-USDT', 'LINK-USDT'];
     
-    // Get tickers for popular symbols only
-    const tickers = await Promise.all(
-      popularSymbols
-        .map(async (symbol: string) => {
-          try {
-            const ticker = await bingxClient.getTicker(symbol);
-            if (ticker.code === 0 && ticker.data) {
-              return {
-                symbol: symbol,
-                lastPrice: parseFloat(ticker.data.lastPrice),
-                priceChangePercent: parseFloat(ticker.data.priceChangePercent),
-                volume: parseFloat(ticker.data.quoteVolume)
-              };
-            }
-            return null;
-          } catch (error) {
-            logger.error(`Failed to get ticker for ${symbol}:`, error);
-            return null;
-          }
-        })
-    );
+    // Get tickers for popular symbols with sequential requests to avoid rate limiting
+    const tickers = [];
+    for (const symbol of popularSymbols) {
+      try {
+        const ticker = await bingxClient.getTicker(symbol);
+        if (ticker.code === 0 && ticker.data) {
+          tickers.push({
+            symbol: symbol,
+            lastPrice: parseFloat(ticker.data.lastPrice),
+            priceChangePercent: parseFloat(ticker.data.priceChangePercent),
+            volume: parseFloat(ticker.data.quoteVolume)
+          });
+        }
+        // Small delay between requests to prevent rate limiting
+        await new Promise(resolve => setTimeout(resolve, 100));
+      } catch (error) {
+        logger.error(`Failed to get ticker for ${symbol}:`, error);
+        // Continue with next symbol on error
+      }
+    }
     
-    const validTickers = tickers.filter(t => t !== null);
+    const validTickers = tickers;
     
     // Sort by different criteria
     const topGainers = [...validTickers]

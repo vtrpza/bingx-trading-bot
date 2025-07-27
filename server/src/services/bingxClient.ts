@@ -1,6 +1,7 @@
 import axios, { AxiosInstance } from 'axios';
 import crypto from 'crypto';
 import { logger } from '../utils/logger';
+import { globalRateLimiter } from './rateLimiter';
 
 // Ensure environment variables are loaded
 import dotenv from 'dotenv';
@@ -41,19 +42,46 @@ export class BingXClient {
       }
     });
 
-    // Add request interceptor for authentication
+    // Add request interceptor for rate limiting and authentication
     this.axios.interceptors.request.use(
-      (config) => this.addAuthentication(config),
+      async (config) => {
+        // Apply global rate limiting for all requests
+        await globalRateLimiter.waitForSlot();
+        return this.addAuthentication(config);
+      },
       (error) => Promise.reject(error)
     );
 
-    // Add response interceptor for error handling
+    // Add response interceptor for error handling with retry logic
     this.axios.interceptors.response.use(
       (response) => response,
-      (error) => {
+      async (error) => {
+        const originalRequest = error.config;
+        
+        // Handle BingX rate limiting error 109400
+        if (error.response?.data?.code === 109400 && !originalRequest._retried) {
+          originalRequest._retried = true;
+          
+          logger.warn('BingX rate limit exceeded (109400), implementing backoff and retry', {
+            url: originalRequest.url,
+            retryAfter: error.response.data.retryAfter || 'unknown'
+          });
+          
+          // Wait for the retry time specified in error or default to 2 seconds
+          const retryAfter = error.response.data.retryAfter || 2000;
+          await new Promise(resolve => setTimeout(resolve, retryAfter));
+          
+          // Reset rate limiter to prevent immediate subsequent failures
+          globalRateLimiter.reset();
+          
+          // Retry the original request
+          return this.axios(originalRequest);
+        }
+        
         logger.error('BingX API Error:', {
           status: error.response?.status,
-          data: error.response?.data,
+          code: error.response?.data?.code,
+          message: error.response?.data?.msg,
           url: error.config?.url
         });
         return Promise.reject(error);
@@ -135,8 +163,11 @@ export class BingXClient {
 
   async getTicker(symbol: string) {
     try {
+      // For demo mode, convert symbol to VST
+      const apiSymbol = this.config.demoMode ? symbol.replace('-USDT', '-VST') : symbol;
+      
       const response = await this.axios.get('/openApi/swap/v2/quote/ticker', {
-        params: { symbol }
+        params: { symbol: apiSymbol }
       });
       return response.data;
     } catch (error) {
@@ -147,8 +178,11 @@ export class BingXClient {
 
   async getKlines(symbol: string, interval: string, limit: number = 500) {
     try {
+      // For demo mode, convert symbol to VST
+      const apiSymbol = this.config.demoMode ? symbol.replace('-USDT', '-VST') : symbol;
+      
       const response = await this.axios.get('/openApi/swap/v2/quote/klines', {
-        params: { symbol, interval, limit }
+        params: { symbol: apiSymbol, interval, limit }
       });
       return response.data;
     } catch (error) {
@@ -159,8 +193,11 @@ export class BingXClient {
 
   async getDepth(symbol: string, limit: number = 20) {
     try {
+      // For demo mode, convert symbol to VST
+      const apiSymbol = this.config.demoMode ? symbol.replace('-USDT', '-VST') : symbol;
+      
       const response = await this.axios.get('/openApi/swap/v2/quote/depth', {
-        params: { symbol, limit }
+        params: { symbol: apiSymbol, limit }
       });
       return response.data;
     } catch (error) {
@@ -284,6 +321,11 @@ export class BingXClient {
       logger.error('Failed to close listen key:', error);
       throw error;
     }
+  }
+
+  // Rate Limit Status
+  getRateLimitStatus() {
+    return globalRateLimiter.getStatus();
   }
 }
 

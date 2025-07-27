@@ -1,6 +1,10 @@
 import { Router, Request, Response } from 'express';
 import { getTradingBot } from '../trading/bot';
+import { getParallelTradingBot } from '../trading/ParallelTradingBot';
+import { PerformanceMonitor } from '../trading/PerformanceMonitor';
+import { balancedConfig, highFrequencyConfig, conservativeConfig, ConfigurationOptimizer } from '../trading/ParallelBotConfiguration';
 import { bingxClient } from '../services/bingxClient';
+import { globalRateLimiter } from '../services/rateLimiter';
 import Trade from '../models/Trade';
 import { AppError, asyncHandler } from '../utils/errorHandler';
 import { logger } from '../utils/logger';
@@ -454,10 +458,11 @@ router.delete('/orders/:orderId', asyncHandler(async (req: Request, res: Respons
   }
 }));
 
-// Get trading flow state
+// Get trading flow state (compatibility endpoint for both bot architectures)
 router.get('/bot/flow-state', asyncHandler(async (_req: Request, res: Response) => {
-  const bot = getTradingBot();
-  const flowState = bot.getFlowState();
+  // Use parallel bot as the primary implementation
+  const parallelBot = getParallelTradingBot();
+  const flowState = parallelBot.getFlowState();
   
   res.json({
     success: true,
@@ -465,11 +470,12 @@ router.get('/bot/flow-state', asyncHandler(async (_req: Request, res: Response) 
   });
 }));
 
-// Get activity events
+// Get activity events (compatibility endpoint)
 router.get('/bot/activity-events', asyncHandler(async (req: Request, res: Response) => {
   const { limit = 50 } = req.query;
-  const bot = getTradingBot();
-  const events = bot.getActivityEvents(parseInt(limit as string));
+  // Use parallel bot as the primary implementation
+  const parallelBot = getParallelTradingBot();
+  const events = parallelBot.getActivityEvents(parseInt(limit as string));
   
   res.json({
     success: true,
@@ -477,14 +483,293 @@ router.get('/bot/activity-events', asyncHandler(async (req: Request, res: Respon
   });
 }));
 
-// Get process metrics
+// Get process metrics (compatibility endpoint)
 router.get('/bot/process-metrics', asyncHandler(async (_req: Request, res: Response) => {
-  const bot = getTradingBot();
-  const metrics = bot.getProcessMetrics();
+  // Use parallel bot as the primary implementation
+  const parallelBot = getParallelTradingBot();
+  const metrics = parallelBot.getProcessMetrics();
   
   res.json({
     success: true,
     data: metrics
+  });
+}));
+
+// === PARALLEL TRADING BOT ROUTES ===
+
+// Global performance monitor instance
+let performanceMonitor: PerformanceMonitor | null = null;
+
+// Get parallel bot status
+router.get('/parallel-bot/status', asyncHandler(async (_req: Request, res: Response) => {
+  const parallelBot = getParallelTradingBot();
+  const status = parallelBot.getStatus();
+  
+  // Get account balance
+  let balance = null;
+  try {
+    const balanceData = await bingxClient.getBalance();
+    if (balanceData.code === 0 && balanceData.data) {
+      balance = balanceData.data.balance;
+    }
+  } catch (error) {
+    logger.error('Failed to get balance:', error);
+  }
+  
+  res.json({
+    success: true,
+    data: {
+      ...status,
+      balance,
+      demoMode: process.env.DEMO_MODE === 'true',
+      architecture: 'parallel'
+    }
+  });
+}));
+
+// Start parallel trading bot
+router.post('/parallel-bot/start', asyncHandler(async (_req: Request, res: Response) => {
+  const parallelBot = getParallelTradingBot();
+  
+  if (parallelBot.getStatus().isRunning) {
+    throw new AppError('Parallel bot is already running', 400);
+  }
+  
+  // Use balanced configuration with system optimization
+  const config = balancedConfig;
+  const systemOptimized = ConfigurationOptimizer.optimizeForSystem();
+  parallelBot.updateConfig({ ...config, ...systemOptimized });
+  
+  await parallelBot.start();
+  
+  // Start performance monitoring
+  if (!performanceMonitor) {
+    performanceMonitor = new PerformanceMonitor(parallelBot);
+    performanceMonitor.start();
+  }
+  
+  res.json({
+    success: true,
+    message: 'Parallel trading bot started successfully',
+    data: {
+      config: parallelBot.getStatus().config,
+      rateLimitStatus: globalRateLimiter.getStatus()
+    }
+  });
+}));
+
+// Stop parallel trading bot
+router.post('/parallel-bot/stop', asyncHandler(async (_req: Request, res: Response) => {
+  const parallelBot = getParallelTradingBot();
+  
+  if (!parallelBot.getStatus().isRunning) {
+    throw new AppError('Parallel bot is not running', 400);
+  }
+  
+  parallelBot.stop();
+  
+  // Stop performance monitoring
+  if (performanceMonitor) {
+    performanceMonitor.stop();
+    performanceMonitor = null;
+  }
+  
+  res.json({
+    success: true,
+    message: 'Parallel trading bot stopped successfully'
+  });
+}));
+
+// Get parallel bot metrics
+router.get('/parallel-bot/metrics', asyncHandler(async (_req: Request, res: Response) => {
+  const parallelBot = getParallelTradingBot();
+  const metrics = parallelBot.getMetrics();
+  
+  res.json({
+    success: true,
+    data: metrics
+  });
+}));
+
+// Get performance monitoring data
+router.get('/parallel-bot/performance', asyncHandler(async (req: Request, res: Response) => {
+  if (!performanceMonitor) {
+    throw new AppError('Performance monitoring not active', 400);
+  }
+  
+  const { minutes = 30 } = req.query;
+  const summary = performanceMonitor.getPerformanceSummary(Number(minutes));
+  const trends = performanceMonitor.getTrendAnalysis(Number(minutes));
+  const bottlenecks = performanceMonitor.getBottleneckAnalysis();
+  
+  res.json({
+    success: true,
+    data: {
+      summary,
+      trends,
+      bottlenecks,
+      alerts: performanceMonitor.getActiveAlerts(),
+      latestSnapshot: performanceMonitor.getLatestSnapshot()
+    }
+  });
+}));
+
+// Get parallel bot activity events
+router.get('/parallel-bot/activity', asyncHandler(async (req: Request, res: Response) => {
+  const parallelBot = getParallelTradingBot();
+  const { limit = 50 } = req.query;
+  const events = parallelBot.getActivityEvents(Number(limit));
+  
+  res.json({
+    success: true,
+    data: events
+  });
+}));
+
+// Update parallel bot configuration
+router.put('/parallel-bot/config', asyncHandler(async (req: Request, res: Response) => {
+  const parallelBot = getParallelTradingBot();
+  const { config } = req.body;
+  
+  if (!config) {
+    throw new AppError('Configuration is required', 400);
+  }
+  
+  // Validate configuration
+  if (config.maxConcurrentTrades && (config.maxConcurrentTrades < 1 || config.maxConcurrentTrades > 20)) {
+    throw new AppError('maxConcurrentTrades must be between 1 and 20', 400);
+  }
+  
+  parallelBot.updateConfig(config);
+  
+  res.json({
+    success: true,
+    message: 'Configuration updated successfully',
+    data: parallelBot.getStatus().config
+  });
+}));
+
+// Force signal scan
+router.post('/parallel-bot/scan', asyncHandler(async (req: Request, res: Response) => {
+  const parallelBot = getParallelTradingBot();
+  const { symbols } = req.body;
+  
+  if (!parallelBot.getStatus().isRunning) {
+    throw new AppError('Parallel bot is not running', 400);
+  }
+  
+  parallelBot.forceSignalScan(symbols);
+  
+  res.json({
+    success: true,
+    message: `Forced scan initiated for ${symbols ? symbols.length : 'all'} symbols`
+  });
+}));
+
+// Clear signal queue
+router.post('/parallel-bot/clear-queue', asyncHandler(async (_req: Request, res: Response) => {
+  const parallelBot = getParallelTradingBot();
+  
+  parallelBot.clearSignalQueue();
+  
+  res.json({
+    success: true,
+    message: 'Signal queue cleared'
+  });
+}));
+
+// Invalidate cache
+router.post('/parallel-bot/invalidate-cache', asyncHandler(async (req: Request, res: Response) => {
+  const parallelBot = getParallelTradingBot();
+  const { symbol } = req.body;
+  
+  parallelBot.invalidateCache(symbol);
+  
+  res.json({
+    success: true,
+    message: `Cache invalidated${symbol ? ` for ${symbol}` : ''}`
+  });
+}));
+
+// Get configuration presets
+router.get('/parallel-bot/presets', asyncHandler(async (_req: Request, res: Response) => {
+  const systemOptimized = ConfigurationOptimizer.optimizeForSystem();
+  
+  res.json({
+    success: true,
+    data: {
+      balanced: { ...balancedConfig, ...systemOptimized },
+      aggressive: { ...highFrequencyConfig, ...systemOptimized },
+      conservative: { ...conservativeConfig, ...systemOptimized },
+      systemOptimized
+    }
+  });
+}));
+
+// Performance alerts
+router.get('/parallel-bot/alerts', asyncHandler(async (_req: Request, res: Response) => {
+  if (!performanceMonitor) {
+    res.json({
+      success: true,
+      data: []
+    });
+    return;
+  }
+  
+  const alerts = performanceMonitor.getAllAlerts(50);
+  
+  res.json({
+    success: true,
+    data: alerts
+  });
+}));
+
+// Resolve performance alert
+router.post('/parallel-bot/alerts/:alertId/resolve', asyncHandler(async (req: Request, res: Response) => {
+  if (!performanceMonitor) {
+    throw new AppError('Performance monitoring not active', 400);
+  }
+  
+  const { alertId } = req.params;
+  const resolved = performanceMonitor.resolveAlert(alertId);
+  
+  if (!resolved) {
+    throw new AppError('Alert not found', 404);
+  }
+  
+  res.json({
+    success: true,
+    message: 'Alert resolved successfully'
+  });
+}));
+
+// Parallel bot real-time data (WebSocket endpoint info)
+router.get('/parallel-bot/realtime-info', asyncHandler(async (_req: Request, res: Response) => {
+  res.json({
+    success: true,
+    data: {
+      endpoints: {
+        signals: '/ws/parallel-signals',
+        metrics: '/ws/parallel-metrics', 
+        alerts: '/ws/parallel-alerts'
+      },
+      eventTypes: [
+        'signalGenerated',
+        'tradeExecuted',
+        'positionClosed',
+        'performanceUpdate',
+        'alert',
+        'configChanged'
+      ]
+    }
+  });
+}));
+
+// Get rate limit status
+router.get('/parallel-bot/rate-limit', asyncHandler(async (_req: Request, res: Response) => {
+  res.json({
+    success: true,
+    data: globalRateLimiter.getStatus()
   });
 }));
 

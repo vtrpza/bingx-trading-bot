@@ -37,6 +37,16 @@ export default function TradingFlowMonitor() {
     }
   )
 
+  // Safe flow state with defaults
+  const safeFlowState = flowState ? {
+    currentStep: flowState.currentStep || '',
+    steps: Array.isArray(flowState.steps) ? flowState.steps : [],
+    activeSignals: Array.isArray(flowState.activeSignals) ? flowState.activeSignals : [],
+    executionQueue: Array.isArray(flowState.executionQueue) ? flowState.executionQueue : [],
+    metrics: flowState.metrics || {},
+    lastUpdate: flowState.lastUpdate || Date.now()
+  } : null
+
   // Get activity events
   const { data: activityEvents } = useQuery<ActivityEvent[]>(
     'bot-activity-events',
@@ -181,15 +191,15 @@ export default function TradingFlowMonitor() {
       {activeView === 'pipeline' && (
         <div className="space-y-4">
           {/* Current Status */}
-          {flowState && (
+          {safeFlowState && safeFlowState.steps.length > 0 && (
             <div className="card p-6">
               <h4 className="text-md font-medium text-gray-900 mb-4">Current Process Status</h4>
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                {flowState.steps.map((step, _index) => (
+                {safeFlowState.steps.map((step, _index) => (
                   <ProcessStepCard
                     key={step.id}
                     step={step}
-                    isActive={step.id === flowState.currentStep}
+                    isActive={step.id === safeFlowState.currentStep}
                     mode={config.mode}
                     onClick={() => {
                       // Could show more details in a modal
@@ -201,11 +211,11 @@ export default function TradingFlowMonitor() {
           )}
 
           {/* Process Flow Visual */}
-          {flowState && (
+          {safeFlowState && safeFlowState.steps.length > 0 && (
             <div className="card p-6">
               <h4 className="text-md font-medium text-gray-900 mb-4">Process Flow</h4>
               <div className="flex items-center justify-between">
-                {flowState.steps.map((step, stepIndex) => (
+                {safeFlowState.steps.map((step, stepIndex) => (
                   <div key={step.id} className="flex items-center">
                     <div className={`p-3 rounded-full ${getStepStatusColor(step.status)}`}>
                       <span className="text-lg">{getStepIcon(step.id)}</span>
@@ -219,7 +229,7 @@ export default function TradingFlowMonitor() {
                       )}
                     </div>
                     
-                    {stepIndex < flowState.steps.length - 1 && (
+                    {stepIndex < safeFlowState.steps.length - 1 && (
                       <div className="ml-4 mr-4">
                         <div className="w-8 h-px bg-gray-300"></div>
                       </div>
@@ -231,11 +241,11 @@ export default function TradingFlowMonitor() {
           )}
 
           {/* Execution Queue */}
-          {flowState && flowState.executionQueue.length > 0 && (
+          {safeFlowState && safeFlowState.executionQueue.length > 0 && (
             <div className="card p-6">
               <h4 className="text-md font-medium text-gray-900 mb-4">Execution Queue</h4>
               <div className="space-y-2">
-                {flowState.executionQueue.slice(0, 5).map((trade) => (
+                {safeFlowState.executionQueue.slice(0, 5).map((trade) => (
                   <div key={trade.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
                     <div className="flex items-center space-x-3">
                       <span className={`w-2 h-2 rounded-full ${
@@ -263,7 +273,7 @@ export default function TradingFlowMonitor() {
 
       {activeView === 'signals' && (
         <SignalJourneyTracker
-          activeSignals={flowState?.activeSignals || []}
+          activeSignals={safeFlowState?.activeSignals || []}
           selectedSignalId={selectedSignalId}
           onSelectSignal={setSelectedSignalId}
           mode={config.mode}

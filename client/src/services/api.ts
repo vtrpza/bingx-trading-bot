@@ -33,13 +33,16 @@ axiosInstance.interceptors.response.use(
   (response) => {
     // Se a resposta tem o formato padrão { success: true, data: {...} }, extrair só os dados
     if (response.data && response.data.success && response.data.data !== undefined) {
-      return response.data.data
+      return { ...response, data: response.data.data }
     }
     // Caso contrário, retornar a resposta completa
-    return response.data
+    return response
   },
   (error) => {
-    const message = error.response?.data?.error?.message || error.message || 'An error occurred'
+    const message = error.response?.data?.error?.message || 
+                   error.response?.data?.msg || 
+                   error.message || 
+                   'An error occurred'
     throw new Error(message)
   }
 )
@@ -64,32 +67,50 @@ export const api = {
   async refreshAssets(onProgress?: (data: any) => void): Promise<{ message: string; created: number; updated: number; total: number; processed: number; skipped: number; sessionId: string }> {
     const sessionId = `refresh_${Date.now()}`;
     
-    // Connect to SSE for progress updates
-    if (onProgress) {
-      const baseURL = window.location.protocol === 'https:' ? 'https://localhost:3001' : 'http://localhost:3001'
-      const eventSource = new EventSource(`${baseURL}/api/assets/refresh/progress/${sessionId}`);
+    return new Promise((resolve, reject) => {
+      let eventSource: EventSource | null = null;
       
-      eventSource.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          onProgress(data);
-          
-          // Close connection when completed
-          if (data.type === 'completed' || data.type === 'error') {
-            eventSource.close();
+      // Connect to SSE for progress updates
+      if (onProgress) {
+        const baseURL = window.location.protocol === 'https:' ? 'https://localhost:3001' : 'http://localhost:3001'
+        eventSource = new EventSource(`${baseURL}/api/assets/refresh/progress/${sessionId}`);
+        
+        eventSource.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            console.log('SSE received:', data);
+            
+            // Skip the initial connection message
+            if (data.type !== 'connected') {
+              onProgress(data);
+            }
+            
+            // Close connection when completed
+            if (data.type === 'completed' || data.type === 'error') {
+              eventSource?.close();
+            }
+          } catch (error) {
+            console.error('Failed to parse SSE data:', error);
           }
-        } catch (error) {
-          console.error('Failed to parse SSE data:', error);
-        }
-      };
+        };
+        
+        eventSource.onerror = (error) => {
+          console.error('SSE connection error:', error);
+          eventSource?.close();
+        };
+      }
       
-      eventSource.onerror = (error) => {
-        console.error('SSE connection error:', error);
-        eventSource.close();
-      };
-    }
-    
-    return axiosInstance.post('/assets/refresh', { sessionId });
+      // Wait a bit for SSE connection to establish, then start refresh
+      setTimeout(async () => {
+        try {
+          const response = await axiosInstance.post('/assets/refresh', { sessionId });
+          resolve(response.data);
+        } catch (error) {
+          eventSource?.close();
+          reject(error);
+        }
+      }, 100); // 100ms delay
+    });
   },
 
   async getAssetStats(): Promise<{
