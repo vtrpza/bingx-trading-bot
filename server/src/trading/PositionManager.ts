@@ -1,5 +1,4 @@
 import { EventEmitter } from 'events';
-import { bingxClient } from '../services/bingxClient';
 import { apiRequestManager } from '../services/APIRequestManager';
 import { wsManager } from '../services/websocket';
 import { logger } from '../utils/logger';
