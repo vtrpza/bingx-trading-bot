@@ -364,7 +364,29 @@ export function setupWebSocket(server: Server) {
     broadcast(wss, { type: 'orderUpdate', data });
   });
 
-  // Listen to trading bot events
+  // Listen to parallel trading bot events
+  const { getParallelTradingBot } = require('../trading/ParallelTradingBot');
+  const parallelBot = getParallelTradingBot();
+  
+  // Listen to parallel bot signals (includes HOLD signals)
+  parallelBot.on('signal', (signal: any) => {
+    broadcast(wss, { type: 'signal', data: signal });
+  });
+  
+  parallelBot.on('tradeExecuted', (trade: any) => {
+    broadcast(wss, { type: 'tradeExecuted', data: trade });
+  });
+  
+  parallelBot.on('positionClosed', (position: any) => {
+    broadcast(wss, { type: 'positionClosed', data: position });
+  });
+
+  // Activity events from parallel bot
+  parallelBot.on('activityEvent', (event: any) => {
+    broadcast(wss, { type: 'activityEvent', data: event });
+  });
+
+  // Also listen to the old trading bot for backward compatibility
   const tradingBot = getTradingBot();
   
   tradingBot.on('signal', (signal: any) => {

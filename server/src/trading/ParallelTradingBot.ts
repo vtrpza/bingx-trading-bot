@@ -747,7 +747,10 @@ export class ParallelTradingBot extends EventEmitter {
     
     logger.debug(`Signal generated: ${signal.symbol} - Action: ${signal.action}, Strength: ${signal.strength}, Required: ${this.config.minSignalStrength}`);
     
-    // Only process signals that are actionable
+    // Emit signal for WebSocket broadcasting (includes HOLD signals for frontend display)
+    this.emit('signal', signal);
+    
+    // Only process signals that are actionable for trading
     if (signal.action !== 'HOLD' && signal.strength >= this.config.minSignalStrength) {
       
       // STRICT RISK VALIDATION - No fallbacks as per user requirement
