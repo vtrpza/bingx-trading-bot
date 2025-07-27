@@ -182,7 +182,7 @@ export default function RealTimeSignals() {
                 connectionStatus === 'connected' ? 'bg-green-500' : 
                 connectionStatus === 'connecting' ? 'bg-yellow-500' : 'bg-red-500'
               }`}></div>
-              <span className="text-sm font-medium">{connectionStatus}</span>
+              <span className="text-sm font-medium">{getConnectionStatusMessage(connectionStatus)}</span>
             </div>
             <div className="text-sm text-gray-500">
               {signals.length} signals
