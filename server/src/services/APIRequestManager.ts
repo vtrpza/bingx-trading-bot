@@ -50,9 +50,9 @@ export class APIRequestManager {
     depth: 8000           // 8 seconds - faster order book
   };
 
-  // Request spacing - ULTRA OPTIMIZED
-  private readonly requestSpacing = 300; // 0.3 seconds between requests
-  private readonly queueTimeout = 8000; // 8 second queue timeout
+  // Request spacing - BALANCED OPTIMIZED  
+  private readonly requestSpacing = 200; // 0.2 seconds between requests
+  private readonly queueTimeout = 15000; // 15 second queue timeout
   private lastRequestTime = 0;
 
   /**
@@ -118,7 +118,9 @@ export class APIRequestManager {
         
         // Check if request is too old (use configurable timeout)
         if (Date.now() - item.timestamp > this.queueTimeout) {
-          logger.warn(`Dropping old request: ${item.key}`);
+          const queueSize = this.requestQueue.length;
+          const waitTime = Date.now() - item.timestamp;
+          logger.warn(`Dropping old request: ${item.key} (waited ${waitTime}ms, queue size: ${queueSize})`);
           item.reject(new Error('Request timeout in queue'));
           continue;
         }
@@ -250,8 +252,8 @@ export class APIRequestManager {
     return this.makeRequest('getKlines', [symbol, interval, limit], RequestPriority.MEDIUM);
   }
 
-  async getTicker(symbol: string) {
-    return this.makeRequest('getTicker', [symbol], RequestPriority.MEDIUM);
+  async getTicker(symbol: string, priority: RequestPriority = RequestPriority.MEDIUM) {
+    return this.makeRequest('getTicker', [symbol], priority);
   }
 
   async getSymbols() {
@@ -288,6 +290,9 @@ export class APIRequestManager {
       }
     }
 
+    // Calculate queue health metrics
+    const queueHealth = this.calculateQueueHealth();
+
     return {
       cache: {
         size: this.cache.size,
@@ -295,12 +300,41 @@ export class APIRequestManager {
       },
       queue: {
         pending: this.requestQueue.length,
-        processing: this.isProcessingQueue
+        processing: this.isProcessingQueue,
+        health: queueHealth,
+        oldestRequestAge: this.requestQueue.length > 0 ? now - this.requestQueue[0].timestamp : 0,
+        priorityDistribution: this.getQueuePriorityDistribution()
       },
       pendingRequests: this.pendingRequests.size,
       lastRequestTime: this.lastRequestTime,
-      requestSpacing: this.requestSpacing
+      requestSpacing: this.requestSpacing,
+      queueTimeout: this.queueTimeout
     };
+  }
+
+  private calculateQueueHealth(): 'healthy' | 'warning' | 'critical' {
+    const queueSize = this.requestQueue.length;
+    const oldestAge = this.requestQueue.length > 0 ? Date.now() - this.requestQueue[0].timestamp : 0;
+    
+    if (queueSize > 15 || oldestAge > this.queueTimeout * 0.8) {
+      return 'critical';
+    } else if (queueSize > 8 || oldestAge > this.queueTimeout * 0.5) {
+      return 'warning';
+    }
+    return 'healthy';
+  }
+
+  private getQueuePriorityDistribution() {
+    const distribution = { critical: 0, high: 0, medium: 0, low: 0 };
+    this.requestQueue.forEach(item => {
+      switch (item.priority) {
+        case RequestPriority.CRITICAL: distribution.critical++; break;
+        case RequestPriority.HIGH: distribution.high++; break;  
+        case RequestPriority.MEDIUM: distribution.medium++; break;
+        case RequestPriority.LOW: distribution.low++; break;
+      }
+    });
+    return distribution;
   }
 
   /**

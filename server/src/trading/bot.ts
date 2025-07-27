@@ -1,6 +1,7 @@
 import { bingxClient } from '../services/bingxClient';
 import { wsManager } from '../services/websocket';
 import { SignalGenerator } from './signalGenerator';
+import { apiRequestManager, RequestPriority } from '../services/APIRequestManager';
 // import { TechnicalIndicators } from '../indicators/technicalIndicators';
 import { logger } from '../utils/logger';
 import Trade from '../models/Trade';
@@ -416,7 +417,8 @@ export class TradingBot extends EventEmitter {
       
       const promises = batch.map(async (contract) => {
         try {
-          const ticker = await bingxClient.getTicker(contract.symbol);
+          // Use LOW priority for background volume scanning to avoid queue conflicts
+          const ticker: any = await apiRequestManager.getTicker(contract.symbol, RequestPriority.LOW);
           if (ticker.code === 0 && ticker.data) {
             const volume = parseFloat(ticker.data.quoteVolume || 0);
             if (volume >= this.config.minVolumeUSDT) {
@@ -730,8 +732,8 @@ export class TradingBot extends EventEmitter {
       // Calculate position size
       const positionSize = this.config.defaultPositionSize;
       
-      // Get current price
-      const ticker = await bingxClient.getTicker(signal.symbol);
+      // Get current price with HIGH priority for trade execution
+      const ticker: any = await apiRequestManager.getTicker(signal.symbol, RequestPriority.HIGH);
       const currentPrice = parseFloat(ticker.data.lastPrice);
       
       // Calculate quantity
