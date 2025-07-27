@@ -80,6 +80,22 @@ app.get('/health', (_req, res) => {
   });
 });
 
+// Root endpoint for API service
+app.get('/', (_req, res) => {
+  res.json({
+    name: 'BingX Trading Bot API',
+    version: '1.0.0',
+    status: 'running',
+    endpoints: {
+      health: '/health',
+      api: '/api/*',
+      assets: '/api/assets',
+      trading: '/api/trading', 
+      marketData: '/api/market-data'
+    }
+  });
+});
+
 // API Routes
 app.use('/api/assets', assetsRouter);
 app.use('/api/trading', tradingRouter);

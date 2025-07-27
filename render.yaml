@@ -47,7 +47,10 @@ services:
     routes:
       - type: rewrite
         source: /api/*
-        destination: https://bingx-trading-bot-api.onrender.com/api/$1
+        destination: https://bingx-trading-bot-api.onrender.com$request_uri
+      - type: rewrite
+        source: /health
+        destination: https://bingx-trading-bot-api.onrender.com/health
       - type: rewrite
         source: /favicon.ico
         destination: https://bingx-trading-bot-api.onrender.com/favicon.ico
