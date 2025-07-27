@@ -60,7 +60,7 @@ class SignalWorker extends EventEmitter {
     const startTime = Date.now();
 
     try {
-      logger.debug(`Worker ${this.id} processing symbol: ${task.symbol}`);
+      logger.info(`🔨 Worker ${this.id} analyzing ${task.symbol}...`);
 
       // Get market data using APIRequestManager (eliminates parallel calls)
       const klines = await Promise.race([

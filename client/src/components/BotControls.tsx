@@ -18,13 +18,18 @@ const VALIDATION_RULES = {
   stopLossPercent: { min: 0.5, max: 10, step: 0.1 },
   takeProfitPercent: { min: 0.5, max: 20, step: 0.1 },
   trailingStopPercent: { min: 0.1, max: 5, step: 0.1 },
-  minVolumeUSDT: { min: 100000, max: 10000000, step: 100000 },
+  minVolumeUSDT: { min: 10000, max: 10000000, step: 100000 },
   rsiOversold: { min: 10, max: 40, step: 1 },
   rsiOverbought: { min: 60, max: 90, step: 1 },
   volumeSpikeThreshold: { min: 1, max: 5, step: 0.1 },
   minSignalStrength: { min: 30, max: 90, step: 5 },
   ma1Period: { min: 5, max: 20, step: 1 },
-  ma2Period: { min: 10, max: 50, step: 1 }
+  ma2Period: { min: 10, max: 50, step: 1 },
+  // Risk Manager parameters
+  riskRewardRatio: { min: 1.0, max: 5.0, step: 0.1 },
+  maxDrawdownPercent: { min: 5, max: 25, step: 1 },
+  maxDailyLossUSDT: { min: 50, max: 2000, step: 50 },
+  maxPositionSizePercent: { min: 5, max: 50, step: 5 }
 }
 
 // Tooltips for each field
@@ -41,7 +46,12 @@ const TOOLTIPS = {
   minSignalStrength: 'Minimum signal strength percentage required to execute trades',
   ma1Period: 'Period for the fast moving average',
   ma2Period: 'Period for the slow moving average',
-  confirmationRequired: 'Require multiple technical indicators to confirm before trading'
+  confirmationRequired: 'Require multiple technical indicators to confirm before trading',
+  // Risk Manager tooltips
+  riskRewardRatio: 'Minimum reward/risk ratio required for trades (e.g., 2.0 = potential reward must be 2x potential risk)',
+  maxDrawdownPercent: 'Maximum percentage drawdown allowed before emergency stop',
+  maxDailyLossUSDT: 'Maximum daily loss in USDT before stopping trading for the day',
+  maxPositionSizePercent: 'Maximum percentage of account balance to risk in a single position'
 }
 
 // Validation function
@@ -85,7 +95,12 @@ const getTradingProfiles = (t: any) => ({
       minSignalStrength: 75,
       confirmationRequired: true,
       ma1Period: 9,
-      ma2Period: 21
+      ma2Period: 21,
+      // Conservative risk management
+      riskRewardRatio: 2.5,
+      maxDrawdownPercent: 10,
+      maxDailyLossUSDT: 200,
+      maxPositionSizePercent: 10
     }
   },
   balanced: {
@@ -104,7 +119,12 @@ const getTradingProfiles = (t: any) => ({
       minSignalStrength: 65,
       confirmationRequired: true,
       ma1Period: 9,
-      ma2Period: 21
+      ma2Period: 21,
+      // Balanced risk management
+      riskRewardRatio: 2.0,
+      maxDrawdownPercent: 15,
+      maxDailyLossUSDT: 500,
+      maxPositionSizePercent: 20
     }
   },
   aggressive: {
@@ -123,7 +143,12 @@ const getTradingProfiles = (t: any) => ({
       minSignalStrength: 55,
       confirmationRequired: false,
       ma1Period: 7,
-      ma2Period: 14
+      ma2Period: 14,
+      // Aggressive risk management
+      riskRewardRatio: 1.5,
+      maxDrawdownPercent: 20,
+      maxDailyLossUSDT: 1000,
+      maxPositionSizePercent: 30
     }
   }
 })
@@ -213,7 +238,12 @@ export default function BotControls({
     minSignalStrength: botStatus?.config?.minSignalStrength || 65,
     confirmationRequired: botStatus?.config?.confirmationRequired ?? true,
     ma1Period: botStatus?.config?.ma1Period || 9,
-    ma2Period: botStatus?.config?.ma2Period || 21
+    ma2Period: botStatus?.config?.ma2Period || 21,
+    // Risk Manager parameters
+    riskRewardRatio: botStatus?.config?.riskRewardRatio || 2.0,
+    maxDrawdownPercent: botStatus?.config?.maxDrawdownPercent || 15,
+    maxDailyLossUSDT: botStatus?.config?.maxDailyLossUSDT || 500,
+    maxPositionSizePercent: botStatus?.config?.maxPositionSizePercent || 20
   })
   const [validationErrors, setValidationErrors] = useState<Record<string, string>>({})
   
@@ -386,6 +416,88 @@ export default function BotControls({
           </div>
         )
       
+      case 'risk':
+        return (
+          <div className="space-y-6">
+            {/* Risk/Reward Calculation Preview */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <div className="flex items-center space-x-3 mb-4">
+                <div className="flex-shrink-0">
+                  📊
+                </div>
+                <div>
+                  <h4 className="font-medium text-blue-800">Cálculo de Risk/Reward</h4>
+                  <p className="text-sm text-blue-700">
+                    Com Stop Loss de {config.stopLossPercent}% e Take Profit de {config.takeProfitPercent}%, 
+                    sua razão atual é {(config.takeProfitPercent / config.stopLossPercent).toFixed(2)}:1
+                    {(config.takeProfitPercent / config.stopLossPercent) < config.riskRewardRatio && (
+                      <span className="text-red-600 font-medium"> (Abaixo do mínimo exigido: {config.riskRewardRatio}:1)</span>
+                    )}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <InputField
+                label="Risk/Reward Ratio Mínimo"
+                field="riskRewardRatio"
+                value={config.riskRewardRatio}
+                onChange={(value) => updateField('riskRewardRatio', value)}
+                error={validationErrors.riskRewardRatio}
+              />
+              
+              <InputField
+                label="Max Drawdown (%)"
+                field="maxDrawdownPercent"
+                value={config.maxDrawdownPercent}
+                onChange={(value) => updateField('maxDrawdownPercent', value)}
+                error={validationErrors.maxDrawdownPercent}
+              />
+              
+              <InputField
+                label="Perda Diária Máxima"
+                field="maxDailyLossUSDT"
+                value={config.maxDailyLossUSDT}
+                onChange={(value) => updateField('maxDailyLossUSDT', value)}
+                error={validationErrors.maxDailyLossUSDT}
+                currency={botStatus?.demoMode ? 'VST' : 'USDT'}
+              />
+              
+              <InputField
+                label="Tamanho Máximo da Posição (%)"
+                field="maxPositionSizePercent"
+                value={config.maxPositionSizePercent}
+                onChange={(value) => updateField('maxPositionSizePercent', value)}
+                error={validationErrors.maxPositionSizePercent}
+              />
+            </div>
+
+            {/* Risk Management Explanation */}
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+              <h4 className="font-medium text-gray-800 mb-3">Como funciona a Gestão de Risco</h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-gray-700">
+                <div>
+                  <h5 className="font-medium text-gray-800">Risk/Reward Ratio</h5>
+                  <p>Razão mínima entre ganho potencial e perda potencial. Ex: 2.0 = para cada $1 de risco, espera-se $2 de ganho.</p>
+                </div>
+                <div>
+                  <h5 className="font-medium text-gray-800">Max Drawdown</h5>
+                  <p>Perda máxima permitida em relação ao capital inicial antes de parar o bot automaticamente.</p>
+                </div>
+                <div>
+                  <h5 className="font-medium text-gray-800">Perda Diária Máxima</h5>
+                  <p>Valor máximo que pode ser perdido em um dia. O bot para de operar ao atingir este limite.</p>
+                </div>
+                <div>
+                  <h5 className="font-medium text-gray-800">Tamanho Máximo da Posição</h5>
+                  <p>Percentual máximo do saldo da conta que pode ser usado em uma única operação.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )
+      
       default:
         return null
     }
@@ -492,6 +604,17 @@ export default function BotControls({
                 }`}
               >
                 {t('trading.config.signalParameters')}
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('risk')}
+                className={`py-2 px-1 border-b-2 font-medium text-sm ${
+                  activeTab === 'risk'
+                    ? 'border-primary-500 text-primary-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                }`}
+              >
+                Gestão de Risco
               </button>
             </nav>
           </div>

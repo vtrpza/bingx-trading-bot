@@ -157,6 +157,11 @@ export interface BotConfig {
   confirmationRequired: boolean;
   ma1Period: number;
   ma2Period: number;
+  // Risk Management parameters
+  riskRewardRatio: number;
+  maxDrawdownPercent: number;
+  maxDailyLossUSDT: number;
+  maxPositionSizePercent: number;
 }
 
 export interface MarketData {

@@ -20,6 +20,7 @@ export interface ParallelBotConfig {
   defaultPositionSize: number;
   stopLossPercent: number;
   takeProfitPercent: number;
+  trailingStopPercent: number;
   minVolumeUSDT: number;
   
   // Signal generation parameters
@@ -30,6 +31,12 @@ export interface ParallelBotConfig {
   confirmationRequired: boolean;
   ma1Period: number;
   ma2Period: number;
+  
+  // Risk Management parameters (new)
+  riskRewardRatio: number;
+  maxDrawdownPercent: number;
+  maxDailyLossUSDT: number;
+  maxPositionSizePercent: number;
   
   // Parallel processing configuration
   signalWorkers: Partial<SignalWorkerConfig>;
@@ -130,6 +137,7 @@ export class ParallelTradingBot extends EventEmitter {
       defaultPositionSize: 100,
       stopLossPercent: 2,
       takeProfitPercent: 3,
+      trailingStopPercent: 1,
       minVolumeUSDT: 10000, // 10K USDT minimum volume (reduced to include more symbols)
       
       // Signal parameters
@@ -140,6 +148,12 @@ export class ParallelTradingBot extends EventEmitter {
       confirmationRequired: true,
       ma1Period: 9,
       ma2Period: 21,
+      
+      // Risk Management parameters (with sensible defaults)
+      riskRewardRatio: 2.0,
+      maxDrawdownPercent: 15,
+      maxDailyLossUSDT: 500,
+      maxPositionSizePercent: 20,
       
       // Component configurations
       signalWorkers: {
@@ -287,16 +301,16 @@ export class ParallelTradingBot extends EventEmitter {
       riskRewardRatio: 2.5
     });
     
-    // Initialize risk manager with strict error handling
+    // Initialize risk manager with parameters from frontend configuration
     this.riskManager = new RiskManager({
-      maxDrawdownPercent: this.config.riskManager.maxDrawdownPercent || 8,
-      maxDailyLossUSDT: this.config.riskManager.maxDailyLossUSDT || 500,
-      maxPositionSizePercent: this.config.riskManager.maxPositionSizePercent || 25,
-      stopLossPercent: this.config.riskManager.stopLossPercent || 2,
-      takeProfitPercent: this.config.riskManager.takeProfitPercent || 3,
-      trailingStopPercent: this.config.riskManager.trailingStopPercent || 1.5,
-      riskRewardRatio: this.config.riskManager.riskRewardRatio || 2,
-      maxLeverage: this.config.riskManager.maxLeverage || 10
+      maxDrawdownPercent: this.config.maxDrawdownPercent || 15,
+      maxDailyLossUSDT: this.config.maxDailyLossUSDT || 500,
+      maxPositionSizePercent: this.config.maxPositionSizePercent || 20,
+      stopLossPercent: this.config.stopLossPercent || 2,
+      takeProfitPercent: this.config.takeProfitPercent || 3,
+      trailingStopPercent: this.config.trailingStopPercent || 1,
+      riskRewardRatio: this.config.riskRewardRatio || 2.0,
+      maxLeverage: this.config.riskManager?.maxLeverage || 10
     });
     
     // Integrate position manager with trade executor
@@ -671,6 +685,13 @@ export class ParallelTradingBot extends EventEmitter {
   }
 
   private startScanning(): void {
+    // Check if force test mode is enabled
+    if (this.config.forceTestMode) {
+      this.startForceTestMode();
+      return;
+    }
+
+    // Regular scanning mode
     // Initial scan
     this.scanSymbols();
 
@@ -682,17 +703,91 @@ export class ParallelTradingBot extends EventEmitter {
     }, this.config.scanInterval);
   }
 
+  private startForceTestMode(): void {
+    logger.info('🧪 FORCE TEST MODE ACTIVATED', {
+      symbols: this.config.testModeSymbols,
+      interval: this.config.testModeInterval,
+      signalStrength: this.config.testModeSignalStrength
+    });
+
+    this.addActivityEvent('info', 
+      `🧪 Modo Força Teste ativado: ${this.config.testModeSymbols?.join(', ')}`, 
+      'info'
+    );
+
+    // Generate test signal immediately
+    this.generateTestSignal();
+
+    // Set up test interval
+    this.scanInterval = setInterval(() => {
+      if (this.isRunning && this.config.forceTestMode) {
+        this.generateTestSignal();
+      }
+    }, this.config.testModeInterval || 30000);
+  }
+
+  private generateTestSignal(): void {
+    if (!this.config.testModeSymbols || this.config.testModeSymbols.length === 0) {
+      return;
+    }
+
+    // Select random symbol from test symbols
+    const symbol = this.config.testModeSymbols[Math.floor(Math.random() * this.config.testModeSymbols.length)];
+    
+    // Generate random action (favor BUY/SELL over HOLD for testing)
+    const actions = ['BUY', 'SELL', 'BUY', 'SELL', 'HOLD']; // 80% BUY/SELL, 20% HOLD
+    const action = actions[Math.floor(Math.random() * actions.length)];
+    
+    // Use configured test signal strength with some variation
+    const baseStrength = this.config.testModeSignalStrength || 85;
+    const strength = baseStrength + (Math.random() * 20 - 10); // ±10% variation
+    
+    const testSignal = {
+      symbol,
+      action,
+      strength: Math.round(Math.max(30, Math.min(100, strength))), // Clamp between 30-100
+      reason: `🧪 TESTE ARTIFICIAL: Sinal gerado para validar fluxo completo de trading`,
+      indicators: {
+        price: 50000 + (Math.random() * 10000), // Mock price
+        ma1: 49500 + (Math.random() * 1000),
+        ma2: 49000 + (Math.random() * 1000),
+        rsi: action === 'BUY' ? 25 + (Math.random() * 10) : action === 'SELL' ? 75 + (Math.random() * 10) : 50 + (Math.random() * 20 - 10),
+        volume: 1000000 + (Math.random() * 5000000),
+        avgVolume: 1500000
+      },
+      conditions: {
+        maCrossover: action !== 'HOLD',
+        rsiSignal: action !== 'HOLD',
+        volumeConfirmation: true,
+        trendAlignment: action !== 'HOLD'
+      },
+      timestamp: new Date().toISOString(),
+      isTestSignal: true
+    };
+
+    logger.info(`🧪 Test signal generated: ${symbol} ${action} (${strength}%)`, {
+      signal: testSignal,
+      forceTest: true
+    });
+
+    // Process the test signal through normal flow
+    this.handleSignalGenerated(testSignal);
+  }
+
   private async scanSymbols(): Promise<void> {
+    logger.info(`🔍 STARTING SYMBOL SCAN - Cycle #${this.totalScans + 1}`);
+    
     // Sync positions every scan cycle to maintain real-time accuracy
     await this.syncPositionsWithBingX();
     
     if (this.activePositions.size >= this.config.maxConcurrentTrades) {
-      logger.debug('Max concurrent trades reached, skipping scan');
+      logger.warn(`⚠️ Max concurrent trades reached (${this.activePositions.size}/${this.config.maxConcurrentTrades}), skipping scan`);
       return;
     }
 
     // Get available symbols starting from where we left off
     const allSymbols = this.config.symbolsToScan;
+    logger.debug(`📋 Total symbols to scan: ${allSymbols.length}, Starting from index: ${this.lastScanIndex}`);
     const availableSymbols = [];
     
     // Continue scanning from last index, wrapping around if needed
@@ -745,12 +840,33 @@ export class ParallelTradingBot extends EventEmitter {
   private async handleSignalGenerated(signal: any): Promise<void> {
     this.metrics.signalMetrics.totalGenerated++;
     
-    logger.debug(`Signal generated: ${signal.symbol} - Action: ${signal.action}, Strength: ${signal.strength}, Required: ${this.config.minSignalStrength}`);
+    // Enhanced logging for debugging
+    logger.info(`📊 SIGNAL GENERATED for ${signal.symbol}:`, {
+      action: signal.action,
+      strength: signal.strength,
+      minRequired: this.config.minSignalStrength,
+      indicators: signal.indicators,
+      conditions: signal.conditions,
+      reason: signal.reason
+    });
     
     // Emit signal for WebSocket broadcasting (includes HOLD signals for frontend display)
     this.emit('signal', signal);
+    logger.debug(`📡 Signal emitted to WebSocket: ${signal.symbol} ${signal.action}`);
     
     // Only process signals that are actionable for trading
+    if (signal.action === 'HOLD') {
+      logger.info(`⏸️ HOLD signal for ${signal.symbol} - No trade action needed`);
+      return;
+    }
+    
+    if (signal.strength < this.config.minSignalStrength) {
+      logger.info(`❌ Signal strength too low for ${signal.symbol}: ${signal.strength}% < ${this.config.minSignalStrength}% required`);
+      return;
+    }
+    
+    logger.info(`✅ ACTIONABLE SIGNAL for ${signal.symbol}: ${signal.action} (${signal.strength}%) - Proceeding to validation...`);
+    
     if (signal.action !== 'HOLD' && signal.strength >= this.config.minSignalStrength) {
       
       // STRICT RISK VALIDATION - No fallbacks as per user requirement
@@ -1344,6 +1460,30 @@ export class ParallelTradingBot extends EventEmitter {
 
   updateConfig(config: Partial<ParallelBotConfig>): void {
     this.config = { ...this.config, ...config };
+    
+    // Update RiskManager parameters if any risk management fields changed
+    const riskFields = ['riskRewardRatio', 'maxDrawdownPercent', 'maxDailyLossUSDT', 'maxPositionSizePercent', 'stopLossPercent', 'takeProfitPercent', 'trailingStopPercent'];
+    const hasRiskUpdate = riskFields.some(field => config[field as keyof ParallelBotConfig] !== undefined);
+    
+    if (hasRiskUpdate && this.riskManager) {
+      this.riskManager.updateRiskParameters({
+        riskRewardRatio: this.config.riskRewardRatio,
+        maxDrawdownPercent: this.config.maxDrawdownPercent,
+        maxDailyLossUSDT: this.config.maxDailyLossUSDT,
+        maxPositionSizePercent: this.config.maxPositionSizePercent,
+        stopLossPercent: this.config.stopLossPercent,
+        takeProfitPercent: this.config.takeProfitPercent,
+        trailingStopPercent: this.config.trailingStopPercent,
+        maxLeverage: this.config.riskManager?.maxLeverage || 10
+      });
+      
+      logger.info('Risk management parameters updated:', {
+        riskRewardRatio: this.config.riskRewardRatio,
+        maxDrawdownPercent: this.config.maxDrawdownPercent,
+        maxDailyLossUSDT: this.config.maxDailyLossUSDT,
+        maxPositionSizePercent: this.config.maxPositionSizePercent
+      });
+    }
     
     // Update component configurations
     if (config.signalWorkers) {

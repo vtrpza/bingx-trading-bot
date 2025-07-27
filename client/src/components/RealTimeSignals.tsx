@@ -10,6 +10,18 @@ export default function RealTimeSignals() {
   const [signals, setSignals] = useLocalStorage<TradingSignal[]>('realTimeSignals', [])
   const [selectedSymbol, setSelectedSymbol] = useLocalStorage('realTimeSignalsSelectedSymbol', 'BTC-USDT')
   const { t } = useTranslation()
+  
+  // Calculate signal statistics
+  const signalStats = {
+    total: signals.length,
+    buy: signals.filter(s => s.action === 'BUY').length,
+    sell: signals.filter(s => s.action === 'SELL').length,
+    hold: signals.filter(s => s.action === 'HOLD').length,
+    avgStrength: signals.length > 0 
+      ? (signals.reduce((sum, s) => sum + (s.strength || 0), 0) / signals.length).toFixed(1)
+      : '0',
+    recentStrong: signals.filter(s => (s.strength || 0) >= 70).length
+  }
 
   const { lastMessage, connectionStatus } = useWebSocket('/ws')
   
@@ -128,6 +140,34 @@ export default function RealTimeSignals() {
 
   return (
     <div className="space-y-6">
+      {/* Signal Statistics */}
+      <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
+        <div className="card p-4 text-center">
+          <div className="text-2xl font-bold text-gray-900">{signalStats.total}</div>
+          <div className="text-sm text-gray-500">Total Sinais</div>
+        </div>
+        <div className="card p-4 text-center">
+          <div className="text-2xl font-bold text-green-600">{signalStats.buy}</div>
+          <div className="text-sm text-gray-500">BUY</div>
+        </div>
+        <div className="card p-4 text-center">
+          <div className="text-2xl font-bold text-red-600">{signalStats.sell}</div>
+          <div className="text-sm text-gray-500">SELL</div>
+        </div>
+        <div className="card p-4 text-center">
+          <div className="text-2xl font-bold text-gray-600">{signalStats.hold}</div>
+          <div className="text-sm text-gray-500">HOLD</div>
+        </div>
+        <div className="card p-4 text-center">
+          <div className="text-2xl font-bold text-blue-600">{signalStats.avgStrength}%</div>
+          <div className="text-sm text-gray-500">Força Média</div>
+        </div>
+        <div className="card p-4 text-center">
+          <div className="text-2xl font-bold text-purple-600">{signalStats.recentStrong}</div>
+          <div className="text-sm text-gray-500">Sinais Fortes</div>
+        </div>
+      </div>
+
       {/* Symbol Selection */}
       <div className="card p-6">
         <div className="flex justify-between items-center mb-4">
