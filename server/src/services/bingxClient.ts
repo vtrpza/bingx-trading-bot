@@ -487,12 +487,10 @@ export class BingXClient {
       // Calculate quantity to close based on percentage
       const closeQuantity = (currentSize * percentage) / 100;
 
-      // Create opposite order to close the position (use the symbol format from the actual position)
-      const orderData = {
+      // Use BingX specific close position endpoint instead of market order
+      const closeData = {
         symbol: position.symbol, // Use actual symbol format from BingX API
-        side: isLong ? 'SELL' : 'BUY' as 'BUY' | 'SELL',
         positionSide: isLong ? 'LONG' : 'SHORT' as 'LONG' | 'SHORT',
-        type: 'MARKET' as const,
         quantity: parseFloat(closeQuantity.toFixed(6))
       };
 
@@ -500,12 +498,12 @@ export class BingXClient {
         requestedSymbol: symbol,
         actualSymbol: position.symbol,
         currentSize,
-        closeQuantity: orderData.quantity,
-        side: orderData.side,
-        positionSide: orderData.positionSide
+        closeQuantity: closeData.quantity,
+        positionSide: closeData.positionSide
       });
 
-      const response = await this.placeOrder(orderData);
+      // Use close position API endpoint
+      const response = await this.closePositionDirect(closeData);
       
       if (response.code === 0) {
         logger.info(`Position close order placed successfully: ${response.data?.orderId}`);
@@ -516,6 +514,34 @@ export class BingXClient {
       return response;
     } catch (error) {
       logger.error(`Failed to close position ${symbol}:`, error);
+      throw error;
+    }
+  }
+
+  // Close position using BingX API endpoint
+  private async closePositionDirect(closeData: {
+    symbol: string;
+    positionSide: 'LONG' | 'SHORT';
+    quantity: number;
+  }) {
+    try {
+      // Use close position endpoint - this closes the position directly
+      // In Hedge Mode, need to specify workingType as CLOSE to close positions
+      const params = {
+        symbol: closeData.symbol,
+        side: closeData.positionSide === 'LONG' ? 'SELL' : 'BUY',
+        positionSide: closeData.positionSide,
+        type: 'MARKET',
+        quantity: closeData.quantity,
+        workingType: 'CLOSE'  // Required in Hedge Mode to close positions
+      };
+
+      logger.debug(`Close position API call:`, params);
+
+      const response = await this.axios.post('/openApi/swap/v2/trade/order', params);
+      return response.data;
+    } catch (error) {
+      logger.error(`Close position API call failed:`, error);
       throw error;
     }
   }

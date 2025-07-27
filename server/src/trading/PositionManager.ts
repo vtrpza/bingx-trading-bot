@@ -354,18 +354,26 @@ export class PositionManager extends EventEmitter {
         const apiPositions = await apiRequestManager.getPositions() as any;
         
         if (apiPositions.code === 0 && apiPositions.data) {
+          // Normalize symbol for comparison (LINK-USDT -> LINKUSDT)
+          const normalizedSymbol = position.symbol.replace(/-/g, '');
           const existsInAPI = apiPositions.data.find((pos: any) => 
-            pos.symbol === position.symbol && parseFloat(pos.positionAmt) !== 0
+            (pos.symbol === position.symbol || pos.symbol === normalizedSymbol) && 
+            parseFloat(pos.positionAmt) !== 0
           );
           
           if (!existsInAPI) {
             logger.warn(`Position ${position.symbol} not found in BingX API - removing from local tracking`, {
               localPosition: {
                 symbol: position.symbol,
+                normalizedSymbol: normalizedSymbol,
                 side: position.side,
                 status: position.status
               },
-              apiPositionsCount: apiPositions.data.length
+              apiPositionsCount: apiPositions.data.length,
+              apiPositions: apiPositions.data.map((pos: any) => ({
+                symbol: pos.symbol,
+                positionAmt: pos.positionAmt
+              }))
             });
             
             // Position doesn't exist in API, just remove from local tracking

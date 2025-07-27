@@ -4,7 +4,7 @@ import path from 'path';
 const logDir = process.env.LOG_DIR || 'logs';
 
 const logger = winston.createLogger({
-  level: 'info', // Force info level for troubleshooting
+  level: 'debug', // Force debug level for troubleshooting
   format: winston.format.combine(
     winston.format.timestamp({
       format: 'YYYY-MM-DD HH:mm:ss'
@@ -30,7 +30,7 @@ const logger = winston.createLogger({
 // If we're not in production, log to the console
 if (process.env.NODE_ENV !== 'production') {
   logger.add(new winston.transports.Console({
-    level: 'info', // Force info level for troubleshooting
+    level: 'debug', // Force info level for troubleshooting
     format: winston.format.combine(
       winston.format.colorize(),
       winston.format.simple()
