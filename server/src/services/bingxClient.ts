@@ -81,29 +81,43 @@ export class BingXClient {
     }
 
     // Add timestamp
-    config.params.timestamp = Date.now();
+    const timestamp = Date.now();
 
-    // Sort parameters alphabetically
-    const sortedParams = Object.keys(config.params)
-      .sort()
-      .reduce((acc: any, key) => {
-        acc[key] = config.params[key];
-        return acc;
-      }, {});
+    // Create signature string following BingX official method
+    let parameters = '';
+    
+    // Add existing parameters first (maintain original order, not sorted)
+    for (const key in config.params) {
+      if (key !== 'timestamp' && key !== 'signature') {
+        parameters += key + '=' + encodeURIComponent(config.params[key]) + '&';
+      }
+    }
+    
+    // Remove trailing & if parameters exist, then add timestamp
+    if (parameters) {
+      parameters = parameters.substring(0, parameters.length - 1);
+      parameters = parameters + '&timestamp=' + timestamp;
+    } else {
+      parameters = 'timestamp=' + timestamp;
+    }
 
-    // Create signature string
-    const signatureString = Object.entries(sortedParams)
-      .map(([key, value]) => `${key}=${value}`)
-      .join('&');
-
-    // Generate signature
+    // Generate signature using the correct BingX method
     const signature = crypto
       .createHmac('sha256', this.config.secretKey)
-      .update(signatureString)
+      .update(parameters)
       .digest('hex');
 
+    // Add timestamp and signature to params
+    config.params.timestamp = timestamp;
     config.params.signature = signature;
     config.headers['X-BX-APIKEY'] = this.config.apiKey;
+
+    // Log signature details for debugging
+    logger.debug('BingX Authentication Debug:', {
+      parameters,
+      signature,
+      timestamp
+    });
 
     return config;
   }

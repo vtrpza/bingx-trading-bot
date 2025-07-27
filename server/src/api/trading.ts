@@ -5,6 +5,8 @@ import Trade from '../models/Trade';
 import { AppError, asyncHandler } from '../utils/errorHandler';
 import { logger } from '../utils/logger';
 import { Op } from 'sequelize';
+import fs from 'fs';
+import path from 'path';
 
 const router = Router();
 
@@ -68,6 +70,59 @@ router.post('/bot/stop', asyncHandler(async (_req: Request, res: Response) => {
       message: 'Trading bot stopped successfully'
     }
   });
+}));
+
+// Get bot logs
+router.get('/bot/logs', asyncHandler(async (req: Request, res: Response) => {
+  const { limit = 100, level = 'all' } = req.query;
+  
+  try {
+    const logDir = process.env.LOG_DIR || 'logs';
+    const logFile = level === 'error' ? 'error.log' : 'combined.log';
+    const logPath = path.join(logDir, logFile);
+    
+    if (!fs.existsSync(logPath)) {
+      return res.json({
+        success: true,
+        data: []
+      });
+    }
+    
+    const logs = fs.readFileSync(logPath, 'utf8')
+      .split('\n')
+      .filter(line => line.trim())
+      .slice(-parseInt(limit as string))
+      .map(line => {
+        try {
+          const logEntry = JSON.parse(line);
+          return {
+            timestamp: logEntry.timestamp,
+            level: logEntry.level,
+            message: logEntry.message,
+            service: logEntry.service
+          };
+        } catch {
+          return {
+            timestamp: new Date().toISOString(),
+            level: 'info',
+            message: line,
+            service: 'bingx-trading-bot'
+          };
+        }
+      })
+      .reverse();
+    
+    res.json({
+      success: true,
+      data: logs
+    });
+  } catch (error) {
+    logger.error('Failed to read logs:', error);
+    res.json({
+      success: true,
+      data: []
+    });
+  }
 }));
 
 // Update bot configuration

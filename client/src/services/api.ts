@@ -98,7 +98,8 @@ export const api = {
 
   // Trading Bot
   async getBotStatus(): Promise<BotStatus> {
-    return axiosInstance.get('/trading/bot/status')
+    const response = await axiosInstance.get('/trading/bot/status')
+    return response.data
   },
 
   async startBot(): Promise<{ message: string }> {
@@ -107,6 +108,19 @@ export const api = {
 
   async stopBot(): Promise<{ message: string }> {
     return axiosInstance.post('/trading/bot/stop')
+  },
+
+  async getBotLogs(params?: {
+    limit?: number
+    level?: 'all' | 'error'
+  }): Promise<{
+    timestamp: string
+    level: string
+    message: string
+    service: string
+  }[]> {
+    const response = await axiosInstance.get('/trading/bot/logs', { params })
+    return response.data
   },
 
   async updateBotConfig(config: Partial<BotConfig>): Promise<{ message: string; config: Partial<BotConfig> }> {

@@ -26,6 +26,7 @@ export default function AssetsPage() {
   // Get asset statistics
   const { data: stats } = useQuery('asset-stats', api.getAssetStats)
 
+
   const assets = assetsData?.assets || []
   const pagination = assetsData?.pagination
 
@@ -101,6 +102,7 @@ export default function AssetsPage() {
     return value >= 0 ? `+${formatted}%` : `${formatted}%`
   }
 
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -139,6 +141,7 @@ export default function AssetsPage() {
           </div>
         </div>
       )}
+
 
       {/* Statistics Cards */}
       {stats && (

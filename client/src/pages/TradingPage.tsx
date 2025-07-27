@@ -11,7 +11,8 @@ import type { BotStatus, BotConfig } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 
 export default function TradingPage() {
-  const [activeTab, setActiveTab] = useState<'overview' | 'positions' | 'history' | 'signals'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'positions' | 'history' | 'signals' | 'logs'>('overview')
+  const [logsLevel, setLogsLevel] = useState<'all' | 'error'>('all')
   const queryClient = useQueryClient()
 
   // Get bot status
@@ -29,6 +30,18 @@ export default function TradingPage() {
     () => api.getTradingStats('24h'),
     {
       refetchInterval: 10000,
+    }
+  )
+
+  // Get bot logs
+  const { data: botLogs, isLoading: logsLoading } = useQuery(
+    ['bot-logs', logsLevel],
+    async () => {
+      const response = await api.getBotLogs({ limit: 50, level: logsLevel })
+      return response
+    },
+    {
+      refetchInterval: 10000, // Update every 10 seconds
     }
   )
 
@@ -109,6 +122,27 @@ export default function TradingPage() {
     updateConfigMutation.mutate(config)
   }
 
+  // Format log timestamp
+  const formatLogTime = (timestamp: string) => {
+    return new Date(timestamp).toLocaleTimeString('pt-BR')
+  }
+
+  // Get log level color
+  const getLogLevelColor = (level: string) => {
+    switch (level) {
+      case 'error':
+        return 'text-red-600'
+      case 'warn':
+        return 'text-yellow-600'
+      case 'info':
+        return 'text-blue-600'
+      case 'debug':
+        return 'text-gray-600'
+      default:
+        return 'text-gray-900'
+    }
+  }
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -185,7 +219,8 @@ export default function TradingPage() {
             { id: 'overview', name: 'Overview', count: botStatus?.activePositions?.length },
             { id: 'positions', name: 'Positions', count: botStatus?.activePositions?.length },
             { id: 'history', name: 'Trade History' },
-            { id: 'signals', name: 'Live Signals' }
+            { id: 'signals', name: 'Live Signals' },
+            { id: 'logs', name: 'Bot Logs' }
           ].map((tab) => (
             <button
               key={tab.id}
@@ -228,6 +263,42 @@ export default function TradingPage() {
 
         {activeTab === 'signals' && (
           <RealTimeSignals />
+        )}
+
+        {activeTab === 'logs' && (
+          <div className="bg-white rounded-lg shadow p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-lg font-semibold text-gray-900">Logs do Bot</h2>
+              <select
+                value={logsLevel}
+                onChange={(e) => setLogsLevel(e.target.value as 'all' | 'error')}
+                className="text-sm border border-gray-300 rounded-md px-2 py-1"
+              >
+                <option value="all">Todos os logs</option>
+                <option value="error">Apenas erros</option>
+              </select>
+            </div>
+            
+            <div className="bg-gray-900 rounded-md p-4 h-96 overflow-y-auto">
+              {logsLoading ? (
+                <div className="text-gray-400 text-sm">Carregando logs...</div>
+              ) : botLogs && botLogs.length > 0 ? (
+                <div className="space-y-1">
+                  {botLogs.map((log, index) => (
+                    <div key={index} className="text-xs font-mono">
+                      <span className="text-gray-500">[{formatLogTime(log.timestamp)}]</span>
+                      <span className={`ml-2 ${getLogLevelColor(log.level)} uppercase`}>
+                        {log.level}
+                      </span>
+                      <span className="ml-2 text-gray-300">{log.message}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-gray-400 text-sm">Nenhum log disponível</div>
+              )}
+            </div>
+          </div>
         )}
       </div>
     </div>
