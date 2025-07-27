@@ -973,17 +973,24 @@ router.post('/parallel-bot/positions/:symbol/close', asyncHandler(async (req: Re
   const parallelBot = getParallelTradingBot();
   const rawSymbol = req.params.symbol;
   const symbol = validateAndFormatSymbol(rawSymbol);
+  const { reason = 'Manual close', percentage = 100 } = req.body;
   const status = await parallelBot.getStatus();
   
   if (!status.isRunning) {
     throw new AppError('Parallel bot is not running', 400);
   }
   
-  await parallelBot.signalClosePosition(symbol);
+  // Validate percentage for partial close
+  if (percentage < 1 || percentage > 100) {
+    throw new AppError('Close percentage must be between 1 and 100', 400);
+  }
+  
+  await parallelBot.signalClosePosition(symbol, { reason, percentage });
   
   res.json({
     success: true,
-    message: `Close signal sent for position: ${symbol}`
+    message: `Close signal sent for position: ${symbol} (${percentage}%)`,
+    data: { symbol, percentage, reason }
   });
 }));
 
@@ -1001,6 +1008,36 @@ router.post('/parallel-bot/positions/close-all', asyncHandler(async (_req: Reque
   res.json({
     success: true,
     message: 'Emergency close signal sent for all positions'
+  });
+}));
+
+// Update position stop-loss/take-profit
+router.post('/parallel-bot/positions/:symbol/update', asyncHandler(async (req: Request, res: Response) => {
+  const parallelBot = getParallelTradingBot();
+  const rawSymbol = req.params.symbol;
+  const symbol = validateAndFormatSymbol(rawSymbol);
+  const { stopLoss, takeProfit } = req.body;
+  const status = await parallelBot.getStatus();
+  
+  if (!status.isRunning) {
+    throw new AppError('Parallel bot is not running', 400);
+  }
+  
+  // Validate stop-loss and take-profit values
+  if (stopLoss !== undefined && (typeof stopLoss !== 'number' || stopLoss <= 0)) {
+    throw new AppError('Stop-loss must be a positive number', 400);
+  }
+  
+  if (takeProfit !== undefined && (typeof takeProfit !== 'number' || takeProfit <= 0)) {
+    throw new AppError('Take-profit must be a positive number', 400);
+  }
+  
+  await parallelBot.updatePositionLevels(symbol, { stopLoss, takeProfit });
+  
+  res.json({
+    success: true,
+    message: `Position levels updated for ${symbol}`,
+    data: { symbol, stopLoss, takeProfit }
   });
 }));
 

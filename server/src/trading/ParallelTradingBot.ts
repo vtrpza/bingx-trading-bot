@@ -1475,9 +1475,17 @@ export class ParallelTradingBot extends EventEmitter {
   }
 
 
-  async signalClosePosition(symbol: string): Promise<void> {
-    await this.positionManager.signalClosePosition(symbol);
-    logger.info(`Close signal sent for position: ${symbol}`);
+  async signalClosePosition(symbol: string, options?: { reason?: string; percentage?: number }): Promise<void> {
+    const { reason = 'Manual close', percentage = 100 } = options || {};
+    
+    if (percentage === 100) {
+      await this.positionManager.signalClosePosition(symbol);
+    } else {
+      // For partial closes, we'll signal through position manager with metadata
+      await this.positionManager.signalPartialClosePosition(symbol, percentage, reason);
+    }
+    
+    logger.info(`Close signal sent for position: ${symbol} (${percentage}% - ${reason})`);
   }
 
   async signalCloseAllPositions(): Promise<void> {
@@ -1488,6 +1496,11 @@ export class ParallelTradingBot extends EventEmitter {
   async confirmPositionClosed(symbol: string, actualPnl?: number): Promise<void> {
     await this.positionManager.confirmPositionClosed(symbol, actualPnl);
     logger.info(`Position closure confirmed: ${symbol}`);
+  }
+
+  async updatePositionLevels(symbol: string, levels: { stopLoss?: number; takeProfit?: number }): Promise<void> {
+    await this.positionManager.updatePositionLevels(symbol, levels);
+    logger.info(`Position levels updated for ${symbol}:`, levels);
   }
 
   // Advanced execution controls

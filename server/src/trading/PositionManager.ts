@@ -518,6 +518,56 @@ export class PositionManager extends EventEmitter {
     }
   }
 
+  // Partial close position signal
+  async signalPartialClosePosition(symbol: string, percentage: number, reason: string): Promise<void> {
+    const position = this.positions.get(symbol);
+    if (position) {
+      logger.info(`Partial close signal for position: ${symbol} (${percentage}% - ${reason})`);
+      
+      // For now, we'll treat partial closes as manual close signals
+      // The actual execution would be handled by the trading bot
+      this.emit('partialCloseSignal', { 
+        symbol, 
+        percentage, 
+        reason, 
+        position: { ...position } 
+      });
+    } else {
+      logger.warn(`Position not found for partial close: ${symbol}`);
+    }
+  }
+
+  // Update position stop-loss and take-profit levels
+  async updatePositionLevels(symbol: string, levels: { stopLoss?: number; takeProfit?: number }): Promise<void> {
+    const position = this.positions.get(symbol);
+    if (position) {
+      if (levels.stopLoss !== undefined) {
+        position.stopLossPrice = levels.stopLoss;
+      }
+      if (levels.takeProfit !== undefined) {
+        position.takeProfitPrice = levels.takeProfit;
+      }
+      
+      position.lastUpdate = Date.now();
+      
+      logger.info(`Position levels updated for ${symbol}:`, {
+        stopLoss: position.stopLossPrice,
+        takeProfit: position.takeProfitPrice
+      });
+      
+      this.emit('positionLevelsUpdated', { 
+        symbol, 
+        levels: {
+          stopLoss: position.stopLossPrice,
+          takeProfit: position.takeProfitPrice
+        },
+        position: { ...position }
+      });
+    } else {
+      logger.warn(`Position not found for level update: ${symbol}`);
+    }
+  }
+
   // Real close position - to be called when position is actually closed externally
   async confirmPositionClosed(symbol: string, actualPnl?: number): Promise<void> {
     const position = this.positions.get(symbol);

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useQuery } from 'react-query'
+import { useQuery, useMutation, useQueryClient } from 'react-query'
 import { api } from '../services/api'
 import type { Position } from '../types'
 
@@ -9,6 +9,32 @@ interface PositionsTableProps {
 
 export default function PositionsTable({ positions }: PositionsTableProps) {
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null)
+  const [closePercentage, setClosePercentage] = useState(100)
+  const [loading, setLoading] = useState(false)
+  const queryClient = useQueryClient()
+
+  // Close position mutation
+  const closePositionMutation = useMutation(
+    async ({ symbol, percentage }: { symbol: string; percentage: number }) => {
+      const response = await fetch(`/api/parallel-bot/positions/${symbol}/close`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          reason: 'Manual close', 
+          percentage 
+        })
+      })
+      if (!response.ok) throw new Error('Failed to close position')
+      return response.json()
+    },
+    {
+      onSuccess: () => {
+        queryClient.invalidateQueries('positions')
+        setSelectedSymbol(null)
+        setClosePercentage(100)
+      }
+    }
+  )
 
   // Get real-time positions from API
   const { data: realTimePositions, error } = useQuery(
@@ -56,6 +82,24 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
     const formatted = numValue.toFixed(2)
     return numValue >= 0 ? `+${formatted} ${currency}` : `${formatted} ${currency}`
   }
+
+  const handleClosePosition = async () => {
+    if (!selectedSymbol) return
+    
+    setLoading(true)
+    try {
+      await closePositionMutation.mutateAsync({
+        symbol: selectedSymbol,
+        percentage: closePercentage
+      })
+    } catch (error) {
+      console.error('Error closing position:', error)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const selectedPosition = displayPositions.find(p => p.symbol === selectedSymbol)
 
   // Show error state if API failed
   if (error) {
@@ -185,11 +229,11 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
         </table>
       </div>
 
-      {/* Position Details Modal */}
-      {selectedSymbol && (
+      {/* Position Management Modal */}
+      {selectedSymbol && selectedPosition && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
-            <div className="flex justify-between items-center mb-4">
+          <div className="bg-white rounded-lg shadow-xl p-6 max-w-lg w-full mx-4">
+            <div className="flex justify-between items-center mb-6">
               <h3 className="text-lg font-medium text-gray-900">
                 Manage Position: {selectedSymbol}
               </h3>
@@ -201,18 +245,133 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
               </button>
             </div>
             
+            {/* Position Summary */}
+            <div className="bg-gray-50 rounded-lg p-4 mb-6">
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                  <span className="text-gray-500">Side:</span>
+                  <span className={`ml-2 font-medium ${
+                    Number(selectedPosition.positionAmt) > 0 ? 'text-green-600' : 'text-red-600'
+                  }`}>
+                    {Number(selectedPosition.positionAmt) > 0 ? 'LONG' : 'SHORT'}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-500">Size:</span>
+                  <span className="ml-2 font-medium">
+                    {formatNumber(Math.abs(Number(selectedPosition.positionAmt)), 6)}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-500">Entry:</span>
+                  <span className="ml-2 font-medium">
+                    ${formatNumber(selectedPosition.entryPrice)}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-gray-500">PnL:</span>
+                  <span className={`ml-2 font-medium ${
+                    Number(selectedPosition.unrealizedProfit) >= 0 ? 'text-green-600' : 'text-red-600'
+                  }`}>
+                    {formatCurrency(selectedPosition.unrealizedProfit)}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Close Position Controls */}
             <div className="space-y-4">
-              <p className="text-sm text-gray-600">
-                Position management features will be available in the next update.
-                For now, positions are managed automatically by the trading bot.
-              </p>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Close Percentage
+                </label>
+                <div className="flex items-center space-x-4">
+                  <input
+                    type="range"
+                    min="1"
+                    max="100"
+                    value={closePercentage}
+                    onChange={(e) => setClosePercentage(Number(e.target.value))}
+                    className="flex-1"
+                  />
+                  <div className="flex items-center space-x-2">
+                    <input
+                      type="number"
+                      min="1"
+                      max="100"
+                      value={closePercentage}
+                      onChange={(e) => setClosePercentage(Number(e.target.value))}
+                      className="w-16 px-2 py-1 border border-gray-300 rounded text-sm"
+                    />
+                    <span className="text-sm text-gray-500">%</span>
+                  </div>
+                </div>
+                <div className="flex justify-between mt-2">
+                  <button
+                    onClick={() => setClosePercentage(25)}
+                    className="text-xs px-2 py-1 bg-gray-100 rounded hover:bg-gray-200"
+                  >
+                    25%
+                  </button>
+                  <button
+                    onClick={() => setClosePercentage(50)}
+                    className="text-xs px-2 py-1 bg-gray-100 rounded hover:bg-gray-200"
+                  >
+                    50%
+                  </button>
+                  <button
+                    onClick={() => setClosePercentage(75)}
+                    className="text-xs px-2 py-1 bg-gray-100 rounded hover:bg-gray-200"
+                  >
+                    75%
+                  </button>
+                  <button
+                    onClick={() => setClosePercentage(100)}
+                    className="text-xs px-2 py-1 bg-gray-100 rounded hover:bg-gray-200"
+                  >
+                    100%
+                  </button>
+                </div>
+              </div>
+
+              {closePercentage < 100 && (
+                <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
+                  <p className="text-sm text-blue-800">
+                    <strong>Partial Close:</strong> {closePercentage}% of position will be closed
+                    ({formatNumber(Math.abs(Number(selectedPosition.positionAmt)) * closePercentage / 100, 6)} tokens)
+                  </p>
+                </div>
+              )}
               
-              <div className="flex justify-end space-x-3">
+              {/* Action Buttons */}
+              <div className="flex justify-end space-x-3 pt-4">
                 <button
                   onClick={() => setSelectedSymbol(null)}
-                  className="btn btn-secondary"
+                  className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
+                  disabled={loading}
                 >
-                  Close
+                  Cancel
+                </button>
+                <button
+                  onClick={handleClosePosition}
+                  disabled={loading || closePositionMutation.isLoading}
+                  className={`px-4 py-2 text-white rounded-lg ${
+                    closePercentage === 100 
+                      ? 'bg-red-600 hover:bg-red-700' 
+                      : 'bg-orange-600 hover:bg-orange-700'
+                  } disabled:opacity-50`}
+                >
+                  {loading || closePositionMutation.isLoading ? (
+                    <span className="flex items-center">
+                      <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      Closing...
+                    </span>
+                  ) : (
+                    `Close ${closePercentage}% Position`
+                  )}
                 </button>
               </div>
             </div>
