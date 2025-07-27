@@ -16,7 +16,7 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
   // Close position mutation
   const closePositionMutation = useMutation(
     async ({ symbol, percentage }: { symbol: string; percentage: number }) => {
-      const response = await fetch(`/api/parallel-bot/positions/${symbol}/close`, {
+      const response = await fetch(`/api/trading/parallel-bot/positions/${symbol}/close`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
