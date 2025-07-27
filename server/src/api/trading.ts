@@ -208,7 +208,8 @@ router.get('/positions', asyncHandler(async (_req: Request, res: Response) => {
     logger.info('Positions API response:', { 
       code: positions?.code, 
       dataLength: positions?.data?.length,
-      demoMode: process.env.DEMO_MODE 
+      demoMode: process.env.DEMO_MODE,
+      sampleData: positions?.data?.slice(0, 2) // Log first 2 positions for debugging
     });
     
     if (positions.code === 0) {
@@ -221,17 +222,23 @@ router.get('/positions', asyncHandler(async (_req: Request, res: Response) => {
           const amount = parseFloat(pos.positionAmt || '0');
           return !isNaN(amount) && amount !== 0;
         })
-        .map((pos: any) => ({
-          ...pos,
-          // Ensure numeric fields are valid numbers or default to '0'
-          positionAmt: isNaN(parseFloat(pos.positionAmt)) ? '0' : pos.positionAmt,
-          entryPrice: isNaN(parseFloat(pos.entryPrice)) ? '0' : pos.entryPrice,
-          markPrice: isNaN(parseFloat(pos.markPrice)) ? '0' : pos.markPrice,
-          unrealizedProfit: isNaN(parseFloat(pos.unrealizedProfit)) ? '0' : pos.unrealizedProfit,
-          percentage: isNaN(parseFloat(pos.percentage)) ? '0' : pos.percentage,
-          notional: isNaN(parseFloat(pos.notional)) ? '0' : pos.notional,
-          isolatedMargin: isNaN(parseFloat(pos.isolatedMargin)) ? '0' : pos.isolatedMargin
-        }));
+        .map((pos: any) => {
+          // Only sanitize if the values are actually invalid, preserve original values
+          const sanitized = { ...pos };
+          
+          // Log original data for debugging
+          if (parseFloat(pos.positionAmt) !== 0) {
+            logger.debug('Processing position:', {
+              symbol: pos.symbol,
+              positionAmt: pos.positionAmt,
+              entryPrice: pos.entryPrice,
+              markPrice: pos.markPrice,
+              unrealizedProfit: pos.unrealizedProfit
+            });
+          }
+          
+          return sanitized;
+        });
       
       res.json({
         success: true,

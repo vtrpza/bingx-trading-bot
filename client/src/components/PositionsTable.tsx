@@ -29,6 +29,14 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
       ? positions 
       : []
 
+  // Debug logging
+  console.log('PositionsTable Debug:', {
+    realTimePositions,
+    propsPositions: positions,
+    displayPositions,
+    samplePosition: displayPositions[0]
+  })
+
   const formatNumber = (value: number | string, decimals = 4) => {
     const numValue = Number(value)
     if (isNaN(numValue)) return '0.0000'
