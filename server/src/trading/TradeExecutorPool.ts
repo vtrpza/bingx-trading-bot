@@ -1,5 +1,6 @@
 import { EventEmitter } from 'events';
 import { bingxClient } from '../services/bingxClient';
+import { apiRequestManager } from '../services/APIRequestManager';
 import { QueuedSignal } from './PrioritySignalQueue';
 import { PositionManager, ManagedPosition } from './PositionManager';
 import { logger } from '../utils/logger';
@@ -161,8 +162,8 @@ class TradeExecutor extends EventEmitter {
       throw new Error('Signal too old for execution');
     }
 
-    // Check account balance
-    const balanceResponse = await bingxClient.getBalance();
+    // Check account balance using APIRequestManager (priority HIGH for trading)
+    const balanceResponse = await apiRequestManager.getBalance() as any;
     if (balanceResponse.code !== 0 || !balanceResponse.data) {
       throw new Error('Unable to fetch account balance');
     }
@@ -210,8 +211,8 @@ class TradeExecutor extends EventEmitter {
       throw new Error(`Insufficient balance: ${availableBalance} < ${task.positionSize}`);
     }
 
-    // Check if position already exists for this symbol
-    const positions = await bingxClient.getPositions(task.symbol);
+    // Check if position already exists for this symbol using APIRequestManager
+    const positions = await apiRequestManager.getPositions(task.symbol) as any;
     if (positions.data && positions.data.length > 0) {
       const existingPosition = positions.data.find((p: any) => 
         p.symbol === task.symbol && Math.abs(parseFloat(p.positionAmt)) > 0
@@ -224,7 +225,7 @@ class TradeExecutor extends EventEmitter {
   }
 
   private async getCurrentPrice(symbol: string): Promise<number> {
-    const ticker = await bingxClient.getTicker(symbol);
+    const ticker = await apiRequestManager.getTicker(symbol) as any;
     
     if (!ticker.data || !ticker.data.lastPrice) {
       throw new Error('Unable to fetch current price');

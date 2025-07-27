@@ -4,6 +4,7 @@ import { getParallelTradingBot } from '../trading/ParallelTradingBot';
 import { PerformanceMonitor } from '../trading/PerformanceMonitor';
 import { balancedConfig, highFrequencyConfig, conservativeConfig, ConfigurationOptimizer } from '../trading/ParallelBotConfiguration';
 import { bingxClient } from '../services/bingxClient';
+import { apiRequestManager } from '../services/APIRequestManager';
 import { globalRateLimiter } from '../services/rateLimiter';
 import Trade from '../models/Trade';
 import { AppError, asyncHandler } from '../utils/errorHandler';
@@ -21,10 +22,10 @@ router.get('/bot/status', asyncHandler(async (_req: Request, res: Response) => {
     const parallelBot = getParallelTradingBot();
     const status = parallelBot.getStatus();
     
-    // Get account balance
+    // Get account balance using APIRequestManager
     let balance = null;
     try {
-      const balanceData = await bingxClient.getBalance();
+      const balanceData: any = await apiRequestManager.getBalance();
       if (balanceData.code === 0 && balanceData.data) {
         balance = balanceData.data.balance;
       }
@@ -56,7 +57,7 @@ router.get('/bot/status', asyncHandler(async (_req: Request, res: Response) => {
     
     let balance = null;
     try {
-      const balanceData = await bingxClient.getBalance();
+      const balanceData: any = await apiRequestManager.getBalance();
       if (balanceData.code === 0 && balanceData.data) {
         balance = balanceData.data.balance;
       }
@@ -202,7 +203,7 @@ router.put('/bot/config', asyncHandler(async (req: Request, res: Response) => {
 // Get active positions
 router.get('/positions', asyncHandler(async (_req: Request, res: Response) => {
   try {
-    const positions = await bingxClient.getPositions();
+    const positions = await apiRequestManager.getPositions() as any;
     
     logger.info('Positions API response:', { 
       code: positions?.code, 
@@ -267,7 +268,7 @@ router.get('/orders/open', asyncHandler(async (req: Request, res: Response) => {
   const { symbol } = req.query;
   
   try {
-    const orders = await bingxClient.getOpenOrders(symbol as string);
+    const orders = await apiRequestManager.getOpenOrders(symbol as string) as any;
     
     if (orders.code === 0) {
       res.json({
@@ -577,10 +578,10 @@ router.get('/parallel-bot/status', asyncHandler(async (_req: Request, res: Respo
   const parallelBot = getParallelTradingBot();
   const status = parallelBot.getStatus();
   
-  // Get account balance
+  // Get account balance using APIRequestManager
   let balance = null;
   try {
-    const balanceData = await bingxClient.getBalance();
+    const balanceData: any = await apiRequestManager.getBalance();
     if (balanceData.code === 0 && balanceData.data) {
       balance = balanceData.data.balance;
     }

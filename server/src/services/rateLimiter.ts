@@ -82,8 +82,10 @@ export class RateLimiter {
  */
 export class GlobalRateLimiter {
   private requestLog: number[] = [];
-  private readonly maxRequests: number = 5; // BingX limit: 5 requests per 900ms
-  private readonly windowMs: number = 900; // BingX window: 900ms
+  private readonly maxRequests: number = 3; // Conservative: 3 requests per 1000ms (instead of 5/900ms)
+  private readonly windowMs: number = 1000; // 1 second window for better spacing
+  private requestQueue: Array<{resolve: () => void, reject: (error: Error) => void}> = [];
+  private isProcessingQueue: boolean = false;
 
   /**
    * Check if a request can be made within rate limits
@@ -124,22 +126,63 @@ export class GlobalRateLimiter {
   }
 
   /**
-   * Wait until next request slot is available with exponential backoff
+   * Queue-based request waiting system to prevent API overload
    * @returns Promise that resolves when a request can be made
    */
   async waitForSlot(): Promise<void> {
+    return new Promise((resolve, reject) => {
+      // Add to queue
+      this.requestQueue.push({ resolve, reject });
+      
+      // Start processing if not already running
+      if (!this.isProcessingQueue) {
+        this.processQueue();
+      }
+    });
+  }
+
+  /**
+   * Process the request queue sequentially with proper spacing
+   */
+  private async processQueue(): Promise<void> {
+    this.isProcessingQueue = true;
+    
+    while (this.requestQueue.length > 0) {
+      const { resolve, reject } = this.requestQueue.shift()!;
+      
+      try {
+        // Wait for available slot
+        await this.waitForAvailableSlot();
+        
+        // Resolve the waiting request
+        resolve();
+        
+        // Add minimum spacing between requests (350ms)
+        await new Promise(r => setTimeout(r, 350));
+        
+      } catch (error) {
+        reject(error instanceof Error ? error : new Error('Rate limit error'));
+      }
+    }
+    
+    this.isProcessingQueue = false;
+  }
+
+  /**
+   * Internal method to wait for an available request slot
+   */
+  private async waitForAvailableSlot(): Promise<void> {
     let retryCount = 0;
-    const maxRetries = 10; // Increased retries for better reliability
+    const maxRetries = 15;
     
     while (!this.canMakeRequest() && retryCount < maxRetries) {
       const now = Date.now();
       const oldestRequest = this.requestLog[0];
-      const baseWaitTime = this.windowMs - (now - oldestRequest) + 300; // Increased buffer
+      const timeUntilReset = this.windowMs - (now - oldestRequest) + 100;
       
-      // More reasonable backoff for BingX rate limits
-      const waitTime = Math.max(200, Math.min(baseWaitTime * Math.pow(1.1, retryCount), 10000)); // Cap at 10 seconds max
+      const waitTime = Math.max(timeUntilReset, 400); // Minimum 400ms wait
       
-      logger.info(`Rate limited - waiting ${waitTime}ms (attempt ${retryCount + 1}/${maxRetries}) to comply with BingX limits`);
+      logger.debug(`Waiting for rate limit slot: ${waitTime}ms (attempt ${retryCount + 1}/${maxRetries})`);
       await new Promise(resolve => setTimeout(resolve, waitTime));
       retryCount++;
     }
@@ -165,6 +208,8 @@ export class GlobalRateLimiter {
       currentRequests: this.requestLog.length,
       maxRequests: this.maxRequests,
       remainingRequests: this.maxRequests - this.requestLog.length,
+      queuedRequests: this.requestQueue.length,
+      isProcessingQueue: this.isProcessingQueue,
       windowMs: this.windowMs,
       oldestRequestAge: this.requestLog.length > 0 ? now - this.requestLog[0] : 0
     };

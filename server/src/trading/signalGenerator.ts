@@ -200,6 +200,7 @@ export class SignalGenerator {
     let strength = 0;
     let reasons: string[] = [];
 
+
     // Buy conditions
     const buyConditions = {
       oversold: latestValues.rsi <= this.config.rsiOversold,
@@ -215,6 +216,7 @@ export class SignalGenerator {
       bearishTrend: latestValues.price < latestValues.ma1 && latestValues.ma1 < latestValues.ma2,
       volumeSpike: conditions.volumeConfirmation
     };
+
 
     // Calculate buy signal strength
     let buyStrength = 0;

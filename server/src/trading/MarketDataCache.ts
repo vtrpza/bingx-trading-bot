@@ -2,6 +2,8 @@ import { EventEmitter } from 'events';
 import { bingxClient } from '../services/bingxClient';
 import { logger } from '../utils/logger';
 import WebSocket from 'ws';
+import { inflate } from 'zlib';
+import { promisify } from 'util';
 
 export interface CachedTickerData {
   symbol: string;
@@ -248,9 +250,20 @@ export class MarketDataCache extends EventEmitter {
         this.emit('symbolSubscribed', symbol);
       });
 
-      ws.on('message', (data: Buffer) => {
+      ws.on('message', async (data: Buffer) => {
         try {
-          const message = JSON.parse(data.toString());
+          let messageStr: string;
+          
+          // Check if data is compressed (starts with gzip magic bytes)
+          if (data[0] === 0x1f && data[1] === 0x8b) {
+            const inflateAsync = promisify(inflate);
+            const decompressed = await inflateAsync(data);
+            messageStr = decompressed.toString();
+          } else {
+            messageStr = data.toString();
+          }
+          
+          const message = JSON.parse(messageStr);
           this.handleWebSocketMessage(symbol, message);
         } catch (error) {
           logger.debug(`Failed to parse WebSocket message for ${symbol}:`, error);

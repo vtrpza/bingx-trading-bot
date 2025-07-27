@@ -1,5 +1,5 @@
 import { EventEmitter } from 'events';
-import { bingxClient } from '../services/bingxClient';
+import { apiRequestManager } from '../services/APIRequestManager';
 import { SignalGenerator, TradingSignal } from './signalGenerator';
 import { logger } from '../utils/logger';
 import { v4 as uuidv4 } from 'uuid';
@@ -62,9 +62,9 @@ class SignalWorker extends EventEmitter {
     try {
       logger.debug(`Worker ${this.id} processing symbol: ${task.symbol}`);
 
-      // Get market data with timeout
+      // Get market data using APIRequestManager (eliminates parallel calls)
       const klines = await Promise.race([
-        bingxClient.getKlines(task.symbol, '5m', 100),
+        apiRequestManager.getKlines(task.symbol, '5m', 100),
         new Promise((_, reject) => 
           setTimeout(() => reject(new Error('Market data timeout')), 15000)
         )
@@ -199,11 +199,11 @@ export class SignalWorkerPool extends EventEmitter {
     super();
     
     this.config = {
-      maxWorkers: 2, // Further reduced from 3 to 2 for better rate limiting
-      maxConcurrentTasks: 6, // Reduced from 10 to 6
-      taskTimeout: 25000, // Increased to 25s to handle rate limiting delays
+      maxWorkers: 1, // Only 1 worker to force sequential processing
+      maxConcurrentTasks: 1, // Only 1 concurrent task
+      taskTimeout: 30000, // 30s timeout to handle rate limiting delays
       retryAttempts: 2,
-      taskDelay: 500, // New: 500ms delay between tasks
+      taskDelay: 2000, // 2 second delay between tasks
       signalConfig: {},
       ...config
     };
@@ -220,6 +220,10 @@ export class SignalWorkerPool extends EventEmitter {
         // Reset consecutive errors on successful task completion
         this.consecutiveErrors = 0;
         
+        logger.debug(`Task completed for ${result.task.symbol}, emitting signalGenerated event`, {
+          signal: result.signal?.action,
+          strength: result.signal?.strength
+        });
         this.emit('signalGenerated', result.signal);
         this.processNextTask();
       });
@@ -306,14 +310,21 @@ export class SignalWorkerPool extends EventEmitter {
   }
 
   private processQueuedTasks() {
-    if (!this.isRunning || this.taskQueue.length === 0) {
+    if (!this.isRunning) {
+      logger.debug('SignalWorkerPool not running, skipping task processing');
       return;
     }
+    
+    if (this.taskQueue.length === 0) {
+      logger.debug('No tasks in queue');
+      return;
+    }
+    
+    logger.debug(`Processing queue with ${this.taskQueue.length} tasks`);
 
     // Check circuit breaker
     if (this.circuitBreakerOpen) {
       const currentTime = Date.now();
-      // Open circuit breaker for 5 minutes after 10 consecutive errors
       if (currentTime - this.lastErrorTime > 300000) { // 5 minutes
         this.circuitBreakerOpen = false;
         this.consecutiveErrors = 0;
@@ -330,33 +341,30 @@ export class SignalWorkerPool extends EventEmitter {
       (currentTime - task.timestamp) < 60000
     );
 
-    // Get available workers
+    // Process ONLY ONE task at a time (sequential processing)
     const availableWorkers = Array.from(this.workers.values())
       .filter(worker => worker.isAvailable());
 
     if (availableWorkers.length === 0) {
+      logger.debug('No available workers');
       return;
     }
 
-    // Process tasks up to available workers with sequential delays to avoid rate limiting
-    const tasksToProcess = this.taskQueue.splice(0, availableWorkers.length);
+    // Get the first available worker and first task
+    const worker = availableWorkers[0];
+    const task = this.taskQueue.shift();
 
-    for (let i = 0; i < tasksToProcess.length && i < availableWorkers.length; i++) {
-      const task = tasksToProcess[i];
-      const worker = availableWorkers[i];
-      
-      // Add delay between tasks to respect rate limits
-      if (i > 0) {
-        setTimeout(() => this.processTask(worker, task), i * this.config.taskDelay);
-      } else {
-        this.processTask(worker, task);
-      }
+    if (task) {
+      logger.debug(`Processing task ${task.id} for ${task.symbol} sequentially`);
+      this.processTask(worker, task);
+    } else {
+      logger.debug('No task available after queue shift');
     }
   }
 
   private async processTask(worker: SignalWorker, task: SignalTask) {
     const startTime = Date.now();
-    logger.debug(`Starting task ${task.id} for symbol ${task.symbol} on worker ${worker.getId()}`);
+    logger.debug(`Starting sequential task ${task.id} for symbol ${task.symbol} on worker ${worker.getId()}`);
     
     try {
       await Promise.race([
@@ -367,20 +375,20 @@ export class SignalWorkerPool extends EventEmitter {
       ]);
       
       const duration = Date.now() - startTime;
-      logger.debug(`Task ${task.id} completed successfully in ${duration}ms`);
+      logger.debug(`Sequential task ${task.id} completed successfully in ${duration}ms`);
       
     } catch (error) {
       const duration = Date.now() - startTime;
       const errorMessage = error instanceof Error ? error.message : String(error);
       
-      logger.warn(`Task ${task.id} for ${task.symbol} failed after ${duration}ms: ${errorMessage}`);
+      logger.warn(`Sequential task ${task.id} for ${task.symbol} failed after ${duration}ms: ${errorMessage}`);
       this.handleTaskError(task, errorMessage);
     }
   }
 
   private processNextTask() {
-    // Process next task if any are queued
-    setTimeout(() => this.processQueuedTasks(), 10);
+    // Process next task with minimal delay since APIRequestManager handles rate limiting
+    setTimeout(() => this.processQueuedTasks(), 100);
   }
 
   private handleTaskError(task: SignalTask, error: string) {

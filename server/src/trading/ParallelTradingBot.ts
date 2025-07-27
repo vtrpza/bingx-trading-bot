@@ -5,6 +5,7 @@ import { TradeExecutorPool, TradeExecutorConfig } from './TradeExecutorPool';
 import { MarketDataCache, MarketDataCacheConfig } from './MarketDataCache';
 import { PositionManager, PositionManagerConfig } from './PositionManager';
 import { bingxClient } from '../services/bingxClient';
+import { apiRequestManager } from '../services/APIRequestManager';
 import { wsManager } from '../services/websocket';
 import { logger } from '../utils/logger';
 import { v4 as uuidv4 } from 'uuid';
@@ -113,7 +114,7 @@ export class ParallelTradingBot extends EventEmitter {
     
     this.config = {
       enabled: false,
-      scanInterval: 600000, // 10 minutes - increased from 5min to further reduce API pressure
+      scanInterval: 900000, // 15 minutes - increased to further reduce API pressure and respect rate limits
       symbolsToScan: [],
       maxConcurrentTrades: 5,
       defaultPositionSize: 100,
@@ -125,7 +126,7 @@ export class ParallelTradingBot extends EventEmitter {
       rsiOversold: 30,
       rsiOverbought: 70,
       volumeSpikeThreshold: 1.5,
-      minSignalStrength: 65,
+      minSignalStrength: 30, // Temporarily lower for testing signal flow
       confirmationRequired: true,
       ma1Period: 9,
       ma2Period: 21,
@@ -517,33 +518,16 @@ export class ParallelTradingBot extends EventEmitter {
     this.scanStartTime = Date.now();
     this.totalScans++;
 
-    // Implement batching to reduce rate limiting pressure
-    const batchSize = 4; // Process symbols in smaller batches
-    const batches = [];
-    
-    for (let i = 0; i < availableSymbols.length; i += batchSize) {
-      batches.push(availableSymbols.slice(i, i + batchSize));
-    }
-
-    logger.debug(`Starting batched scan of ${availableSymbols.length} symbols in ${batches.length} batches (resume from index ${this.lastScanIndex})`);
+    // Sequential processing - add symbols ONE BY ONE to queue
+    logger.debug(`Starting sequential scan of ${availableSymbols.length} symbols (resume from index ${this.lastScanIndex})`);
     this.addActivityEvent('scan_started', 
-      `Starting batched scan of ${availableSymbols.length} symbols (${batches.length} batches, resume from index ${this.lastScanIndex})`, 
+      `Starting sequential scan of ${availableSymbols.length} symbols (resume from index ${this.lastScanIndex})`, 
       'info'
     );
     
-    // Process batches with delays between them
-    for (let i = 0; i < batches.length; i++) {
-      const batch = batches[i];
-      
-      // Add delay between batches to respect rate limits
-      if (i > 0) {
-        await new Promise(resolve => setTimeout(resolve, 2000)); // 2 second delay between batches
-      }
-      
-      // Add batch to worker pool for processing
-      const taskIds = this.signalWorkerPool.addSymbols(batch, 1);
-      logger.debug(`Processed batch ${i + 1}/${batches.length}: ${batch.length} symbols → ${taskIds.length} tasks`);
-    }
+    // Add symbols individually to prevent parallel processing
+    const taskIds = this.signalWorkerPool.addSymbols(availableSymbols, 1);
+    logger.debug(`Added ${availableSymbols.length} symbols to sequential processing queue → ${taskIds.length} tasks`);
     
     // Update metrics
     this.updateScanMetrics(availableSymbols.length);
@@ -553,6 +537,8 @@ export class ParallelTradingBot extends EventEmitter {
 
   private handleSignalGenerated(signal: any): void {
     this.metrics.signalMetrics.totalGenerated++;
+    
+    logger.debug(`Signal generated: ${signal.symbol} - Action: ${signal.action}, Strength: ${signal.strength}, Required: ${this.config.minSignalStrength}`);
     
     // Only process signals that are actionable
     if (signal.action !== 'HOLD' && signal.strength >= this.config.minSignalStrength) {
@@ -649,7 +635,7 @@ export class ParallelTradingBot extends EventEmitter {
 
   private async loadActivePositions(): Promise<void> {
     try {
-      const positions = await bingxClient.getPositions();
+      const positions = await apiRequestManager.getPositions() as any;
       
       if (positions.code === 0 && positions.data) {
         this.activePositions.clear();

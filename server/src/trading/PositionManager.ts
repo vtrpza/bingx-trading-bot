@@ -1,5 +1,6 @@
 import { EventEmitter } from 'events';
 import { bingxClient } from '../services/bingxClient';
+import { apiRequestManager } from '../services/APIRequestManager';
 import { wsManager } from '../services/websocket';
 import { logger } from '../utils/logger';
 import { v4 as uuidv4 } from 'uuid';
@@ -183,7 +184,7 @@ export class PositionManager extends EventEmitter {
 
   private async loadExistingPositions(): Promise<void> {
     try {
-      const apiPositions = await bingxClient.getPositions();
+      const apiPositions = await apiRequestManager.getPositions() as any;
       
       if (apiPositions.code === 0 && apiPositions.data) {
         for (const pos of apiPositions.data) {
@@ -293,7 +294,7 @@ export class PositionManager extends EventEmitter {
 
   private async getCurrentPrice(symbol: string): Promise<number | null> {
     try {
-      const ticker = await bingxClient.getTicker(symbol);
+      const ticker = await apiRequestManager.getTicker(symbol) as any;
       if (ticker.code === 0 && ticker.data) {
         return parseFloat(ticker.data.lastPrice);
       }
