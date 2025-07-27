@@ -271,7 +271,10 @@ class TradeExecutor extends EventEmitter {
 
     const order = await bingxClient.placeOrder(orderData);
     
-    if (!order.data || order.code !== 0) {
+    // Check if order was successful - BingX response structure can vary
+    const orderData_response = order.data || order.order;
+    
+    if (!orderData_response || order.code !== 0) {
       logger.error('Order placement failed:', {
         orderData,
         response: order,
@@ -281,20 +284,28 @@ class TradeExecutor extends EventEmitter {
       throw new Error(`Order placement failed: ${order.msg || 'Unknown error'}`);
     }
 
-    if (!order.data.orderId) {
-      logger.error('Order response missing orderId:', order.data);
+    // Extract orderId from response - check multiple possible locations
+    const orderId = orderData_response.orderId || orderData_response.orderID || orderData_response.id;
+    
+    if (!orderId) {
+      logger.error('Order response missing orderId:', {
+        fullResponse: order,
+        orderData_response,
+        availableFields: Object.keys(orderData_response)
+      });
       throw new Error('Order response missing orderId');
     }
 
     return {
-      orderId: order.data.orderId,
+      orderId: orderId.toString(), // Ensure it's a string
       symbol: task.symbol,
       side: task.action,
       quantity: positionDetails.quantity,
       price: positionDetails.entryPrice,
       stopLoss: positionDetails.stopLoss,
       takeProfit: positionDetails.takeProfit,
-      timestamp: Date.now()
+      timestamp: Date.now(),
+      orderStatus: orderData_response.status || 'NEW'
     };
   }
 

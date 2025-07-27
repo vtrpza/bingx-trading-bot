@@ -30,17 +30,21 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
       : []
 
   const formatNumber = (value: number | string, decimals = 4) => {
-    return Number(value).toFixed(decimals)
+    const numValue = Number(value)
+    if (isNaN(numValue)) return '0.0000'
+    return numValue.toFixed(decimals)
   }
 
   const formatPercent = (value: number | string) => {
     const numValue = Number(value)
+    if (isNaN(numValue)) return '0.00%'
     const formatted = numValue.toFixed(2)
     return numValue >= 0 ? `+${formatted}%` : `${formatted}%`
   }
 
   const formatCurrency = (value: number | string, currency = 'USDT') => {
     const numValue = Number(value)
+    if (isNaN(numValue)) return '0.00 ' + currency
     const formatted = numValue.toFixed(2)
     return numValue >= 0 ? `+${formatted} ${currency}` : `${formatted} ${currency}`
   }
@@ -112,12 +116,14 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
           </thead>
           <tbody className="bg-white divide-y divide-gray-200">
             {Array.isArray(displayPositions) && displayPositions.map((position, index) => {
-              const isLong = parseFloat(position.positionAmt) > 0
-              const size = Math.abs(parseFloat(position.positionAmt))
-              const entryPrice = parseFloat(position.entryPrice)
-              const markPrice = parseFloat(position.markPrice)
-              const unrealizedPnl = parseFloat(position.unrealizedProfit)
-              const roe = parseFloat(position.percentage)
+              // Safe parsing with fallbacks
+              const positionAmt = Number(position.positionAmt) || 0
+              const isLong = positionAmt > 0
+              const size = Math.abs(positionAmt)
+              const entryPrice = Number(position.entryPrice) || 0
+              const markPrice = Number(position.markPrice) || 0
+              const unrealizedPnl = Number(position.unrealizedProfit) || 0
+              const roe = Number(position.percentage) || 0
 
               return (
                 <tr key={`${position.symbol}-${index}`} className="hover:bg-gray-50">

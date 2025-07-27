@@ -215,11 +215,23 @@ router.get('/positions', asyncHandler(async (_req: Request, res: Response) => {
       // Handle empty positions array
       const positionsData = positions.data || [];
       
-      // Filter out positions with zero amount
-      const activePositions = positionsData.filter((pos: any) => {
-        const amount = parseFloat(pos.positionAmt || '0');
-        return !isNaN(amount) && amount !== 0;
-      });
+      // Filter out positions with zero amount and sanitize data
+      const activePositions = positionsData
+        .filter((pos: any) => {
+          const amount = parseFloat(pos.positionAmt || '0');
+          return !isNaN(amount) && amount !== 0;
+        })
+        .map((pos: any) => ({
+          ...pos,
+          // Ensure numeric fields are valid numbers or default to '0'
+          positionAmt: isNaN(parseFloat(pos.positionAmt)) ? '0' : pos.positionAmt,
+          entryPrice: isNaN(parseFloat(pos.entryPrice)) ? '0' : pos.entryPrice,
+          markPrice: isNaN(parseFloat(pos.markPrice)) ? '0' : pos.markPrice,
+          unrealizedProfit: isNaN(parseFloat(pos.unrealizedProfit)) ? '0' : pos.unrealizedProfit,
+          percentage: isNaN(parseFloat(pos.percentage)) ? '0' : pos.percentage,
+          notional: isNaN(parseFloat(pos.notional)) ? '0' : pos.notional,
+          isolatedMargin: isNaN(parseFloat(pos.isolatedMargin)) ? '0' : pos.isolatedMargin
+        }));
       
       res.json({
         success: true,
