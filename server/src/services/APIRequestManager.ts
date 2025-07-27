@@ -52,7 +52,6 @@ export class APIRequestManager {
 
   // Request spacing - OPTIMIZED for speed
   private readonly requestSpacing = 600; // 0.6 seconds between requests
-  private readonly queueTimeout = parseInt(process.env.API_TIMEOUT || '5000'); // 5 second timeout
   private lastRequestTime = 0;
 
   /**
