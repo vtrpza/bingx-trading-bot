@@ -8,8 +8,6 @@ services:
     startCommand: npm start
     healthCheckPath: /health
     envVars:
-      - key: NODE_ENV
-        value: production
       - key: PORT
         value: 3001
       - key: BINGX_API_KEY
