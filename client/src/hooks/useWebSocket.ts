@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { getWebSocketUrl, webSocketConfig, enableWebSocketDebug } from '../config/websocket'
 
 interface UseWebSocketOptions {
   onOpen?: (event: Event) => void
