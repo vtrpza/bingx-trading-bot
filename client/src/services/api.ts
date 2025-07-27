@@ -56,8 +56,34 @@ export const api = {
     return axiosInstance.get(`/assets/${symbol}`)
   },
 
-  async refreshAssets(): Promise<{ message: string; created: number; updated: number; total: number }> {
-    return axiosInstance.post('/assets/refresh')
+  async refreshAssets(onProgress?: (data: any) => void): Promise<{ message: string; created: number; updated: number; total: number; processed: number; skipped: number; sessionId: string }> {
+    const sessionId = `refresh_${Date.now()}`;
+    
+    // Connect to SSE for progress updates
+    if (onProgress) {
+      const eventSource = new EventSource(`/api/assets/refresh/progress/${sessionId}`);
+      
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          onProgress(data);
+          
+          // Close connection when completed
+          if (data.type === 'completed' || data.type === 'error') {
+            eventSource.close();
+          }
+        } catch (error) {
+          console.error('Failed to parse SSE data:', error);
+        }
+      };
+      
+      eventSource.onerror = (error) => {
+        console.error('SSE connection error:', error);
+        eventSource.close();
+      };
+    }
+    
+    return axiosInstance.post('/assets/refresh', { sessionId });
   },
 
   async getAssetStats(): Promise<{
