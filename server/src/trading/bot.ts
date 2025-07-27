@@ -40,7 +40,7 @@ export class TradingBot extends EventEmitter {
       enabled: false,
       maxConcurrentTrades: parseInt(process.env.MAX_CONCURRENT_TRADES || '3'),
       defaultPositionSize: parseFloat(process.env.DEFAULT_POSITION_SIZE || '100'),
-      scanInterval: 30000, // 30 seconds
+      scanInterval: 120000, // 30 seconds
       symbolsToScan: [],
       stopLossPercent: 2,
       takeProfitPercent: 3,
