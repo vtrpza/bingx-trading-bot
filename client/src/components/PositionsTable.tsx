@@ -15,7 +15,7 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
     'positions',
     api.getPositions,
     {
-      refetchInterval: 3000,
+      refetchInterval: 30000,
       onError: (error) => {
         console.error('Failed to fetch positions:', error)
       }

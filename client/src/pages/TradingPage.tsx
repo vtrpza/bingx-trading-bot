@@ -291,7 +291,7 @@ export default function TradingPage() {
         <nav className="-mb-px flex space-x-8">
           {[
             { id: 'overview', name: 'Overview', count: botStatus?.activePositions?.length },
-            { id: 'performance', name: 'Performance', count: performanceData?.alerts?.length },
+            // { id: 'performance', name: 'Performance', count: performanceData?.alerts?.length },
             { id: 'signals', name: 'Signals', count: activityEvents?.filter((e: any) => e.type === 'signal_generated')?.length },
             { id: 'positions', name: 'Positions', count: botStatus?.activePositions?.length },
             { id: 'history', name: 'History' },

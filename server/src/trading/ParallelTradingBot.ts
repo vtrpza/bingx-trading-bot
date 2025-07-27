@@ -3,6 +3,7 @@ import { SignalWorkerPool, SignalWorkerConfig } from './SignalWorkerPool';
 import { PrioritySignalQueue, SignalQueueConfig } from './PrioritySignalQueue';
 import { TradeExecutorPool, TradeExecutorConfig } from './TradeExecutorPool';
 import { MarketDataCache, MarketDataCacheConfig } from './MarketDataCache';
+import { PositionManager, PositionManagerConfig } from './PositionManager';
 import { bingxClient } from '../services/bingxClient';
 import { wsManager } from '../services/websocket';
 import { logger } from '../utils/logger';
@@ -33,6 +34,10 @@ export interface ParallelBotConfig {
   signalQueue: Partial<SignalQueueConfig>;
   tradeExecutors: Partial<TradeExecutorConfig>;
   marketDataCache: Partial<MarketDataCacheConfig>;
+  positionManager: Partial<PositionManagerConfig>;
+  
+  // Advanced execution options
+  immediateExecution: boolean; // Execute trades immediately when signals are strong enough
 }
 
 export interface ParallelBotMetrics {
@@ -91,6 +96,7 @@ export class ParallelTradingBot extends EventEmitter {
   private signalQueue!: PrioritySignalQueue;
   private tradeExecutorPool!: TradeExecutorPool;
   private marketDataCache!: MarketDataCache;
+  private positionManager!: PositionManager;
   
   // State tracking
   private activePositions: Map<string, Position> = new Map();
@@ -104,7 +110,7 @@ export class ParallelTradingBot extends EventEmitter {
     
     this.config = {
       enabled: false,
-      scanInterval: 30000, // 30 seconds
+      scanInterval: 300000, // 5 minutes - reduced from 30s to minimize API calls
       symbolsToScan: [],
       maxConcurrentTrades: 5,
       defaultPositionSize: 100,
@@ -126,8 +132,7 @@ export class ParallelTradingBot extends EventEmitter {
         maxWorkers: 5,
         maxConcurrentTasks: 15,
         taskTimeout: 6000,
-        retryAttempts: 2,
-        batchSize: 5
+        retryAttempts: 2
       },
       signalQueue: {
         maxSize: 100,
@@ -148,6 +153,23 @@ export class ParallelTradingBot extends EventEmitter {
         maxCacheSize: 100,
         priceChangeThreshold: 0.1
       },
+      positionManager: {
+        enabled: true,
+        monitoringInterval: 3000,
+        priceCheckThreshold: 0.2,
+        emergencyCloseThreshold: 5,
+        trailingStopEnabled: false,
+        trailingStopPercent: 1,
+        maxPositionAge: 12 * 60 * 60 * 1000, // 12 hours
+        riskManagement: {
+          maxDrawdownPercent: 8,
+          maxDailyLoss: 500,
+          forceCloseOnError: true
+        }
+      },
+      
+      // Advanced options
+      immediateExecution: true,
       
       ...config
     };
@@ -224,6 +246,12 @@ export class ParallelTradingBot extends EventEmitter {
         maxDailyLoss: 500
       }
     });
+    
+    // Initialize position manager
+    this.positionManager = new PositionManager(this.config.positionManager);
+    
+    // Integrate position manager with trade executor
+    this.tradeExecutorPool.setPositionManager(this.positionManager);
   }
 
   private setupEventHandlers(): void {
@@ -278,6 +306,46 @@ export class ParallelTradingBot extends EventEmitter {
         change.symbol
       );
     });
+
+    // Position manager events
+    this.positionManager.on('positionAdded', (position) => {
+      this.addActivityEvent('trade_executed',
+        `Position under management: ${position.side} ${position.symbol} at $${position.entryPrice}`,
+        'info',
+        position.symbol,
+        { positionId: position.id }
+      );
+    });
+
+    this.positionManager.on('positionRemoved', ({ position, reason }) => {
+      this.activePositions.delete(position.symbol);
+      
+      let level: 'info' | 'success' | 'warning' = 'info';
+      if (reason === 'TAKE_PROFIT') level = 'success';
+      else if (reason === 'STOP_LOSS' || reason === 'EMERGENCY') level = 'warning';
+      
+      this.addActivityEvent('position_closed',
+        `Position marked for closure: ${position.symbol} (${reason}) PnL: $${position.unrealizedPnl.toFixed(2)}`,
+        level,
+        position.symbol,
+        { reason, pnl: position.unrealizedPnl }
+      );
+    });
+
+    this.positionManager.on('positionShouldClose', ({ position, reason, recommendation }) => {
+      this.addActivityEvent('position_closed',
+        `MANUAL ACTION REQUIRED: ${recommendation}`,
+        'warning',
+        position.symbol,
+        { 
+          reason, 
+          pnl: position.unrealizedPnl,
+          action: 'manual_close_required',
+          entryPrice: position.entryPrice,
+          currentPnl: position.unrealizedPnl
+        }
+      );
+    });
   }
 
   private setupWebSocketListeners(): void {
@@ -306,6 +374,7 @@ export class ParallelTradingBot extends EventEmitter {
       this.marketDataCache.start();
       this.signalWorkerPool.start();
       this.tradeExecutorPool.start();
+      this.positionManager.start();
 
       // Load active positions
       await this.loadActivePositions();
@@ -349,6 +418,7 @@ export class ParallelTradingBot extends EventEmitter {
     this.signalQueue.clear();
     this.tradeExecutorPool.stop();
     this.marketDataCache.stop();
+    this.positionManager.stop();
 
     this.emit('stopped');
     this.addActivityEvent('scan_started', 'Bot stopped successfully', 'info');
@@ -432,14 +502,53 @@ export class ParallelTradingBot extends EventEmitter {
   private handleSignalGenerated(signal: any): void {
     this.metrics.signalMetrics.totalGenerated++;
     
-    // Only queue signals that are actionable
+    // Only process signals that are actionable
     if (signal.action !== 'HOLD' && signal.strength >= this.config.minSignalStrength) {
-      const queuedId = this.signalQueue.enqueue(signal);
       
-      if (queuedId) {
-        // Process next signal from queue
-        this.processSignalQueue();
+      // Use immediate execution for high-strength signals if enabled
+      if (this.config.immediateExecution && signal.strength >= (this.config.minSignalStrength + 10)) {
+        logger.debug(`Attempting immediate execution for strong signal: ${signal.symbol} (${signal.strength}%)`);
+        
+        // Try immediate execution first - create proper QueuedSignal
+        const queuedSignal = {
+          id: uuidv4(),
+          signal,
+          priority: 10,
+          queuedAt: Date.now(),
+          expiresAt: Date.now() + 30000, // 30 seconds TTL
+          processed: false,
+          attempts: 0,
+          maxAttempts: 3
+        };
+        
+        this.tradeExecutorPool.executeImmediately(
+          queuedSignal,
+          this.config.defaultPositionSize
+        ).then(taskId => {
+          if (taskId) {
+            logger.info(`Immediate execution initiated for ${signal.symbol}`, { taskId });
+          } else {
+            // Fallback to normal queue if immediate execution failed
+            this.queueSignal(signal);
+          }
+        }).catch(error => {
+          logger.error(`Immediate execution failed for ${signal.symbol}:`, error);
+          // Fallback to normal queue
+          this.queueSignal(signal);
+        });
+      } else {
+        // Normal queue processing
+        this.queueSignal(signal);
       }
+    }
+  }
+
+  private queueSignal(signal: any): void {
+    const queuedId = this.signalQueue.enqueue(signal);
+    
+    if (queuedId) {
+      // Process next signal from queue
+      this.processSignalQueue();
     }
   }
 
@@ -625,7 +734,8 @@ export class ParallelTradingBot extends EventEmitter {
         signalWorkerPool: this.signalWorkerPool.getStatus(),
         signalQueue: this.signalQueue.getStatus(),
         tradeExecutorPool: this.tradeExecutorPool.getStatus(),
-        marketDataCache: this.marketDataCache.getStatus()
+        marketDataCache: this.marketDataCache.getStatus(),
+        positionManager: this.positionManager.getStatus()
       }
     };
   }
@@ -785,6 +895,10 @@ export class ParallelTradingBot extends EventEmitter {
       this.marketDataCache.updateConfig(config.marketDataCache);
     }
     
+    if (config.positionManager) {
+      this.positionManager.updateConfig(config.positionManager);
+    }
+    
     logger.info('Parallel Trading Bot configuration updated');
   }
 
@@ -803,6 +917,49 @@ export class ParallelTradingBot extends EventEmitter {
   invalidateCache(symbol?: string): void {
     this.marketDataCache.invalidateCache(symbol);
     logger.info(`Cache invalidated${symbol ? ` for ${symbol}` : ''}`);
+  }
+
+  // Position management controls
+  getManagedPositions() {
+    return this.positionManager.getPositions();
+  }
+
+  async signalClosePosition(symbol: string): Promise<void> {
+    await this.positionManager.signalClosePosition(symbol);
+    logger.info(`Close signal sent for position: ${symbol}`);
+  }
+
+  async signalCloseAllPositions(): Promise<void> {
+    await this.positionManager.signalCloseAllPositions();
+    logger.info('Emergency close signal sent for all positions');
+  }
+
+  async confirmPositionClosed(symbol: string, actualPnl?: number): Promise<void> {
+    await this.positionManager.confirmPositionClosed(symbol, actualPnl);
+    logger.info(`Position closure confirmed: ${symbol}`);
+  }
+
+  getPositionMetrics() {
+    return this.positionManager.getMetrics();
+  }
+
+  // Advanced execution controls
+  async executeSignalImmediately(symbol: string): Promise<string | null> {
+    // Force immediate scan and execution for specific symbol
+    const taskIds = this.signalWorkerPool.addSymbols([symbol], 10); // High priority
+    
+    if (taskIds.length > 0) {
+      logger.info(`Forced immediate signal generation for ${symbol}`);
+      return taskIds[0];
+    }
+    
+    return null;
+  }
+
+  // Toggle immediate execution mode
+  setImmediateExecutionMode(enabled: boolean): void {
+    this.config.immediateExecution = enabled;
+    logger.info(`Immediate execution mode ${enabled ? 'enabled' : 'disabled'}`);
   }
 }
 

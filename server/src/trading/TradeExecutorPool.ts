@@ -1,6 +1,7 @@
 import { EventEmitter } from 'events';
 import { bingxClient } from '../services/bingxClient';
 import { QueuedSignal } from './PrioritySignalQueue';
+import { PositionManager, ManagedPosition } from './PositionManager';
 import { logger } from '../utils/logger';
 import { v4 as uuidv4 } from 'uuid';
 import Trade from '../models/Trade';
@@ -319,6 +320,7 @@ export class TradeExecutorPool extends EventEmitter {
   private processingInterval: NodeJS.Timeout | null = null;
   private activePositions: Set<string> = new Set();
   private rateLimit: { count: number; windowStart: number } = { count: 0, windowStart: Date.now() };
+  private positionManager: PositionManager | null = null;
 
   constructor(config: Partial<TradeExecutorConfig> = {}) {
     super();
@@ -354,6 +356,12 @@ export class TradeExecutorPool extends EventEmitter {
       
       executor.on('tradeExecuted', (result) => {
         this.activePositions.add(result.task.symbol);
+        
+        // Add to position manager for active monitoring
+        if (this.positionManager) {
+          this.addToPositionManager(result);
+        }
+        
         this.emit('tradeExecuted', result);
         this.processNextTask();
       });
@@ -511,7 +519,8 @@ export class TradeExecutorPool extends EventEmitter {
   }
 
   private processNextTask() {
-    setTimeout(() => this.processQueuedTasks(), 50);
+    // Immediate processing for faster execution
+    setImmediate(() => this.processQueuedTasks());
   }
 
   private handleTaskError(task: TradeTask, error: string) {
@@ -583,5 +592,124 @@ export class TradeExecutorPool extends EventEmitter {
   updateConfig(newConfig: Partial<TradeExecutorConfig>) {
     this.config = { ...this.config, ...newConfig };
     logger.info('TradeExecutorPool configuration updated');
+  }
+
+  // PositionManager integration
+  setPositionManager(positionManager: PositionManager): void {
+    this.positionManager = positionManager;
+    
+    // Listen for position removals to update our tracking
+    this.positionManager.on('positionRemoved', ({ position }) => {
+      this.activePositions.delete(position.symbol);
+      logger.debug(`Position tracking removed for ${position.symbol}`);
+    });
+    
+    logger.info('PositionManager integrated with TradeExecutorPool');
+  }
+
+  private async addToPositionManager(result: any): Promise<void> {
+    if (!this.positionManager) return;
+
+    try {
+      const { task, result: orderResult, tradeRecord } = result;
+      
+      // Calculate stop loss and take profit prices
+      const stopLossPercent = this.config.riskManagement.stopLossPercent;
+      const takeProfitPercent = this.config.riskManagement.takeProfitPercent;
+      
+      const stopLossPrice = task.action === 'BUY'
+        ? orderResult.price * (1 - stopLossPercent / 100)
+        : orderResult.price * (1 + stopLossPercent / 100);
+        
+      const takeProfitPrice = task.action === 'BUY'
+        ? orderResult.price * (1 + takeProfitPercent / 100)
+        : orderResult.price * (1 - takeProfitPercent / 100);
+
+      const managedPosition: Omit<ManagedPosition, 'id' | 'status' | 'createdAt' | 'lastUpdate'> = {
+        symbol: task.symbol,
+        side: task.action === 'BUY' ? 'LONG' : 'SHORT',
+        entryPrice: orderResult.price,
+        quantity: orderResult.quantity,
+        stopLossPrice: parseFloat(stopLossPrice.toFixed(6)),
+        takeProfitPrice: parseFloat(takeProfitPrice.toFixed(6)),
+        orderId: orderResult.orderId,
+        tradeId: tradeRecord?.id?.toString(),
+        unrealizedPnl: 0
+      };
+
+      await this.positionManager.addPosition(managedPosition);
+      
+      logger.info(`Position added to manager: ${task.symbol}`, {
+        orderId: orderResult.orderId,
+        stopLoss: managedPosition.stopLossPrice,
+        takeProfit: managedPosition.takeProfitPrice
+      });
+      
+    } catch (error) {
+      logger.error('Failed to add position to manager:', error);
+    }
+  }
+
+  // Immediate execution method for high-priority signals
+  async executeImmediately(queuedSignal: QueuedSignal, positionSize?: number): Promise<string | null> {
+    try {
+      // Find an available executor
+      const availableExecutor = Array.from(this.executors.values())
+        .find(executor => executor.isAvailable());
+
+      if (!availableExecutor) {
+        // If no executor available, add to queue with high priority
+        return this.addSignal(queuedSignal, positionSize);
+      }
+
+      // Check rate limit and position limits
+      if (!this.checkRateLimit()) {
+        logger.warn('Rate limit exceeded for immediate execution');
+        return null;
+      }
+
+      if (this.activePositions.size >= this.config.maxConcurrentTrades) {
+        logger.warn('Max concurrent trades reached for immediate execution');
+        return null;
+      }
+
+      if (this.activePositions.has(queuedSignal.signal.symbol)) {
+        logger.debug(`Position already exists for ${queuedSignal.signal.symbol}, skipping immediate execution`);
+        return null;
+      }
+
+      // Create and execute task immediately
+      const task: TradeTask = {
+        id: uuidv4(),
+        queuedSignal,
+        symbol: queuedSignal.signal.symbol,
+        action: queuedSignal.signal.action as 'BUY' | 'SELL',
+        positionSize: positionSize || this.config.positionSizing.defaultSize,
+        maxSlippage: this.config.slippageTolerance,
+        timestamp: Date.now(),
+        priority: 10, // High priority for immediate execution
+        attempts: 0,
+        maxAttempts: this.config.retryAttempts
+      };
+
+      // Skip HOLD signals
+      if (task.action !== 'BUY' && task.action !== 'SELL') {
+        return null;
+      }
+
+      logger.info(`Executing trade immediately: ${task.symbol}`, {
+        action: task.action,
+        strength: queuedSignal.signal.strength
+      });
+
+      // Execute immediately without queueing
+      this.processTask(availableExecutor, task);
+      
+      return task.id;
+      
+    } catch (error) {
+      logger.error('Error in immediate execution:', error);
+      return null;
+    }
   }
 }

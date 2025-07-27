@@ -26,7 +26,6 @@ export interface SignalWorkerConfig {
   maxConcurrentTasks: number;
   taskTimeout: number;
   retryAttempts: number;
-  batchSize: number;
   signalConfig: any;
 }
 
@@ -196,10 +195,9 @@ export class SignalWorkerPool extends EventEmitter {
     
     this.config = {
       maxWorkers: 5,
-      maxConcurrentTasks: 10,
+      maxConcurrentTasks: 15,
       taskTimeout: 8000,
       retryAttempts: 2,
-      batchSize: 3,
       signalConfig: {},
       ...config
     };
@@ -317,10 +315,8 @@ export class SignalWorkerPool extends EventEmitter {
       return;
     }
 
-    // Process tasks up to available workers or batch size
-    const tasksToProcess = this.taskQueue.splice(0, 
-      Math.min(availableWorkers.length, this.config.batchSize)
-    );
+    // Process tasks up to available workers (parallel processing)
+    const tasksToProcess = this.taskQueue.splice(0, availableWorkers.length);
 
     for (let i = 0; i < tasksToProcess.length && i < availableWorkers.length; i++) {
       const task = tasksToProcess[i];

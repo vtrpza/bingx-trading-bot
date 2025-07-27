@@ -3,11 +3,11 @@ import { logger } from '../utils/logger';
 /**
  * Global rate limiter for BingX API calls
  * Enforces conservative rate limits to prevent 109400 errors
- * BingX limit: 5 requests per 900ms, implemented as 3 per 1000ms for safety
+ * BingX limit: 5 requests per 900ms, implemented as 8 per 1000ms (balanced approach)
  */
 export class GlobalRateLimiter {
   private requestLog: number[] = [];
-  private readonly maxRequests: number = 3; // Conservative limit
+  private readonly maxRequests: number = 8; // Increased from 3 to 8 requests per second
   private readonly windowMs: number = 1000; // 1 second window
 
   /**
