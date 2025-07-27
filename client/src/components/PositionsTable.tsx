@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
 import { api } from '../services/api'
-import type { Position, BotStatus } from '../types'
+import type { Position } from '../types'
 
 interface ToastMessage {
   id: string
