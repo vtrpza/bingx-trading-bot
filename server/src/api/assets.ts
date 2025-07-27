@@ -132,6 +132,15 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
   logger.info('Refreshing assets from BingX API...', { sessionId });
   
   try {
+    // Send initial progress
+    sendProgress(sessionId, {
+      type: 'progress',
+      message: 'Fetching contracts from BingX API...',
+      progress: 0,
+      processed: 0,
+      total: 0
+    });
+
     // Get all contracts from BingX
     const response = await bingxClient.getSymbols();
     
@@ -142,6 +151,10 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
     });
     
     if (response.code !== 0 || !response.data) {
+      sendProgress(sessionId, {
+        type: 'error',
+        message: `BingX API Error: ${response.msg || 'Failed to fetch assets'}`
+      });
       logger.error('BingX API returned error:', {
         code: response.code,
         message: response.msg,
@@ -151,6 +164,16 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
     }
     
     const contracts = response.data;
+    
+    // Send progress with total count
+    sendProgress(sessionId, {
+      type: 'progress',
+      message: `Processing ${contracts.length} contracts...`,
+      progress: 5,
+      processed: 0,
+      total: contracts.length
+    });
+    
     let created = 0;
     let updated = 0;
     let processed = 0;
@@ -161,6 +184,19 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
     // Process each contract
     for (const contract of contracts) {
       processed++;
+      
+      // Send progress updates every 10 items or for first few
+      if (processed % 10 === 0 || processed <= 5) {
+        const progress = Math.min(95, Math.round(10 + (processed / contracts.length) * 85));
+        sendProgress(sessionId, {
+          type: 'progress',
+          message: `Processing ${contract.symbol}... (${processed}/${contracts.length})`,
+          progress,
+          processed,
+          total: contracts.length,
+          current: contract.symbol
+        });
+      }
       
       // Log first few contracts for debugging
       if (processed <= 3) {
@@ -269,6 +305,25 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
       perpetualContracts: processed - skipped
     });
     
+    // Send final progress
+    sendProgress(sessionId, {
+      type: 'completed',
+      message: 'Assets refresh completed successfully!',
+      progress: 100,
+      processed,
+      total: contracts.length,
+      created,
+      updated,
+      skipped: processed - skipped
+    });
+    
+    // Close SSE connection
+    const session = refreshSessions.get(sessionId);
+    if (session) {
+      session.end();
+      refreshSessions.delete(sessionId);
+    }
+    
     res.json({
       success: true,
       data: {
@@ -277,7 +332,8 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
         updated,
         total: contracts.length,
         processed: processed - skipped,
-        skipped
+        skipped,
+        sessionId
       }
     });
     
