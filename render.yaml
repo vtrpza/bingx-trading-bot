@@ -35,6 +35,9 @@ services:
         source: /api/*
         destination: https://bingx-trading-bot-lu0z.onrender.com/api/*
       - type: rewrite
+        source: /ws
+        destination: https://bingx-trading-bot-lu0z.onrender.com/ws
+      - type: rewrite
         source: /health
         destination: https://bingx-trading-bot-lu0z.onrender.com/health
       - type: rewrite

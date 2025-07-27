@@ -5,11 +5,15 @@ export const getWebSocketUrl = (path: string = '/ws'): string => {
     return `ws://localhost:3001${path}`;
   }
   
-  // In production (Render), auto-detect protocol based on current page
+  // In production (Render), connect directly to backend service
+  // Frontend is static site, backend handles WebSocket connections
+  if (window.location.hostname.includes('onrender.com')) {
+    return `wss://bingx-trading-bot-lu0z.onrender.com${path}`;
+  }
+  
+  // Fallback: auto-detect protocol based on current page
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const host = window.location.host;
-  
-  // For Render deployment, use the same host with secure WebSocket
   return `${protocol}//${host}${path}`;
 };
 
