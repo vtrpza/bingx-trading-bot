@@ -247,45 +247,7 @@ export default function TradingPage() {
         isStopping={stopBotMutation.isLoading}
         isUpdatingConfig={updateConfigMutation.isLoading}
       />
-
-      {/* Parallel Bot Overview Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        {/* Traditional Stats */}
-        {tradingStats && (
-          <>
-            <div className="card p-6">
-              <h3 className="text-sm font-medium text-gray-500">Total Trades (24h)</h3>
-              <p className="text-2xl font-bold text-gray-900">{tradingStats.totalTrades}</p>
-            </div>
-            <div className="card p-6">
-              <h3 className="text-sm font-medium text-gray-500">Win Rate</h3>
-              <p className="text-2xl font-bold text-green-600">{tradingStats.winRate}%</p>
-            </div>
-          </>
-        )}
-        
-        {/* Parallel Bot Specific Stats */}
-        {parallelMetrics && (
-          <>
-            <div className="card p-6">
-              <h3 className="text-sm font-medium text-gray-500">Signals/Min</h3>
-              <p className="text-2xl font-bold text-blue-600">
-                {parallelMetrics.scanningMetrics?.symbolsPerSecond 
-                  ? (parallelMetrics.scanningMetrics.symbolsPerSecond * 60).toFixed(1)
-                  : '0'
-                }
-              </p>
-            </div>
-            <div className="card p-6">
-              <h3 className="text-sm font-medium text-gray-500">Worker Utilization</h3>
-              <p className="text-2xl font-bold text-indigo-600">
-                {parallelMetrics.systemMetrics?.workerUtilization?.toFixed(1) || '0'}%
-              </p>
-            </div>
-          </>
-        )}
-      </div>
-
+     
       {/* Navigation Tabs */}
       <div className="border-b border-gray-200">
         <nav className="-mb-px flex space-x-8">
