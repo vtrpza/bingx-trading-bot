@@ -3,6 +3,7 @@ import { useQuery } from 'react-query'
 import { api } from '../services/api'
 import { toast } from 'react-hot-toast'
 import type { Asset } from '../types'
+import { useTranslation } from '../hooks/useTranslation'
 
 export default function AssetsPage() {
   const [page, setPage] = useState(1)
@@ -13,6 +14,7 @@ export default function AssetsPage() {
   const [status, setStatus] = useState('TRADING')
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [refreshProgress, setRefreshProgress] = useState({ progress: 0, message: '', processed: 0, total: 0 })
+  const { t } = useTranslation()
 
   // Get assets data
   const { data: assetsData, isLoading, refetch } = useQuery(

@@ -33,6 +33,7 @@ export const translations = {
     stopping: 'Parando...',
     configure: 'Configurar Bot',
     hideConfig: 'Ocultar Configuração',
+    scanningSymbols: 'Escaneando {count} símbolos',
     
     // Abas
     tabs: {
@@ -97,7 +98,8 @@ export const translations = {
       // Botões
       cancel: 'Cancelar',
       update: 'Atualizar Configuração',
-      updating: 'Atualizando...'
+      updating: 'Atualizando...',
+      fixErrors: 'Corrija os erros de validação antes de enviar'
     },
     
     // Estatísticas
@@ -190,7 +192,25 @@ export const translations = {
       message: 'Mensagem',
       timestamp: 'Hora',
       noLogs: 'Nenhum log disponível'
-    }
+    },
+    
+    // Notifications
+    notifications: {
+      tradeExecuted: 'Trade executado: {side} {symbol}',
+      positionClosed: 'Posição fechada: {symbol}',
+      botStarted: 'Bot de trading iniciado com sucesso',
+      botStopped: 'Bot de trading parado com sucesso',
+      configUpdated: 'Configuração do bot atualizada'
+    },
+    
+    // Confirmations
+    confirmations: {
+      startBot: 'Tem certeza que deseja iniciar o bot de trading?',
+      stopBot: 'Tem certeza que deseja parar o bot de trading?'
+    },
+    
+    // Connection Status
+    connectionStatus: 'Conectado ao BingX'
   },
   
   // Assets

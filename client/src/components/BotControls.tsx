@@ -400,13 +400,13 @@ export default function BotControls({
               botStatus?.isRunning ? 'bg-green-500' : 'bg-red-500'
             }`} />
             <span className="font-medium">
-              Bot Status: {botStatus?.isRunning ? 'Running' : 'Stopped'}
+              {t('trading.botStatus')}: {botStatus?.isRunning ? t('trading.running') : t('trading.stopped')}
             </span>
           </div>
           
           {botStatus?.isRunning && (
             <div className="text-sm text-gray-600">
-              Scanning {botStatus.symbolsCount} symbols
+              {t('trading.scanningSymbols').replace('{count}', botStatus.symbolsCount?.toString() || '0')}
             </div>
           )}
         </div>
@@ -416,7 +416,7 @@ export default function BotControls({
             onClick={() => setShowConfig(!showConfig)}
             className="btn btn-secondary"
           >
-            Settings
+            {showConfig ? t('trading.hideConfig') : t('trading.configure')}
           </button>
           
           {botStatus?.isRunning ? (
@@ -425,7 +425,7 @@ export default function BotControls({
               disabled={isStopping}
               className="btn btn-danger"
             >
-              {isStopping ? 'Stopping...' : 'Stop Bot'}
+              {isStopping ? t('trading.stopping') : t('trading.stop')}
             </button>
           ) : (
             <button
@@ -433,7 +433,7 @@ export default function BotControls({
               disabled={isStarting}
               className="btn btn-success"
             >
-              {isStarting ? 'Starting...' : 'Start Bot'}
+              {isStarting ? t('trading.starting') : t('trading.start')}
             </button>
           )}
         </div>
@@ -443,16 +443,16 @@ export default function BotControls({
       {showConfig && (
         <div className="mt-6 pt-6 border-t border-gray-200">
           <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-medium text-gray-900">Bot Configuration</h3>
+            <h3 className="text-lg font-medium text-gray-900">{t('trading.config.title')}</h3>
             
             {/* Profile Selector */}
             <div className="flex items-center space-x-2">
-              <span className="text-sm text-gray-600">Quick Setup:</span>
-              {Object.entries(TRADING_PROFILES).map(([key, profile]) => (
+              <span className="text-sm text-gray-600">{t('trading.config.quickSetup')}</span>
+              {Object.entries(getTradingProfiles(t)).map(([key, profile]) => (
                 <button
                   key={key}
                   type="button"
-                  onClick={() => applyProfile(key as keyof typeof TRADING_PROFILES)}
+                  onClick={() => applyProfile(key)}
                   className={`px-3 py-1 text-xs rounded-full border ${
                     key === 'aggressive' 
                       ? 'bg-red-100 border-red-300 text-red-700 hover:bg-red-200'
@@ -480,7 +480,7 @@ export default function BotControls({
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
               >
-                Basic Settings
+                {t('trading.config.basicSettings')}
               </button>
               <button
                 type="button"
@@ -491,7 +491,7 @@ export default function BotControls({
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
               >
-                Signal Parameters
+                {t('trading.config.signalParameters')}
               </button>
             </nav>
           </div>
@@ -506,15 +506,15 @@ export default function BotControls({
                 onClick={() => setShowConfig(false)}
                 className="btn btn-secondary"
               >
-                Cancel
+                {t('trading.config.cancel')}
               </button>
               <button
                 type="submit"
                 disabled={isUpdatingConfig || Object.keys(validationErrors).length > 0}
                 className={`btn ${Object.keys(validationErrors).length > 0 ? 'btn-secondary opacity-50 cursor-not-allowed' : 'btn-primary'}`}
-                title={Object.keys(validationErrors).length > 0 ? 'Please fix validation errors before submitting' : ''}
+                title={Object.keys(validationErrors).length > 0 ? t('trading.config.fixErrors') : ''}
               >
-                {isUpdatingConfig ? 'Updating...' : 'Update Configuration'}
+                {isUpdatingConfig ? t('trading.config.updating') : t('trading.config.update')}
               </button>
             </div>
           </form>

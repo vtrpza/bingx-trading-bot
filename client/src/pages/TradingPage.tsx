@@ -10,12 +10,14 @@ import RealTimeSignals from '../components/RealTimeSignals'
 import type { BotStatus, BotConfig } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { useLocalStorage } from '../hooks/useLocalStorage'
+import { useTranslation } from '../hooks/useTranslation'
 
 export default function TradingPage() {
   // Use localStorage for persistent state
   const [activeTab, setActiveTab] = useLocalStorage<'overview' | 'positions' | 'history' | 'signals' | 'logs'>('tradingPageActiveTab', 'overview')
   const [logsLevel, setLogsLevel] = useLocalStorage<'all' | 'error'>('tradingPageLogsLevel', 'all')
   const queryClient = useQueryClient()
+  const { t } = useTranslation()
 
   // Get bot status
   const { data: botStatus, isLoading } = useQuery<BotStatus>(
@@ -60,12 +62,12 @@ export default function TradingPage() {
           // New trading signal received
           break
         case 'tradeExecuted':
-          toast.success(`Trade executed: ${data.data.side} ${data.data.symbol}`)
+          toast.success(t('trading.notifications.tradeExecuted').replace('{side}', data.data.side).replace('{symbol}', data.data.symbol))
           queryClient.invalidateQueries('bot-status')
           queryClient.invalidateQueries('trading-stats')
           break
         case 'positionClosed':
-          toast(`Position closed: ${data.data.symbol}`)
+          toast(t('trading.notifications.positionClosed').replace('{symbol}', data.data.symbol))
           queryClient.invalidateQueries('bot-status')
           break
         case 'orderUpdate':
@@ -78,7 +80,7 @@ export default function TradingPage() {
   // Start bot mutation
   const startBotMutation = useMutation(api.startBot, {
     onSuccess: () => {
-      toast.success('Trading bot started successfully')
+      toast.success(t('trading.notifications.botStarted'))
       queryClient.invalidateQueries('bot-status')
     },
     onError: (error: Error) => {
@@ -89,7 +91,7 @@ export default function TradingPage() {
   // Stop bot mutation
   const stopBotMutation = useMutation(api.stopBot, {
     onSuccess: () => {
-      toast.success('Trading bot stopped successfully')
+      toast.success(t('trading.notifications.botStopped'))
       queryClient.invalidateQueries('bot-status')
     },
     onError: (error: Error) => {
@@ -100,7 +102,7 @@ export default function TradingPage() {
   // Update config mutation
   const updateConfigMutation = useMutation(api.updateBotConfig, {
     onSuccess: () => {
-      toast.success('Bot configuration updated')
+      toast.success(t('trading.notifications.configUpdated'))
       queryClient.invalidateQueries('bot-status')
     },
     onError: (error: Error) => {
@@ -109,13 +111,13 @@ export default function TradingPage() {
   })
 
   const handleStartBot = () => {
-    if (window.confirm('Are you sure you want to start the trading bot?')) {
+    if (window.confirm(t('trading.confirmations.startBot'))) {
       startBotMutation.mutate()
     }
   }
 
   const handleStopBot = () => {
-    if (window.confirm('Are you sure you want to stop the trading bot?')) {
+    if (window.confirm(t('trading.confirmations.stopBot'))) {
       stopBotMutation.mutate()
     }
   }
@@ -148,7 +150,7 @@ export default function TradingPage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="text-lg text-gray-600">Loading trading bot...</div>
+        <div className="text-lg text-gray-600">{t('common.loading')}</div>
       </div>
     )
   }
@@ -157,18 +159,18 @@ export default function TradingPage() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-gray-900">Trading Bot</h1>
+        <h1 className="text-2xl font-bold text-gray-900">{t('trading.title')}</h1>
         <div className="flex items-center space-x-4">
           {/* Connection Status */}
           <div className="flex items-center space-x-2">
             <div className="w-3 h-3 rounded-full bg-green-500" />
-            <span className="text-sm text-gray-600">Connected to BingX</span>
+            <span className="text-sm text-gray-600">{t('trading.connectionStatus')}</span>
           </div>
           
           {/* Demo Mode Indicator */}
           {botStatus?.demoMode && (
             <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-yellow-100 text-yellow-800">
-              Demo Trading (VST)
+              {t('dashboard.demoMode')} (VST)
             </span>
           )}
         </div>
@@ -189,15 +191,15 @@ export default function TradingPage() {
       {tradingStats && (
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
           <div className="card p-6">
-            <h3 className="text-sm font-medium text-gray-500">Total Trades (24h)</h3>
+            <h3 className="text-sm font-medium text-gray-500">{t('trading.stats.totalTrades')} (24h)</h3>
             <p className="text-2xl font-bold text-gray-900">{tradingStats.totalTrades}</p>
           </div>
           <div className="card p-6">
-            <h3 className="text-sm font-medium text-gray-500">Win Rate</h3>
+            <h3 className="text-sm font-medium text-gray-500">{t('trading.stats.winRate')}</h3>
             <p className="text-2xl font-bold text-green-600">{tradingStats.winRate}%</p>
           </div>
           <div className="card p-6">
-            <h3 className="text-sm font-medium text-gray-500">Total P&L (24h)</h3>
+            <h3 className="text-sm font-medium text-gray-500">{t('trading.stats.totalProfitLoss')} (24h)</h3>
             <p className={`text-2xl font-bold ${
               parseFloat(tradingStats.totalPnl) >= 0 ? 'text-green-600' : 'text-red-600'
             }`}>
@@ -206,7 +208,7 @@ export default function TradingPage() {
             </p>
           </div>
           <div className="card p-6">
-            <h3 className="text-sm font-medium text-gray-500">Active Positions</h3>
+            <h3 className="text-sm font-medium text-gray-500">{t('dashboard.activeTrades')}</h3>
             <p className="text-2xl font-bold text-gray-900">
               {botStatus?.activePositions?.length || 0}
             </p>
@@ -218,11 +220,11 @@ export default function TradingPage() {
       <div className="border-b border-gray-200">
         <nav className="-mb-px flex space-x-8">
           {[
-            { id: 'overview', name: 'Overview', count: botStatus?.activePositions?.length },
-            { id: 'positions', name: 'Positions', count: botStatus?.activePositions?.length },
-            { id: 'history', name: 'Trade History' },
-            { id: 'signals', name: 'Live Signals' },
-            { id: 'logs', name: 'Bot Logs' }
+            { id: 'overview', name: t('trading.tabs.overview'), count: botStatus?.activePositions?.length },
+            { id: 'positions', name: t('trading.tabs.positions'), count: botStatus?.activePositions?.length },
+            { id: 'history', name: t('trading.tabs.history') },
+            { id: 'signals', name: t('trading.tabs.signals') },
+            { id: 'logs', name: t('trading.tabs.logs') }
           ].map((tab) => (
             <button
               key={tab.id}
@@ -270,20 +272,20 @@ export default function TradingPage() {
         {activeTab === 'logs' && (
           <div className="bg-white rounded-lg shadow p-6">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-gray-900">Logs do Bot</h2>
+              <h2 className="text-lg font-semibold text-gray-900">{t('trading.logs.title')}</h2>
               <select
                 value={logsLevel}
                 onChange={(e) => setLogsLevel(e.target.value as 'all' | 'error')}
                 className="text-sm border border-gray-300 rounded-md px-2 py-1"
               >
-                <option value="all">Todos os logs</option>
-                <option value="error">Apenas erros</option>
+                <option value="all">{t('trading.logs.all')}</option>
+                <option value="error">{t('trading.logs.errors')}</option>
               </select>
             </div>
             
             <div className="bg-gray-900 rounded-md p-4 h-96 overflow-y-auto">
               {logsLoading ? (
-                <div className="text-gray-400 text-sm">Carregando logs...</div>
+                <div className="text-gray-400 text-sm">{t('common.loading')}</div>
               ) : botLogs && botLogs.length > 0 ? (
                 <div className="space-y-1">
                   {botLogs.map((log, index) => (
@@ -297,7 +299,7 @@ export default function TradingPage() {
                   ))}
                 </div>
               ) : (
-                <div className="text-gray-400 text-sm">Nenhum log disponível</div>
+                <div className="text-gray-400 text-sm">{t('trading.logs.noLogs')}</div>
               )}
             </div>
           </div>
