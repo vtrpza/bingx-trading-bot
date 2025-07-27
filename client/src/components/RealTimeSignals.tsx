@@ -45,17 +45,27 @@ export default function RealTimeSignals() {
   const availableSymbols = botStatus?.scannedSymbols || marketOverview?.topVolume?.map((item: any) => item.symbol) || []
   const watchedSymbols = availableSymbols
 
+  // Function to format the symbol for the API call
+  const formatSymbolForApi = (symbol: string) => {
+    if (symbol && !symbol.endsWith('-USDT') && !symbol.endsWith('-USDC')) {
+      return `${symbol}-USDT`;
+    }
+    return symbol;
+  };
+
+  const apiReadySymbol = formatSymbolForApi(selectedSymbol);
+
   // Get signal for selected symbol
   const { data: currentSignal, isLoading: signalLoading, error: signalError } = useQuery(
-    ['signal', selectedSymbol],
-    () => api.getSignal(selectedSymbol),
+    ['signal', apiReadySymbol],
+    () => api.getSignal(apiReadySymbol),
     {
       refetchInterval: 10000, // Refresh every 10 seconds
-      enabled: !!selectedSymbol, // Only fetch if symbol is selected
+      enabled: !!apiReadySymbol, // Only fetch if symbol is selected
       retry: 2, // Retry failed requests
     }
   )
-
+  console.log(signalError)
   // Clean old signals (older than 1 hour) on component mount
   useEffect(() => {
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000)
