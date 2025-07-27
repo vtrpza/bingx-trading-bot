@@ -25,7 +25,7 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
   const { data: botStatus } = useQuery(
     'bot-status',
     async () => {
-      const response = await fetch('/api/trading/status')
+      const response = await fetch('/api/trading/parallel-bot/status')
       if (!response.ok) throw new Error('Failed to fetch bot status')
       return response.json()
     },
@@ -38,7 +38,7 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
     }
   )
 
-  const isBotRunning = botStatus?.isRunning === true
+  const isBotRunning = botStatus?.success && botStatus?.data?.isRunning === true
 
   // Close position mutation
   const closePositionMutation = useMutation(
