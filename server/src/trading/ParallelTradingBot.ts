@@ -453,6 +453,7 @@ export class ParallelTradingBot extends EventEmitter {
     this.tradeExecutorPool.stop();
     this.marketDataCache.stop();
     this.positionManager.stop();
+    this.positionTracker.stop();
 
     this.emit('stopped');
     this.addActivityEvent('scan_started', 'Bot stopped successfully', 'info');
