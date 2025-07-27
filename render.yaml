@@ -1,7 +1,7 @@
 services:
   # Database
   - type: pserv
-    name: bingx-trading-bot-db
+    name: bingx-trading-bot-lu0z-db
     env: node
     plan: free
     databaseName: bingx_trading_bot
@@ -9,7 +9,7 @@ services:
     
   # Backend API
   - type: web
-    name: bingx-trading-bot-api
+    name: bingx-trading-bot-lu0z
     env: node
     plan: free
     buildCommand: cd server && npm install && npm run build
@@ -22,7 +22,7 @@ services:
         value: 3001
       - key: DATABASE_URL
         fromDatabase:
-          name: bingx-trading-bot-db
+          name: bingx-trading-bot-lu0z-db
           property: connectionString
       - key: BINGX_API_KEY
         sync: false
@@ -35,7 +35,7 @@ services:
       - key: DEFAULT_POSITION_SIZE
         value: 100
       - key: FRONTEND_URL
-        value: https://bingx-trading-bot-1.onrender.com
+        value: https://bingx-trading-bot-lu0z-frontend.onrender.com
         
   # Frontend
   - type: web
