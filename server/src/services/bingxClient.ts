@@ -1,18 +1,14 @@
 import axios, { AxiosInstance } from 'axios';
 import crypto from 'crypto';
 import { logger } from '../utils/logger';
-import { globalRateLimiter } from './rateLimiter';
+import { RateLimiter } from './rateLimiter';
 
-// Ensure environment variables are loaded
-import dotenv from 'dotenv';
-dotenv.config();
+// Create a specific rate limiter for kline data
+const klineRateLimiter = new RateLimiter(5, 900000); // 5 requests per 15 minutes
 
-interface BingXConfig {
-  apiKey: string;
-  secretKey: string;
-  baseURL: string;
-  demoMode: boolean;
-}
+// Cache for kline data
+const klineCache = new Map<string, { timestamp: number; data: any }>();
+const KLINE_CACHE_DURATION = 60000; // 1 minute
 
 export class BingXClient {
   private axios: AxiosInstance;
@@ -188,13 +184,24 @@ export class BingXClient {
   }
 
   async getKlines(symbol: string, interval: string, limit: number = 500) {
+    const cacheKey = `${symbol}:${interval}:${limit}`;
+    const cached = klineCache.get(cacheKey);
+
+    if (cached && (Date.now() - cached.timestamp) < KLINE_CACHE_DURATION) {
+      logger.debug(`Returning cached kline data for ${symbol}`);
+      return cached.data;
+    }
+
     try {
+      await klineRateLimiter.waitForSlot();
       // For demo mode, convert symbol to VST
       const apiSymbol = this.config.demoMode ? symbol.replace('-USDT', '-VST') : symbol;
       
       const response = await this.axios.get('/openApi/swap/v2/quote/klines', {
         params: { symbol: apiSymbol, interval, limit }
       });
+
+      klineCache.set(cacheKey, { timestamp: Date.now(), data: response.data });
       return response.data;
     } catch (error) {
       logger.error(`Failed to get klines for ${symbol}:`, error);
