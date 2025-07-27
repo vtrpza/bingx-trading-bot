@@ -14,8 +14,8 @@ export function useWebSocket(url: string, options: UseWebSocketOptions = {}) {
     onOpen,
     onClose,
     onError,
-    reconnectInterval = 3000,
-    maxReconnectAttempts = 5
+    reconnectInterval = webSocketConfig.reconnectInterval,
+    maxReconnectAttempts = webSocketConfig.maxReconnectAttempts
   } = options
 
   const [socket, setSocket] = useState<WebSocket | null>(null)
