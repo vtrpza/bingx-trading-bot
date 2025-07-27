@@ -1,7 +1,7 @@
 // WebSocket configuration with automatic protocol detection
-export const getWebSocketUrl = (path: string = '/ws', fallback: boolean = false): string => {
+export const getWebSocketUrl = (path: string = '/ws'): string => {
   // In development, always use the local server
-  if (process.env.NODE_ENV === 'development') {
+  if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
     return `ws://localhost:3001${path}`;
   }
   
@@ -37,7 +37,7 @@ export const webSocketConfig = {
 };
 
 // Environment-specific WebSocket debugging
-export const enableWebSocketDebug = process.env.NODE_ENV === 'development';
+export const enableWebSocketDebug = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 
 // WebSocket status messages
 export const getConnectionStatusMessage = (status: string): string => {

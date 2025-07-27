@@ -34,7 +34,7 @@ export function useWebSocket(url: string, options: UseWebSocketOptions = {}) {
       
       if (enableWebSocketDebug) {
         console.log('🔌 Connecting to WebSocket:', wsUrl);
-        console.log('📍 Environment:', process.env.NODE_ENV);
+        console.log('📍 Environment:', window.location.hostname === 'localhost' ? 'development' : 'production');
         console.log('🌐 Current location:', window.location.href);
       }
       
