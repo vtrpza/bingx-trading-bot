@@ -157,12 +157,23 @@ class TradeExecutor extends EventEmitter {
     }
 
     // Check account balance
-    const balance = await bingxClient.getBalance();
-    if (!balance.data || balance.data.length === 0) {
+    const balanceResponse = await bingxClient.getBalance();
+    if (balanceResponse.code !== 0 || !balanceResponse.data) {
       throw new Error('Unable to fetch account balance');
     }
 
-    const usdtBalance = balance.data.find((b: any) => b.asset === 'USDT');
+    // Handle different balance data structures
+    let balanceData;
+    if (Array.isArray(balanceResponse.data)) {
+      balanceData = balanceResponse.data;
+    } else if (balanceResponse.data.balance && Array.isArray(balanceResponse.data.balance)) {
+      balanceData = balanceResponse.data.balance;
+    } else {
+      logger.error('Unexpected balance data structure:', balanceResponse.data);
+      throw new Error('Invalid balance data structure');
+    }
+
+    const usdtBalance = balanceData.find((b: any) => b.asset === 'USDT');
     if (!usdtBalance || parseFloat(usdtBalance.balance) < task.positionSize) {
       throw new Error('Insufficient USDT balance');
     }
