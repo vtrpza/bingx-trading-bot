@@ -1,11 +1,4 @@
 services:
-  # Database
-  - type: pserv
-    name: bingx-trading-bot-lu0z-db
-    env: node
-    plan: free
-    databaseName: bingx_trading_bot
-    databaseUser: bingx_user
     
   # Backend API
   - type: web
