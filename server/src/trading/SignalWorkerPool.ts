@@ -26,6 +26,7 @@ export interface SignalWorkerConfig {
   maxConcurrentTasks: number;
   taskTimeout: number;
   retryAttempts: number;
+  taskDelay: number;
   signalConfig: any;
 }
 
@@ -198,10 +199,11 @@ export class SignalWorkerPool extends EventEmitter {
     super();
     
     this.config = {
-      maxWorkers: 3, // Reduced from 5 to prevent rate limit issues
-      maxConcurrentTasks: 10, // Reduced from 15
-      taskTimeout: 20000, // Increased from 8000ms to 20000ms
+      maxWorkers: 2, // Further reduced from 3 to 2 for better rate limiting
+      maxConcurrentTasks: 6, // Reduced from 10 to 6
+      taskTimeout: 25000, // Increased to 25s to handle rate limiting delays
       retryAttempts: 2,
+      taskDelay: 500, // New: 500ms delay between tasks
       signalConfig: {},
       ...config
     };
@@ -336,14 +338,19 @@ export class SignalWorkerPool extends EventEmitter {
       return;
     }
 
-    // Process tasks up to available workers (parallel processing)
+    // Process tasks up to available workers with sequential delays to avoid rate limiting
     const tasksToProcess = this.taskQueue.splice(0, availableWorkers.length);
 
     for (let i = 0; i < tasksToProcess.length && i < availableWorkers.length; i++) {
       const task = tasksToProcess[i];
       const worker = availableWorkers[i];
       
-      this.processTask(worker, task);
+      // Add delay between tasks to respect rate limits
+      if (i > 0) {
+        setTimeout(() => this.processTask(worker, task), i * this.config.taskDelay);
+      } else {
+        this.processTask(worker, task);
+      }
     }
   }
 
@@ -381,17 +388,40 @@ export class SignalWorkerPool extends EventEmitter {
     this.consecutiveErrors++;
     this.lastErrorTime = Date.now();
     
+    // Check if error is rate limit related
+    const isRateLimitError = error.includes('Rate limit') || 
+                           error.includes('429') || 
+                           error.includes('rate limited') ||
+                           error.includes('109400');
+    
+    // Lower threshold for rate limit errors (more aggressive circuit breaker)
+    const errorThreshold = isRateLimitError ? 5 : 10;
+    
     // Open circuit breaker if too many consecutive errors
-    if (this.consecutiveErrors >= 10 && !this.circuitBreakerOpen) {
+    if (this.consecutiveErrors >= errorThreshold && !this.circuitBreakerOpen) {
       this.circuitBreakerOpen = true;
-      logger.error(`Circuit breaker opened after ${this.consecutiveErrors} consecutive errors. Pausing for 5 minutes.`);
+      const pauseDuration = isRateLimitError ? '10 minutes' : '5 minutes';
+      const pauseMs = isRateLimitError ? 600000 : 300000;
+      
+      logger.error(`Circuit breaker opened after ${this.consecutiveErrors} consecutive errors (${isRateLimitError ? 'rate limit' : 'general'} errors). Pausing for ${pauseDuration}.`);
       
       // Clear the task queue to prevent processing more failing tasks
       this.taskQueue = [];
       
+      // Auto-close circuit breaker after pause duration
+      setTimeout(() => {
+        if (this.circuitBreakerOpen) {
+          this.circuitBreakerOpen = false;
+          this.consecutiveErrors = 0;
+          logger.info(`Circuit breaker auto-closed after ${pauseDuration} - resuming operations`);
+        }
+      }, pauseMs);
+      
       this.emit('circuitBreakerOpened', {
         consecutiveErrors: this.consecutiveErrors,
-        lastError: error
+        lastError: error,
+        isRateLimitError,
+        pauseDuration
       });
     }
     

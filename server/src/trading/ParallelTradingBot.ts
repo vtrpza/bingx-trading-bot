@@ -111,7 +111,7 @@ export class ParallelTradingBot extends EventEmitter {
     
     this.config = {
       enabled: false,
-      scanInterval: 300000, // 5 minutes - reduced from 30s to minimize API calls
+      scanInterval: 600000, // 10 minutes - increased from 5min to further reduce API pressure
       symbolsToScan: [],
       maxConcurrentTrades: 5,
       defaultPositionSize: 100,
@@ -491,19 +491,38 @@ export class ParallelTradingBot extends EventEmitter {
     this.scanStartTime = Date.now();
     this.totalScans++;
 
-    logger.debug(`Starting parallel scan of ${symbolsToScan.length} symbols`);
+    // Implement batching to reduce rate limiting pressure
+    const batchSize = 4; // Process symbols in smaller batches
+    const batches = [];
+    
+    for (let i = 0; i < symbolsToScan.length; i += batchSize) {
+      batches.push(symbolsToScan.slice(i, i + batchSize));
+    }
+
+    logger.debug(`Starting batched scan of ${symbolsToScan.length} symbols in ${batches.length} batches`);
     this.addActivityEvent('scan_started', 
-      `Starting scan of ${symbolsToScan.length} symbols`, 
+      `Starting batched scan of ${symbolsToScan.length} symbols (${batches.length} batches)`, 
       'info'
     );
-
-    // Add symbols to worker pool for parallel processing
-    const taskIds = this.signalWorkerPool.addSymbols(symbolsToScan, 1);
+    
+    // Process batches with delays between them
+    for (let i = 0; i < batches.length; i++) {
+      const batch = batches[i];
+      
+      // Add delay between batches to respect rate limits
+      if (i > 0) {
+        await new Promise(resolve => setTimeout(resolve, 2000)); // 2 second delay between batches
+      }
+      
+      // Add batch to worker pool for processing
+      const taskIds = this.signalWorkerPool.addSymbols(batch, 1);
+      logger.debug(`Processed batch ${i + 1}/${batches.length}: ${batch.length} symbols → ${taskIds.length} tasks`);
+    }
     
     // Update metrics
     this.updateScanMetrics(symbolsToScan.length);
     
-    logger.debug(`Added ${taskIds.length} symbols to worker pool for processing`);
+    logger.debug(`Completed batched processing of ${symbolsToScan.length} symbols`);
   }
 
   private handleSignalGenerated(signal: any): void {

@@ -9,9 +9,16 @@ dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 // Create a specific rate limiter for kline data  
 const klineRateLimiter = new RateLimiter(5, 900); // 5 requests per 900ms (same as global)
 
-// Cache for kline data
+// Enhanced cache for kline data with better rate limiting
 const klineCache = new Map<string, { timestamp: number; data: any }>();
-const KLINE_CACHE_DURATION = 30000; // 30 seconds (reduced to prevent stale data but improve rate limiting)
+const KLINE_CACHE_DURATION = 90000; // 90 seconds - increased from 30s to reduce API pressure
+
+// Additional cache for balance and other frequently accessed data
+const balanceCache = new Map<string, { timestamp: number; data: any }>();
+const BALANCE_CACHE_DURATION = 60000; // 60 seconds for balance data
+
+const symbolCache = new Map<string, { timestamp: number; data: any }>();
+const SYMBOL_CACHE_DURATION = 300000; // 5 minutes for symbols data
 
 interface BingXConfig {
   apiKey: string;
@@ -173,8 +180,27 @@ export class BingXClient {
 
   // Market Data Methods (Public)
   async getSymbols() {
+    const cacheKey = 'symbols';
+    const now = Date.now();
+    
+    // Check cache first
+    if (symbolCache.has(cacheKey)) {
+      const cached = symbolCache.get(cacheKey)!;
+      if (now - cached.timestamp < SYMBOL_CACHE_DURATION) {
+        logger.debug('Returning cached symbols data');
+        return cached.data;
+      }
+    }
+    
     try {
       const response = await this.axios.get('/openApi/swap/v2/quote/contracts');
+      
+      // Cache the response
+      symbolCache.set(cacheKey, {
+        timestamp: now,
+        data: response.data
+      });
+      
       return response.data;
     } catch (error) {
       logger.error('Failed to get symbols:', error);
@@ -307,8 +333,27 @@ export class BingXClient {
   }
 
   async getBalance() {
+    const cacheKey = 'balance';
+    const now = Date.now();
+    
+    // Check cache first
+    if (balanceCache.has(cacheKey)) {
+      const cached = balanceCache.get(cacheKey)!;
+      if (now - cached.timestamp < BALANCE_CACHE_DURATION) {
+        logger.debug('Returning cached balance data');
+        return cached.data;
+      }
+    }
+    
     try {
       const response = await this.axios.get('/openApi/swap/v2/user/balance');
+      
+      // Cache the response
+      balanceCache.set(cacheKey, {
+        timestamp: now,
+        data: response.data
+      });
+      
       return response.data;
     } catch (error) {
       logger.error('Failed to get balance:', error);
