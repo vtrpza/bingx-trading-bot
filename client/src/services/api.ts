@@ -218,6 +218,26 @@ export const api = {
     averagePnl: string
     bestTrade: any
     worstTrade: any
+    // Enhanced data from parallel bot
+    positions?: {
+      currentActive: number
+      metrics: {
+        totalPositions: number
+        activePositions: number
+        closedPositions: number
+        totalPnL: number
+        winRate: number
+        avgHoldTime: number
+        stopLossTriggered: number
+        takeProfitTriggered: number
+        manuallyClosedCount: number
+      }
+    }
+    bot?: {
+      isRunning: boolean
+      architecture: 'parallel' | 'legacy'
+      immediateExecution?: boolean
+    }
   }> {
     return axiosInstance.get('/trading/stats', { params: { period } })
   },
