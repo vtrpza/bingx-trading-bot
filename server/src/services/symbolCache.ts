@@ -91,7 +91,15 @@ export class SymbolCache {
     suggestions?: string[];
     message?: string;
   }> {
-    const normalizedInput = input.toUpperCase().replace(/[/\\]/g, '-');
+    // Normalize and fix common symbol issues
+    let normalizedInput = input.toUpperCase().replace(/[/\\]/g, '-');
+    
+    // Fix the specific DOT-VST-USDT issue by removing incorrect VST insertion
+    normalizedInput = normalizedInput.replace(/-VST-USDT$/i, '-USDT');
+    normalizedInput = normalizedInput.replace(/-VST-USDC$/i, '-USDC');
+    
+    // Remove any duplicate VST patterns that might exist
+    normalizedInput = normalizedInput.replace(/(-VST)+/gi, '');
     
     // Add -USDT if not present
     let testSymbol = normalizedInput;

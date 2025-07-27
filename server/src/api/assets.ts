@@ -108,9 +108,16 @@ function validateAndFormatSymbol(symbol: string): string {
   }
   
   // Convert to uppercase and normalize format
-  const normalizedSymbol = symbol.toUpperCase().replace(/[\/\\]/g, '-');
+  let normalizedSymbol = symbol.toUpperCase().replace(/[\/\\]/g, '-');
   
-  // Remove any trailing -VST-USDT, -VST-USDC patterns first
+  // Fix the specific DOT-VST-USDT issue by removing incorrect VST insertion
+  normalizedSymbol = normalizedSymbol.replace(/-VST-USDT$/i, '-USDT');
+  normalizedSymbol = normalizedSymbol.replace(/-VST-USDC$/i, '-USDC');
+  
+  // Remove any duplicate VST patterns that might exist
+  normalizedSymbol = normalizedSymbol.replace(/(-VST)+/gi, '');
+  
+  // Remove any trailing -VST-USDT, -VST-USDC patterns (additional safety)
   let cleanedSymbol = normalizedSymbol.replace(/-VST-(USDT|USDC)$/, '-$1');
   
   // Check if symbol already has proper suffix
