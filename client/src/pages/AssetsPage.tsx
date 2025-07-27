@@ -24,7 +24,11 @@ export default function AssetsPage() {
   )
 
   // Get asset statistics
-  const { data: stats } = useQuery('asset-stats', api.getAssetStats)
+  const { data: stats } = useQuery('asset-stats', api.getAssetStats, {
+    onSuccess: (data) => {
+      console.log('Asset stats received:', data)
+    }
+  })
 
 
   const assets = assetsData?.assets || []
@@ -104,6 +108,20 @@ export default function AssetsPage() {
     return numValue >= 0 ? `+${formatted}%` : `${formatted}%`
   }
 
+  // Format date in UTC-3 (Brazil timezone)
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString)
+    // Convert to UTC-3 (Brazil timezone)
+    const utcMinus3 = new Date(date.getTime() - (3 * 60 * 60 * 1000))
+    return utcMinus3.toLocaleString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    })
+  }
+
 
   return (
     <div className="space-y-6">
@@ -156,31 +174,33 @@ export default function AssetsPage() {
           
           <div className="card p-6">
             <h3 className="text-lg font-medium text-gray-900">Top Gainer</h3>
-            {stats.topGainers && stats.topGainers.length > 0 && stats.topGainers[0] && (
+            {stats.topGainers && stats.topGainers.length > 0 ? (
               <>
                 <p className="text-xl font-bold text-gray-900">{stats.topGainers[0].symbol}</p>
                 <p className="text-lg font-bold text-green-600">
                   {formatPercent(stats.topGainers[0].priceChangePercent)}
                 </p>
               </>
-            )}
-            {(!stats.topGainers || stats.topGainers.length === 0) && (
-              <p className="text-sm text-gray-500">No data available</p>
+            ) : (
+              <p className="text-sm text-gray-500">
+                {stats.totalAssets > 0 ? 'No data available' : 'Loading...'}
+              </p>
             )}
           </div>
           
           <div className="card p-6">
             <h3 className="text-lg font-medium text-gray-900">Highest Volume</h3>
-            {stats.topVolume && stats.topVolume.length > 0 && stats.topVolume[0] && (
+            {stats.topVolume && stats.topVolume.length > 0 ? (
               <>
                 <p className="text-xl font-bold text-gray-900">{stats.topVolume[0].symbol}</p>
                 <p className="text-lg text-gray-600">
                   ${formatNumber(stats.topVolume[0].quoteVolume24h)}
                 </p>
               </>
-            )}
-            {(!stats.topVolume || stats.topVolume.length === 0) && (
-              <p className="text-sm text-gray-500">No data available</p>
+            ) : (
+              <p className="text-sm text-gray-500">
+                {stats.totalAssets > 0 ? 'No data available' : 'Loading...'}
+              </p>
             )}
           </div>
         </div>
@@ -198,7 +218,7 @@ export default function AssetsPage() {
                 setSearch(e.target.value)
                 setPage(1)
               }}
-              placeholder="Search by symbol or name..."
+              placeholder="Buscar por símbolo ou nome..."
               className="input"
             />
           </div>
@@ -240,6 +260,12 @@ export default function AssetsPage() {
                   Symbol {sortBy === 'symbol' && (sortOrder === 'ASC' ? '↑' : '↓')}
                 </th>
                 <th 
+                  onClick={() => handleSort('name')}
+                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                >
+                  Name {sortBy === 'name' && (sortOrder === 'ASC' ? '↑' : '↓')}
+                </th>
+                <th 
                   onClick={() => handleSort('lastPrice')}
                   className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
                 >
@@ -266,18 +292,24 @@ export default function AssetsPage() {
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                   Status
                 </th>
+                <th 
+                  onClick={() => handleSort('updatedAt')}
+                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                >
+                  Last Update {sortBy === 'updatedAt' && (sortOrder === 'ASC' ? '↑' : '↓')}
+                </th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {isLoading ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-4 text-center text-gray-500">
+                  <td colSpan={8} className="px-6 py-4 text-center text-gray-500">
                     Loading assets...
                   </td>
                 </tr>
               ) : assets.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-4 text-center text-gray-500">
+                  <td colSpan={8} className="px-6 py-4 text-center text-gray-500">
                     No assets found
                   </td>
                 </tr>
@@ -287,6 +319,9 @@ export default function AssetsPage() {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="font-medium text-gray-900">{asset.symbol}</div>
                       <div className="text-sm text-gray-500">{asset.baseCurrency}/{asset.quoteCurrency}</div>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="font-medium text-gray-900">{asset.name}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       ${Number(asset.lastPrice).toFixed(4)}
@@ -312,6 +347,9 @@ export default function AssetsPage() {
                       }`}>
                         {asset.status}
                       </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {formatDate(asset.updatedAt)}
                     </td>
                   </tr>
                 ))
