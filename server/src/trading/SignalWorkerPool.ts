@@ -65,7 +65,7 @@ class SignalWorker extends EventEmitter {
       const klines = await Promise.race([
         bingxClient.getKlines(task.symbol, '5m', 100),
         new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Market data timeout')), 5000)
+          setTimeout(() => reject(new Error('Market data timeout')), 15000)
         )
       ]) as any;
 
@@ -129,8 +129,9 @@ class SignalWorker extends EventEmitter {
       const processingTime = Date.now() - startTime;
       this.updateMetrics(false, processingTime);
       
-      logger.warn(`Worker ${this.id} failed processing ${task.symbol}:`, 
-        error instanceof Error ? error.message : String(error));
+      logger.warn(`Worker ${this.id} failed processing ${task.symbol}: ${
+        error instanceof Error ? error.message : String(error)
+      }`);
       
       this.emit('taskError', {
         workerId: this.id,
@@ -194,9 +195,9 @@ export class SignalWorkerPool extends EventEmitter {
     super();
     
     this.config = {
-      maxWorkers: 5,
-      maxConcurrentTasks: 15,
-      taskTimeout: 8000,
+      maxWorkers: 3, // Reduced from 5 to prevent rate limit issues
+      maxConcurrentTasks: 10, // Reduced from 15
+      taskTimeout: 20000, // Increased from 8000ms to 20000ms
       retryAttempts: 2,
       signalConfig: {},
       ...config

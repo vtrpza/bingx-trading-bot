@@ -82,7 +82,7 @@ export class RateLimiter {
  */
 export class GlobalRateLimiter {
   private requestLog: number[] = [];
-  private readonly maxRequests: number = 4; // Conservative: 4 requests per 900ms (BingX limit is 5)
+  private readonly maxRequests: number = 5; // BingX limit: 5 requests per 900ms
   private readonly windowMs: number = 900; // BingX window: 900ms
 
   /**
@@ -136,8 +136,8 @@ export class GlobalRateLimiter {
       const oldestRequest = this.requestLog[0];
       const baseWaitTime = this.windowMs - (now - oldestRequest) + 300; // Increased buffer
       
-      // Conservative backoff for BingX rate limits
-      const waitTime = Math.max(300, baseWaitTime * Math.pow(1.2, retryCount));
+      // More reasonable backoff for BingX rate limits
+      const waitTime = Math.max(200, Math.min(baseWaitTime * Math.pow(1.1, retryCount), 10000)); // Cap at 10 seconds max
       
       logger.info(`Rate limited - waiting ${waitTime}ms (attempt ${retryCount + 1}/${maxRetries}) to comply with BingX limits`);
       await new Promise(resolve => setTimeout(resolve, waitTime));

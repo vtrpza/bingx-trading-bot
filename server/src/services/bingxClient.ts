@@ -6,12 +6,12 @@ import dotenv from 'dotenv';
 import path from 'path';
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
-// Create a specific rate limiter for kline data
-const klineRateLimiter = new RateLimiter(5, 900000); // 5 requests per 15 minutes
+// Create a specific rate limiter for kline data  
+const klineRateLimiter = new RateLimiter(5, 900); // 5 requests per 900ms (same as global)
 
 // Cache for kline data
 const klineCache = new Map<string, { timestamp: number; data: any }>();
-const KLINE_CACHE_DURATION = 60000; // 1 minute
+const KLINE_CACHE_DURATION = 30000; // 30 seconds (reduced to prevent stale data but improve rate limiting)
 
 interface BingXConfig {
   apiKey: string;
@@ -46,7 +46,7 @@ export class BingXClient {
 
     this.axios = axios.create({
       baseURL: this.config.baseURL,
-      timeout: 10000,
+      timeout: 15000, // Increased from 10s to 15s to handle rate limiting delays
       headers: {
         'Content-Type': 'application/json'
       }
