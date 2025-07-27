@@ -185,7 +185,7 @@ export default function TradingFlowMonitor() {
             <div className="card p-6">
               <h4 className="text-md font-medium text-gray-900 mb-4">Current Process Status</h4>
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                {flowState.steps.map((step, index) => (
+                {flowState.steps.map((step, _index) => (
                   <ProcessStepCard
                     key={step.id}
                     step={step}
