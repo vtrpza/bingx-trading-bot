@@ -27,7 +27,7 @@ export default function TradingPage() {
       refetchInterval: 3000,
     }
   )
-  console.log('Bot Status Debug:', { botStatus, isLoading })
+  console.log('Bot status:', botStatus)
   // Get parallel bot metrics
   const { data: parallelMetrics } = useQuery(
     'parallel-bot-metrics',
@@ -37,7 +37,7 @@ export default function TradingPage() {
       refetchInterval: 5000 
     }
   )
-
+  console.log('Parallel metrics:', parallelMetrics)
   // Get parallel bot performance data
   const { data: performanceData } = useQuery(
     'parallel-bot-performance',
@@ -47,7 +47,7 @@ export default function TradingPage() {
       refetchInterval: 10000 
     }
   )
-
+  console.log('Performance data:', performanceData)
   // Get parallel bot activity events
   const { data: activityEvents } = useQuery(
     'parallel-bot-activity',
@@ -74,7 +74,7 @@ export default function TradingPage() {
       refetchInterval: 10000,
     }
   )
-
+  console.log('Trading stats:', tradingStats)
 
   // WebSocket for real-time updates
   const { lastMessage } = useWebSocket('/ws')

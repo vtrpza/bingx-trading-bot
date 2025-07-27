@@ -5,40 +5,27 @@ import { AppError, asyncHandler } from '../utils/errorHandler';
 import { logger } from '../utils/logger';
 import { TechnicalIndicators } from '../indicators/technicalIndicators';
 import { SignalGenerator } from '../trading/signalGenerator';
+import { symbolCache } from '../services/symbolCache';
 
-// Symbol mapping for deprecated/renamed tokens
-const SYMBOL_MAPPING: { [key: string]: string } = {
-  'MATIC-USDT': 'POL-USDT', // MATIC was rebranded to POL (Polygon)
-  'MATIC': 'POL-USDT',
-  // Add other symbol mappings as needed
-};
-
-// Symbol validation helper
-function validateAndFormatSymbol(symbol: string): string {
+// Dynamic symbol validation using BingX live data
+async function validateAndFormatSymbol(symbol: string): Promise<string> {
   if (!symbol) {
     throw new AppError('Symbol is required', 400);
   }
   
-  const normalizedSymbol = symbol.toUpperCase().replace(/[/\\]/g, '-');
-
-  // Check for symbol mapping first
-  const mappedSymbol = SYMBOL_MAPPING[normalizedSymbol];
-  if (mappedSymbol) {
-    logger.info(`Symbol mapping applied: ${normalizedSymbol} → ${mappedSymbol}`);
-    return mappedSymbol;
-  }
-
-  // Remove any trailing -VST-USDT, -VST-USDC patterns first
-  let cleanedSymbol = normalizedSymbol.replace(/-VST-(USDT|USDC)$/, '-$1');
+  // Use dynamic symbol validation
+  const validation = await symbolCache.validateSymbolWithSuggestions(symbol);
   
-  if (cleanedSymbol.endsWith('-USDT') || cleanedSymbol.endsWith('-USDC')) {
-    return cleanedSymbol;
+  if (validation.isValid && validation.symbol) {
+    return validation.symbol;
   }
   
-  // Remove any remaining suffixes to get base symbol
-  const baseSymbol = cleanedSymbol.replace(/-(USDT|USDC|VST)$/, '');
+  // Symbol not found - provide helpful error with suggestions
+  const errorMessage = validation.message || `Symbol "${symbol}" not found`;
+  const suggestions = validation.suggestions ? ` Suggestions: ${validation.suggestions.join(', ')}` : '';
   
-  return `${baseSymbol}-USDT`;
+  logger.warn(`Invalid symbol requested: ${symbol}${suggestions}`);
+  throw new AppError(`${errorMessage}${suggestions}`, 404);
 }
 
 const router = Router();
@@ -46,7 +33,7 @@ const router = Router();
 // Get ticker data for a symbol
 router.get('/ticker/:symbol', asyncHandler(async (req: Request, res: Response) => {
   const rawSymbol = req.params.symbol;
-  const symbol = validateAndFormatSymbol(rawSymbol);
+  const symbol = await validateAndFormatSymbol(rawSymbol);
   
   try {
     const ticker = await bingxClient.getTicker(symbol);
@@ -68,7 +55,7 @@ router.get('/ticker/:symbol', asyncHandler(async (req: Request, res: Response) =
 // Get kline/candlestick data
 router.get('/klines/:symbol', asyncHandler(async (req: Request, res: Response) => {
   const rawSymbol = req.params.symbol;
-  const symbol = validateAndFormatSymbol(rawSymbol);
+  const symbol = await validateAndFormatSymbol(rawSymbol);
   const { interval = '5m', limit = '100' } = req.query;
   
   try {
@@ -108,7 +95,7 @@ router.get('/klines/:symbol', asyncHandler(async (req: Request, res: Response) =
 // Get order book depth
 router.get('/depth/:symbol', asyncHandler(async (req: Request, res: Response) => {
   const rawSymbol = req.params.symbol;
-  const symbol = validateAndFormatSymbol(rawSymbol);
+  const symbol = await validateAndFormatSymbol(rawSymbol);
   const { limit = '20' } = req.query;
   
   try {
@@ -131,7 +118,7 @@ router.get('/depth/:symbol', asyncHandler(async (req: Request, res: Response) =>
 // Calculate technical indicators
 router.get('/indicators/:symbol', asyncHandler(async (req: Request, res: Response) => {
   const rawSymbol = req.params.symbol;
-  const symbol = validateAndFormatSymbol(rawSymbol);
+  const symbol = await validateAndFormatSymbol(rawSymbol);
   const { 
     interval = '5m', 
     limit = '100',
@@ -197,7 +184,7 @@ router.get('/indicators/:symbol', asyncHandler(async (req: Request, res: Respons
 // Generate trading signal
 router.get('/signal/:symbol', asyncHandler(async (req: Request, res: Response) => {
   const rawSymbol = req.params.symbol;
-  const symbol = validateAndFormatSymbol(rawSymbol);
+  const symbol = await validateAndFormatSymbol(rawSymbol);
   const { interval = '5m', limit = '100' } = req.query;
   
   try {
@@ -282,7 +269,7 @@ router.get('/signal/:symbol', asyncHandler(async (req: Request, res: Response) =
 // Subscribe to WebSocket streams
 router.post('/subscribe', asyncHandler(async (req: Request, res: Response) => {
   const { symbol: rawSymbol, type, interval } = req.body;
-  const symbol = rawSymbol ? validateAndFormatSymbol(rawSymbol) : undefined;
+  const symbol = rawSymbol ? await validateAndFormatSymbol(rawSymbol) : undefined;
   
   if (!symbol || !type) {
     throw new AppError('Symbol and type are required', 400);
@@ -311,7 +298,7 @@ router.post('/subscribe', asyncHandler(async (req: Request, res: Response) => {
 // Unsubscribe from WebSocket streams
 router.post('/unsubscribe', asyncHandler(async (req: Request, res: Response) => {
   const { symbol: rawSymbol, type, interval } = req.body;
-  const symbol = rawSymbol ? validateAndFormatSymbol(rawSymbol) : undefined;
+  const symbol = rawSymbol ? await validateAndFormatSymbol(rawSymbol) : undefined;
   
   if (!symbol || !type) {
     throw new AppError('Symbol and type are required', 400);
@@ -362,9 +349,8 @@ router.get('/overview', asyncHandler(async (_req: Request, res: Response) => {
       throw new AppError('Failed to fetch market data', 500);
     }
     
-    // Popular trading pairs to reduce API calls (updated with correct symbols)
-    const popularSymbols = ['BTC-USDT', 'ETH-USDT', 'BNB-USDT', 'ADA-USDT', 'XRP-USDT', 
-                          'DOGE-USDT', 'POL-USDT', 'SOL-USDT', 'DOT-USDT', 'LINK-USDT'];
+    // Get popular symbols dynamically from BingX
+    const popularSymbols = await symbolCache.getPopularSymbols(10);
     
     // Get tickers for popular symbols with proper rate limiting
     const tickers = [];
@@ -430,6 +416,43 @@ router.get('/overview', asyncHandler(async (_req: Request, res: Response) => {
   } catch (error) {
     logger.error('Failed to get market overview:', error);
     throw new AppError('Failed to get market overview', 500);
+  }
+}));
+
+// Get available symbols endpoint
+router.get('/symbols', asyncHandler(async (_req: Request, res: Response) => {
+  try {
+    const validSymbols = await symbolCache.getValidSymbols();
+    const stats = symbolCache.getStats();
+    
+    res.json({
+      success: true,
+      data: {
+        symbols: validSymbols,
+        total: validSymbols.length,
+        stats
+      }
+    });
+  } catch (error) {
+    logger.error('Failed to get symbols:', error);
+    throw new AppError('Failed to fetch symbols', 500);
+  }
+}));
+
+// Symbol validation endpoint  
+router.get('/validate/:symbol', asyncHandler(async (req: Request, res: Response) => {
+  const rawSymbol = req.params.symbol;
+  
+  try {
+    const validation = await symbolCache.validateSymbolWithSuggestions(rawSymbol);
+    
+    res.json({
+      success: true,
+      data: validation
+    });
+  } catch (error) {
+    logger.error(`Failed to validate symbol ${rawSymbol}:`, error);
+    throw new AppError('Failed to validate symbol', 500);
   }
 }));
 
