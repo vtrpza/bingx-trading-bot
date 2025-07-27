@@ -258,6 +258,81 @@ export const api = {
     return axiosInstance.delete(`/trading/orders/${orderId}`, { params: { symbol } })
   },
 
+  // Parallel Bot Specific APIs
+  async getParallelBotStatus(): Promise<BotStatus & {
+    architecture: 'parallel'
+    managedPositions: number
+    positionMetrics: any
+    immediateExecution: boolean
+  }> {
+    return axiosInstance.get('/trading/parallel-bot/status')
+  },
+
+  async getManagedPositions(): Promise<any[]> {
+    return axiosInstance.get('/trading/parallel-bot/positions')
+  },
+
+  async getPositionMetrics(): Promise<{
+    totalPositions: number
+    activePositions: number
+    closedPositions: number
+    totalPnL: number
+    winRate: number
+    avgHoldTime: number
+    stopLossTriggered: number
+    takeProfitTriggered: number
+    manuallyClosedCount: number
+  }> {
+    return axiosInstance.get('/trading/parallel-bot/position-metrics')
+  },
+
+  async signalClosePosition(symbol: string): Promise<{ message: string }> {
+    return axiosInstance.post(`/trading/parallel-bot/positions/${symbol}/close`)
+  },
+
+  async signalCloseAllPositions(): Promise<{ message: string }> {
+    return axiosInstance.post('/trading/parallel-bot/positions/close-all')
+  },
+
+  async confirmPositionClosed(symbol: string, actualPnl?: number): Promise<{ message: string }> {
+    return axiosInstance.post(`/trading/parallel-bot/positions/${symbol}/confirm-closed`, { actualPnl })
+  },
+
+  async executeSignalImmediately(symbol: string): Promise<{
+    taskId: string | null
+    message: string
+  }> {
+    return axiosInstance.post(`/trading/parallel-bot/execute-immediate/${symbol}`)
+  },
+
+  async setImmediateExecutionMode(enabled: boolean): Promise<{ message: string }> {
+    return axiosInstance.post('/trading/parallel-bot/immediate-execution', { enabled })
+  },
+
+  async getEnhancedTradingStats(period?: string): Promise<{
+    period: string
+    trading: {
+      totalTrades: number
+      winningTrades: number
+      losingTrades: number
+      winRate: string
+      totalPnl: string
+      totalVolume: string
+      averagePnl: string
+    }
+    positions: {
+      current: number
+      metrics: any
+    }
+    bot: {
+      isRunning: boolean
+      architecture: 'parallel'
+      immediateExecution: boolean
+    }
+  }> {
+    return axiosInstance.get('/trading/parallel-bot/enhanced-stats', { params: { period } })
+  },
+
   // Market Data
   async getTicker(symbol: string): Promise<MarketData> {
     return axiosInstance.get(`/market-data/ticker/${symbol}`)
