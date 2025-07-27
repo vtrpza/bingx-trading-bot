@@ -126,7 +126,7 @@ export class TradingBot extends EventEmitter {
       stopLossPercent: 2,
       takeProfitPercent: 3,
       trailingStopPercent: 1,
-      minVolumeUSDT: 100000, // 1M USDT minimum volume
+      minVolumeUSDT: 10000, // 10K USDT minimum volume (reduced to include more symbols)
       // Signal generation parameters (Balanced profile defaults)
       rsiOversold: 30,
       rsiOverbought: 70,
@@ -376,10 +376,13 @@ export class TradingBot extends EventEmitter {
         return;
       }
 
-      // Filter active contracts (quick filter, no API calls)
+      // Filter active USDT contracts only
       const activeContracts = symbolsData.data
-        .filter((contract: any) => contract.status === 1)
-        .slice(0, 30); // Limit to top 30 most popular
+        .filter((contract: any) => 
+          contract.status === 1 && // Active contracts only
+          contract.symbol && 
+          contract.symbol.endsWith('-USDT') // USDT pairs only
+        );
 
       logger.debug(`Found ${activeContracts.length} active contracts for async update`);
 
@@ -387,10 +390,10 @@ export class TradingBot extends EventEmitter {
       const symbolsWithVolume = await this.getSymbolVolumes(activeContracts);
 
       if (symbolsWithVolume.length > 0) {
-        // Sort by volume and take top symbols
+        // Sort by volume and filter by minimum volume (no hard limit on count)
         const eligibleSymbols = symbolsWithVolume
+          .filter(item => item.volume >= this.config.minVolumeUSDT)
           .sort((a, b) => b.volume - a.volume)
-          .slice(0, 20)
           .map(item => item.symbol);
 
         this.config.symbolsToScan = eligibleSymbols;

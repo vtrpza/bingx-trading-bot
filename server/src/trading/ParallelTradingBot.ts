@@ -120,7 +120,7 @@ export class ParallelTradingBot extends EventEmitter {
       defaultPositionSize: 100,
       stopLossPercent: 2,
       takeProfitPercent: 3,
-      minVolumeUSDT: 100000,
+      minVolumeUSDT: 10000, // 10K USDT minimum volume (reduced to include more symbols)
       
       // Signal parameters
       rsiOversold: 30,
@@ -468,7 +468,7 @@ export class ParallelTradingBot extends EventEmitter {
       logger.info('Fetching all available symbols from exchange...');
       
       // Get all symbols from BingX
-      const symbolsData = await this.bingxClient.getSymbols();
+      const symbolsData = await bingxClient.getSymbols();
       
       if (!symbolsData.data || !Array.isArray(symbolsData.data)) {
         logger.warn('Invalid symbols data received from exchange');
@@ -528,7 +528,7 @@ export class ParallelTradingBot extends EventEmitter {
       
       const promises = batch.map(async (symbol) => {
         try {
-          const ticker = await this.bingxClient.getTicker(symbol);
+          const ticker = await bingxClient.getTicker(symbol);
           if (ticker.code === 0 && ticker.data) {
             const volume = parseFloat(ticker.data.quoteVolume || 0);
             return { symbol, volume };
