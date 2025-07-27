@@ -121,6 +121,25 @@ export default function AssetsPage() {
         </button>
       </div>
 
+      {/* Progress Bar */}
+      {isRefreshing && (
+        <div className="bg-white rounded-lg shadow p-4">
+          <div className="flex justify-between text-sm text-gray-600 mb-2">
+            <span>{refreshProgress.message}</span>
+            <span>{refreshProgress.processed}/{refreshProgress.total}</span>
+          </div>
+          <div className="w-full bg-gray-200 rounded-full h-2">
+            <div 
+              className="bg-blue-600 h-2 rounded-full transition-all duration-300" 
+              style={{ width: `${refreshProgress.progress}%` }}
+            ></div>
+          </div>
+          <div className="text-right text-xs text-gray-500 mt-1">
+            {refreshProgress.progress}%
+          </div>
+        </div>
+      )}
+
       {/* Statistics Cards */}
       {stats && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
