@@ -38,7 +38,7 @@ services:
         value: https://bingx-trading-bot-lu0z-frontend.onrender.com
         
   # Frontend
-  - type: static
+  - type: web
     name: bingx-trading-bot-lu0z-frontend
     env: static
     plan: free
