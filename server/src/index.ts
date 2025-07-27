@@ -52,13 +52,11 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Serve static files and handle favicon
+// Serve static files
 app.use(express.static('public'));
 
-// Multiple favicon handlers for different paths
+// Handle favicon and manifest requests to prevent CSP errors
 app.get('/favicon.ico', (_req, res) => {
-  res.setHeader('Content-Type', 'image/x-icon');
-  res.setHeader('Cache-Control', 'public, max-age=86400');
   res.status(204).end();
 });
 
@@ -67,15 +65,7 @@ app.get('/apple-touch-icon.png', (_req, res) => {
 });
 
 app.get('/manifest.json', (_req, res) => {
-  res.setHeader('Content-Type', 'application/json');
-  res.json({
-    name: "BingX Trading Bot",
-    short_name: "BingX Bot",
-    icons: [],
-    theme_color: "#000000",
-    background_color: "#ffffff",
-    display: "standalone"
-  });
+  res.status(204).end();
 });
 
 // Health check endpoint
