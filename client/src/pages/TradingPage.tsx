@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
 import { toast } from 'react-hot-toast'
 import { api } from '../services/api'
@@ -154,22 +154,22 @@ export default function TradingPage() {
     }
   )
 
-  // Force scan mutation
-  const forceScanMutation = useMutation(
-    (symbols?: string[]) => fetch('/api/trading/parallel-bot/scan', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ symbols })
-    }).then(res => res.json()),
-    {
-      onSuccess: () => {
-        toast.success('Signal scan initiated')
-      },
-      onError: (error: any) => {
-        toast.error(error.message || 'Failed to initiate scan')
-      },
-    }
-  )
+  // Force scan mutation (commented out for now as not used)
+  // const forceScanMutation = useMutation(
+  //   (symbols?: string[]) => fetch('/api/trading/parallel-bot/scan', {
+  //     method: 'POST',
+  //     headers: { 'Content-Type': 'application/json' },
+  //     body: JSON.stringify({ symbols })
+  //   }).then(res => res.json()),
+  //   {
+  //     onSuccess: () => {
+  //       toast.success('Signal scan initiated')
+  //     },
+  //     onError: (error: any) => {
+  //       toast.error(error.message || 'Failed to initiate scan')
+  //     },
+  //   }
+  // )
 
   const handleStartBot = () => {
     if (window.confirm(t('trading.confirmations.startBot'))) {

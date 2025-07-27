@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { useQuery } from 'react-query'
 import { api } from '../services/api'
 import { useWebSocket } from '../hooks/useWebSocket'
@@ -19,24 +19,24 @@ export default function RealTimeSignals() {
     () => fetch('/api/trading/parallel-bot/status').then(res => res.json()).then(data => data.data)
   )
 
-  // Get parallel bot metrics
-  const { data: parallelMetrics } = useQuery(
-    'parallel-bot-metrics',
-    () => fetch('/api/trading/parallel-bot/metrics').then(res => res.json()).then(data => data.data),
-    { 
-      enabled: botStatus?.isRunning,
-      refetchInterval: 5000 
-    }
-  )
+  // Get parallel bot metrics (commented out for now as not used in display)
+  // const { data: parallelMetrics } = useQuery(
+  //   'parallel-bot-metrics',
+  //   () => fetch('/api/trading/parallel-bot/metrics').then(res => res.json()).then(data => data.data),
+  //   { 
+  //     enabled: botStatus?.isRunning,
+  //     refetchInterval: 5000 
+  //   }
+  // )
 
-  // Get parallel bot activity events for signal display
-  const { data: parallelActivity } = useQuery(
-    'parallel-bot-activity',
-    () => fetch('/api/trading/parallel-bot/activity?limit=20&type=signal_generated').then(res => res.json()).then(data => data.data),
-    { 
-      refetchInterval: 3000 
-    }
-  )
+  // Get parallel bot activity events for signal display (commented out for now as not used in display)
+  // const { data: parallelActivity } = useQuery(
+  //   'parallel-bot-activity',
+  //   () => fetch('/api/trading/parallel-bot/activity?limit=20&type=signal_generated').then(res => res.json()).then(data => data.data),
+  //   { 
+  //     refetchInterval: 3000 
+  //   }
+  // )
   
   // Get market overview for fallback
   const { data: marketOverview } = useQuery('market-overview', api.getMarketOverview)
