@@ -5,6 +5,7 @@ import { TradeExecutorPool, TradeExecutorConfig } from './TradeExecutorPool';
 import { MarketDataCache, MarketDataCacheConfig } from './MarketDataCache';
 import { PositionManager, PositionManagerConfig } from './PositionManager';
 import { PositionTracker } from './PositionTracker';
+import { RiskManager, RiskParameters } from './RiskManager';
 import { apiRequestManager } from '../services/APIRequestManager';
 import { wsManager } from '../services/websocket';
 import { logger } from '../utils/logger';
@@ -36,6 +37,7 @@ export interface ParallelBotConfig {
   tradeExecutors: Partial<TradeExecutorConfig>;
   marketDataCache: Partial<MarketDataCacheConfig>;
   positionManager: Partial<PositionManagerConfig>;
+  riskManager: Partial<RiskParameters>;
   
   // Advanced execution options
   immediateExecution: boolean; // Execute trades immediately when signals are strong enough
@@ -107,6 +109,7 @@ export class ParallelTradingBot extends EventEmitter {
   private marketDataCache!: MarketDataCache;
   private positionManager!: PositionManager;
   private positionTracker!: PositionTracker;
+  private riskManager!: RiskManager;
   
   // State tracking
   private activePositions: Map<string, Position> = new Map();
@@ -177,6 +180,16 @@ export class ParallelTradingBot extends EventEmitter {
           maxDailyLoss: 500,
           forceCloseOnError: true
         }
+      },
+      riskManager: {
+        maxDrawdownPercent: 8,
+        maxDailyLossUSDT: 500,
+        maxPositionSizePercent: 25, // 25% of balance per position
+        stopLossPercent: 2,
+        takeProfitPercent: 3,
+        trailingStopPercent: 1.5,
+        riskRewardRatio: 2,
+        maxLeverage: 10
       },
       
       // Advanced options
@@ -272,6 +285,18 @@ export class ParallelTradingBot extends EventEmitter {
       stopLossStrategy: 'ATR',
       takeProfitStrategy: 'SCALED',
       riskRewardRatio: 2.5
+    });
+    
+    // Initialize risk manager with strict error handling
+    this.riskManager = new RiskManager({
+      maxDrawdownPercent: this.config.riskManager.maxDrawdownPercent || 8,
+      maxDailyLossUSDT: this.config.riskManager.maxDailyLossUSDT || 500,
+      maxPositionSizePercent: this.config.riskManager.maxPositionSizePercent || 25,
+      stopLossPercent: this.config.riskManager.stopLossPercent || 2,
+      takeProfitPercent: this.config.riskManager.takeProfitPercent || 3,
+      trailingStopPercent: this.config.riskManager.trailingStopPercent || 1.5,
+      riskRewardRatio: this.config.riskManager.riskRewardRatio || 2,
+      maxLeverage: this.config.riskManager.maxLeverage || 10
     });
     
     // Integrate position manager with trade executor
@@ -379,6 +404,56 @@ export class ParallelTradingBot extends EventEmitter {
         }
       );
     });
+
+    // Risk manager events - STRICT ERROR HANDLING
+    this.riskManager.on('emergencyStop', (positionRisk) => {
+      this.addActivityEvent('error',
+        `EMERGENCY STOP: ${positionRisk.symbol} at critical risk level`,
+        'error',
+        positionRisk.symbol,
+        { riskLevel: positionRisk.riskLevel, pnl: positionRisk.unrealizedPnl }
+      );
+      // Force close position immediately
+      this.signalClosePosition(positionRisk.symbol);
+    });
+
+    this.riskManager.on('moveToBreakEven', (positionRisk) => {
+      this.addActivityEvent('info',
+        `BREAK-EVEN: Moving ${positionRisk.symbol} to break-even`,
+        'info',
+        positionRisk.symbol,
+        { breakEvenPrice: positionRisk.breakEvenPrice }
+      );
+    });
+
+    this.riskManager.on('activateTrailingStop', (positionRisk) => {
+      this.addActivityEvent('info',
+        `TRAILING STOP: Activating for ${positionRisk.symbol}`,
+        'info',
+        positionRisk.symbol,
+        { trailingStopPrice: positionRisk.trailingStopPrice }
+      );
+    });
+
+    this.riskManager.on('dailyLimitExceeded', (data) => {
+      this.addActivityEvent('error',
+        `DAILY LIMIT EXCEEDED: ${data.dailyPnl.toFixed(2)} > ${data.limit}`,
+        'error',
+        undefined,
+        { action: 'stop_all_trading' }
+      );
+      // Emergency stop all trading
+      this.signalCloseAllPositions();
+    });
+
+    this.riskManager.on('riskMonitoringError', (error) => {
+      this.addActivityEvent('error',
+        `RISK MONITORING ERROR: ${error}`,
+        'error',
+        undefined,
+        { action: 'manual_intervention_required' }
+      );
+    });
   }
 
   private setupWebSocketListeners(): void {
@@ -409,6 +484,16 @@ export class ParallelTradingBot extends EventEmitter {
       this.tradeExecutorPool.start();
       this.positionManager.start();
       this.positionTracker.start();
+
+      // Start risk manager - CRITICAL for production trading
+      try {
+        await this.riskManager.start();
+        this.addActivityEvent('info', 'Risk Manager started - STRICT MODE enabled', 'success');
+      } catch (error) {
+        logger.error('CRITICAL: Failed to start Risk Manager:', error);
+        this.addActivityEvent('error', `CRITICAL: Risk Manager failed to start: ${error}`, 'error');
+        throw new Error(`Cannot start trading bot without risk management: ${error}`);
+      }
 
       // Load active positions
       await this.loadActivePositions();
@@ -454,6 +539,7 @@ export class ParallelTradingBot extends EventEmitter {
     this.marketDataCache.stop();
     this.positionManager.stop();
     this.positionTracker.stop();
+    this.riskManager.stop();
 
     this.emit('stopped');
     this.addActivityEvent('scan_started', 'Bot stopped successfully', 'info');
@@ -656,7 +742,7 @@ export class ParallelTradingBot extends EventEmitter {
     logger.debug(`Completed batched processing of ${availableSymbols.length} symbols`);
   }
 
-  private handleSignalGenerated(signal: any): void {
+  private async handleSignalGenerated(signal: any): Promise<void> {
     this.metrics.signalMetrics.totalGenerated++;
     
     logger.debug(`Signal generated: ${signal.symbol} - Action: ${signal.action}, Strength: ${signal.strength}, Required: ${this.config.minSignalStrength}`);
@@ -664,41 +750,108 @@ export class ParallelTradingBot extends EventEmitter {
     // Only process signals that are actionable
     if (signal.action !== 'HOLD' && signal.strength >= this.config.minSignalStrength) {
       
-      // Use immediate execution for high-strength signals if enabled
-      if (this.config.immediateExecution && signal.strength >= (this.config.minSignalStrength + 10)) {
-        logger.debug(`Attempting immediate execution for strong signal: ${signal.symbol} (${signal.strength}%)`);
+      // STRICT RISK VALIDATION - No fallbacks as per user requirement
+      try {
+        // Get current price for validation
+        const currentPrice = await this.getCurrentPrice(signal.symbol);
         
-        // Try immediate execution first - create proper QueuedSignal
-        const queuedSignal = {
-          id: uuidv4(),
-          signal,
-          priority: 10,
-          queuedAt: Date.now(),
-          expiresAt: Date.now() + 30000, // 30 seconds TTL
-          processed: false,
-          attempts: 0,
-          maxAttempts: 3
-        };
-        
-        this.tradeExecutorPool.executeImmediately(
-          queuedSignal,
-          this.config.defaultPositionSize
-        ).then(taskId => {
-          if (taskId) {
-            logger.info(`Immediate execution initiated for ${signal.symbol}`, { taskId });
-          } else {
-            // Fallback to normal queue if immediate execution failed
-            this.queueSignal(signal);
-          }
-        }).catch(error => {
-          logger.error(`Immediate execution failed for ${signal.symbol}:`, error);
-          // Fallback to normal queue
-          this.queueSignal(signal);
+        // Validate trade through RiskManager BEFORE any execution
+        const validation = await this.riskManager.validateTrade(
+          signal.symbol,
+          signal.action,
+          this.config.defaultPositionSize / currentPrice, // Convert to quantity
+          currentPrice
+        );
+
+        if (!validation.isValid) {
+          // STRICT: Show errors, no fallbacks
+          const errorMsg = `Trade validation FAILED for ${signal.symbol}: ${validation.errors.join(', ')}`;
+          logger.error(errorMsg);
+          this.addActivityEvent('error', errorMsg, 'error', signal.symbol, { 
+            validationErrors: validation.errors,
+            action: 'trade_rejected' 
+          });
+          return; // Stop execution - no fallbacks
+        }
+
+        // Log warnings if any
+        if (validation.warnings.length > 0) {
+          logger.warn(`Trade warnings for ${signal.symbol}: ${validation.warnings.join(', ')}`);
+          this.addActivityEvent('info', 
+            `Trade warnings: ${validation.warnings.join(', ')}`, 
+            'warning', 
+            signal.symbol
+          );
+        }
+
+        // Trade passed validation - proceed with execution
+        logger.info(`Trade VALIDATED for ${signal.symbol}:`, {
+          riskAmount: validation.riskAssessment.riskAmount.toFixed(2),
+          rewardPotential: validation.riskAssessment.rewardPotential.toFixed(2),
+          riskRewardRatio: validation.riskAssessment.riskRewardRatio.toFixed(2)
         });
-      } else {
-        // Normal queue processing
-        this.queueSignal(signal);
+
+        // Use immediate execution for high-strength signals if enabled
+        if (this.config.immediateExecution && signal.strength >= (this.config.minSignalStrength + 10)) {
+          logger.debug(`Attempting immediate execution for strong signal: ${signal.symbol} (${signal.strength}%)`);
+          
+          // Try immediate execution first - create proper QueuedSignal
+          const queuedSignal = {
+            id: uuidv4(),
+            signal,
+            priority: 10,
+            queuedAt: Date.now(),
+            expiresAt: Date.now() + 30000, // 30 seconds TTL
+            processed: false,
+            attempts: 0,
+            maxAttempts: 3
+          };
+          
+          this.tradeExecutorPool.executeImmediately(
+            queuedSignal,
+            this.config.defaultPositionSize
+          ).then(taskId => {
+            if (taskId) {
+              logger.info(`Immediate execution initiated for ${signal.symbol}`, { taskId });
+            } else {
+              // Fallback to normal queue if immediate execution failed
+              this.queueSignal(signal);
+            }
+          }).catch(error => {
+            logger.error(`Immediate execution failed for ${signal.symbol}:`, error);
+            // Fallback to normal queue
+            this.queueSignal(signal);
+          });
+        } else {
+          // Normal queue processing
+          this.queueSignal(signal);
+        }
+        
+      } catch (error) {
+        // STRICT: Show error, no fallbacks
+        const errorMsg = `CRITICAL: Risk validation error for ${signal.symbol}: ${error}`;
+        logger.error(errorMsg);
+        this.addActivityEvent('error', errorMsg, 'error', signal.symbol, { 
+          action: 'validation_failed',
+          requiresManualIntervention: true 
+        });
+        return; // Stop execution - no fallbacks
       }
+    }
+  }
+
+  // Helper method to get current price
+  private async getCurrentPrice(symbol: string): Promise<number> {
+    try {
+      const ticker = await apiRequestManager.getTicker(symbol) as any;
+      
+      if (!ticker.data || !ticker.data.lastPrice) {
+        throw new Error('Unable to fetch current price');
+      }
+
+      return parseFloat(ticker.data.lastPrice);
+    } catch (error) {
+      throw new Error(`Failed to get current price for ${symbol}: ${error}`);
     }
   }
 
@@ -1041,7 +1194,12 @@ export class ParallelTradingBot extends EventEmitter {
         signalQueue: this.signalQueue.getStatus(),
         tradeExecutorPool: this.tradeExecutorPool.getStatus(),
         marketDataCache: this.marketDataCache.getStatus(),
-        positionManager: this.positionManager.getStatus()
+        positionManager: this.positionManager.getStatus(),
+        riskManager: {
+          isActive: this.riskManager.isRiskManagerActive(),
+          dailyPnl: this.riskManager.getDailyPnl(),
+          riskParameters: this.riskManager.getRiskParameters()
+        }
       }
     };
   }
@@ -1367,6 +1525,40 @@ export class ParallelTradingBot extends EventEmitter {
       
       logger.info('Circuit breaker manually reset');
       this.addActivityEvent('info', 'Circuit breaker manually reset - resuming operations', 'info');
+    }
+  }
+
+  // Risk Management Controls
+  getRiskManagerStatus() {
+    return {
+      isActive: this.riskManager.isRiskManagerActive(),
+      dailyPnl: this.riskManager.getDailyPnl(),
+      riskParameters: this.riskManager.getRiskParameters()
+    };
+  }
+
+  updateRiskParameters(newParams: Partial<RiskParameters>): void {
+    this.riskManager.updateRiskParameters(newParams);
+    logger.info('Risk parameters updated via bot interface:', newParams);
+    this.addActivityEvent('info', `Risk parameters updated: ${Object.keys(newParams).join(', ')}`, 'info');
+  }
+
+  // Manual trade validation for testing
+  async validateTradeManually(symbol: string, side: 'BUY' | 'SELL', size: number, entryPrice: number) {
+    try {
+      const validation = await this.riskManager.validateTrade(symbol, side, size, entryPrice);
+      
+      logger.info(`Manual trade validation for ${symbol}:`, {
+        isValid: validation.isValid,
+        errors: validation.errors,
+        warnings: validation.warnings,
+        riskAssessment: validation.riskAssessment
+      });
+
+      return validation;
+    } catch (error) {
+      logger.error(`Manual trade validation failed for ${symbol}:`, error);
+      throw error;
     }
   }
 }
