@@ -39,19 +39,20 @@ export class APIRequestManager {
   private requestQueue: RequestQueueItem[] = [];
   private isProcessingQueue = false;
   
-  // Cache durations in milliseconds - OPTIMIZED
+  // Cache durations in milliseconds - ULTRA OPTIMIZED
   private cacheDurations = {
-    balance: 60000,       // 1 minute - faster updates
-    positions: 30000,     // 30 seconds - real-time positions  
-    klines: 120000,       // 2 minutes - reduce API load
-    ticker: 20000,        // 20 seconds - faster price updates
+    balance: 45000,       // 45 seconds - faster updates
+    positions: 20000,     // 20 seconds - near real-time positions  
+    klines: 90000,        // 1.5 minutes - reduce API load
+    ticker: 15000,        // 15 seconds - fast price updates
     symbols: 300000,      // 5 minutes - rarely changes
-    openOrders: 15000,    // 15 seconds - faster order tracking
-    depth: 10000          // 10 seconds - faster order book
+    openOrders: 10000,    // 10 seconds - faster order tracking
+    depth: 8000           // 8 seconds - faster order book
   };
 
-  // Request spacing - OPTIMIZED for speed
-  private readonly requestSpacing = 600; // 0.6 seconds between requests
+  // Request spacing - ULTRA OPTIMIZED
+  private readonly requestSpacing = 300; // 0.3 seconds between requests
+  private readonly queueTimeout = 8000; // 8 second queue timeout
   private lastRequestTime = 0;
 
   /**
@@ -115,8 +116,8 @@ export class APIRequestManager {
         // Enforce rate limiting
         await this.enforceRateLimit();
         
-        // Check if request is too old (30 seconds)
-        if (Date.now() - item.timestamp > 30000) {
+        // Check if request is too old (use configurable timeout)
+        if (Date.now() - item.timestamp > this.queueTimeout) {
           logger.warn(`Dropping old request: ${item.key}`);
           item.reject(new Error('Request timeout in queue'));
           continue;

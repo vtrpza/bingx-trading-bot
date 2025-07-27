@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
 import { api } from '../services/api'
-import type { Position } from '../types'
+import type { Position, BotStatus2 } from '../types'
 
 interface ToastMessage {
   id: string
@@ -21,13 +21,14 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
   const [showConfirmation, setShowConfirmation] = useState(false)
   const queryClient = useQueryClient()
 
-  // Check bot status
-  const { data: botStatus } = useQuery(
+  // Use shared bot status query
+  const { data: botStatus } = useQuery<BotStatus2>(
     'bot-status',
     async () => {
       const response = await fetch('/api/trading/parallel-bot/status')
       if (!response.ok) throw new Error('Failed to fetch bot status')
-      return response.json()
+      const result = await response.json()
+      return result.data // Extract data from wrapper
     },
     {
       refetchInterval: 5000,
@@ -38,7 +39,7 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
     }
   )
 
-  const isBotRunning = botStatus?.success && botStatus?.data?.isRunning === true
+  const isBotRunning = botStatus?.isRunning === true
 
   // Close position mutation
   const closePositionMutation = useMutation(
