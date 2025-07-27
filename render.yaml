@@ -39,7 +39,7 @@ services:
         
   # Frontend
   - type: web
-    name: bingx-trading-bot-frontend
+    name: bingx-trading-bot-lu0z-frontend
     env: static
     plan: free
     buildCommand: cd client && npm install && npm run build
