@@ -481,16 +481,27 @@ export class BingXClient {
       }
 
       const positionAmt = parseFloat(position.positionAmt);
-      const isLong = positionAmt > 0;
+      // In BingX, positionSide tells us the direction, not the sign of positionAmt
+      const isLong = position.positionSide === 'LONG';
       const currentSize = Math.abs(positionAmt);
       
       // Calculate quantity to close based on percentage
       const closeQuantity = (currentSize * percentage) / 100;
+      
+      logger.debug(`Position analysis for close:`, {
+        originalSymbol: symbol,
+        apiSymbol: position.symbol,
+        positionSide: position.positionSide,
+        positionAmt: position.positionAmt,
+        isLong: isLong,
+        currentSize: currentSize,
+        closeQuantity: closeQuantity
+      });
 
       // Use BingX specific close position endpoint instead of market order
       const closeData = {
         symbol: position.symbol, // Use actual symbol format from BingX API
-        positionSide: isLong ? 'LONG' : 'SHORT' as 'LONG' | 'SHORT',
+        positionSide: position.positionSide, // Use the actual positionSide from API
         quantity: parseFloat(closeQuantity.toFixed(6))
       };
 
@@ -502,8 +513,16 @@ export class BingXClient {
         positionSide: closeData.positionSide
       });
 
-      // Use close position API endpoint
-      const response = await this.closePositionDirect(closeData);
+      // Use existing placeOrder method which has proper formatting
+      const orderData = {
+        symbol: closeData.symbol,
+        side: closeData.positionSide === 'LONG' ? 'SELL' : 'BUY' as 'BUY' | 'SELL',
+        positionSide: closeData.positionSide,
+        type: 'MARKET' as const,
+        quantity: closeData.quantity
+      };
+      
+      const response = await this.placeOrder(orderData);
       
       if (response.code === 0) {
         logger.info(`Position close order placed successfully: ${response.data?.orderId}`);
@@ -518,33 +537,6 @@ export class BingXClient {
     }
   }
 
-  // Close position using BingX API endpoint
-  private async closePositionDirect(closeData: {
-    symbol: string;
-    positionSide: 'LONG' | 'SHORT';
-    quantity: number;
-  }) {
-    try {
-      // Use close position endpoint - this closes the position directly
-      // In Hedge Mode, need to specify workingType as CLOSE to close positions
-      const params = {
-        symbol: closeData.symbol,
-        side: closeData.positionSide === 'LONG' ? 'SELL' : 'BUY',
-        positionSide: closeData.positionSide,
-        type: 'MARKET',
-        quantity: closeData.quantity,
-        workingType: 'CLOSE'  // Required in Hedge Mode to close positions
-      };
-
-      logger.debug(`Close position API call:`, params);
-
-      const response = await this.axios.post('/openApi/swap/v2/trade/order', params);
-      return response.data;
-    } catch (error) {
-      logger.error(`Close position API call failed:`, error);
-      throw error;
-    }
-  }
 
   // Normalize symbol format for BingX API compatibility
   private normalizeSymbol(symbol: string): string {
