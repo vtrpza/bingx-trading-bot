@@ -287,7 +287,7 @@ export default function AssetsPage() {
                       <div className="text-sm text-gray-500">{asset.baseCurrency}/{asset.quoteCurrency}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      ${asset.lastPrice.toFixed(4)}
+                      ${Number(asset.lastPrice).toFixed(4)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span className={`text-sm font-medium ${

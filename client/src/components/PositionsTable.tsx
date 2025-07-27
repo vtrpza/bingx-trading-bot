@@ -21,18 +21,20 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
 
   const displayPositions = realTimePositions || positions
 
-  const formatNumber = (value: number, decimals = 4) => {
-    return value.toFixed(decimals)
+  const formatNumber = (value: number | string, decimals = 4) => {
+    return Number(value).toFixed(decimals)
   }
 
-  const formatPercent = (value: number) => {
-    const formatted = value.toFixed(2)
-    return value >= 0 ? `+${formatted}%` : `${formatted}%`
+  const formatPercent = (value: number | string) => {
+    const numValue = Number(value)
+    const formatted = numValue.toFixed(2)
+    return numValue >= 0 ? `+${formatted}%` : `${formatted}%`
   }
 
-  const formatCurrency = (value: number, currency = 'USDT') => {
-    const formatted = value.toFixed(2)
-    return value >= 0 ? `+${formatted} ${currency}` : `${formatted} ${currency}`
+  const formatCurrency = (value: number | string, currency = 'USDT') => {
+    const numValue = Number(value)
+    const formatted = numValue.toFixed(2)
+    return numValue >= 0 ? `+${formatted} ${currency}` : `${formatted} ${currency}`
   }
 
   if (!displayPositions || displayPositions.length === 0) {

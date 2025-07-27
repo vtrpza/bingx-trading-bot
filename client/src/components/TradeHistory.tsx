@@ -29,9 +29,10 @@ export default function TradeHistory() {
   const trades = tradesData?.trades || []
   const pagination = tradesData?.pagination
 
-  const formatCurrency = (value: number) => {
-    const formatted = value.toFixed(2)
-    return value >= 0 ? `+${formatted}` : `${formatted}`
+  const formatCurrency = (value: number | string) => {
+    const numValue = Number(value)
+    const formatted = numValue.toFixed(2)
+    return numValue >= 0 ? `+${formatted}` : `${formatted}`
   }
 
   const getStatusBadge = (status: string) => {
@@ -180,10 +181,10 @@ export default function TradeHistory() {
                     {trade.type}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {trade.executedQty.toFixed(6)}
+                    {Number(trade.executedQty).toFixed(6)}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    ${trade.avgPrice > 0 ? trade.avgPrice.toFixed(4) : trade.price.toFixed(4)}
+                    ${Number(trade.avgPrice) > 0 ? Number(trade.avgPrice).toFixed(4) : Number(trade.price).toFixed(4)}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     {trade.status === 'FILLED' ? (
