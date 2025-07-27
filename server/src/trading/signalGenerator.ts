@@ -336,14 +336,14 @@ export class SignalGenerator {
     reason: string
   ): TradingSignal {
     // Ensure indicators is always a valid object with required properties
-    // Use null/undefined to show N/A in frontend instead of misleading zeros
+    // Provide meaningful values when possible, use null for unavailable data
     const safeIndicators = {
-      price: (indicators?.price && !isNaN(indicators.price)) ? indicators.price : null,
-      ma1: (indicators?.ma1 && !isNaN(indicators.ma1)) ? indicators.ma1 : null,
-      ma2: (indicators?.ma2 && !isNaN(indicators.ma2)) ? indicators.ma2 : null,
+      price: (indicators?.price && !isNaN(indicators.price)) ? indicators.price : 0,
+      ma1: (indicators?.ma1 && !isNaN(indicators.ma1)) ? indicators.ma1 : (indicators?.price || 0),
+      ma2: (indicators?.ma2 && !isNaN(indicators.ma2)) ? indicators.ma2 : (indicators?.price || 0),
       rsi: (indicators?.rsi && !isNaN(indicators.rsi)) ? indicators.rsi : 50, // Default to neutral RSI
-      volume: (indicators?.volume && !isNaN(indicators.volume)) ? indicators.volume : null,
-      avgVolume: (indicators?.avgVolume && !isNaN(indicators.avgVolume)) ? indicators.avgVolume : null
+      volume: (indicators?.volume && !isNaN(indicators.volume)) ? indicators.volume : 0,
+      avgVolume: (indicators?.avgVolume && !isNaN(indicators.avgVolume)) ? indicators.avgVolume : (indicators?.volume || 0)
     };
 
     return {
