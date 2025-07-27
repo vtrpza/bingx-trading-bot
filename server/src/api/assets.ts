@@ -4,8 +4,14 @@ import Asset from '../models/Asset';
 import { AppError, asyncHandler } from '../utils/errorHandler';
 import { logger } from '../utils/logger';
 import { Op } from 'sequelize';
+import { sequelize } from '../config/database';
 
 const router = Router();
+
+// Helper function to get the correct like operator based on database dialect
+const getLikeOperator = () => {
+  return sequelize.getDialect() === 'postgres' ? Op.iLike : Op.like;
+};
 
 // Store active refresh sessions for progress tracking
 const refreshSessions = new Map<string, Response>();
@@ -66,9 +72,10 @@ router.get('/', asyncHandler(async (req: Request, res: Response) => {
   }
   
   if (search) {
+    const likeOp = getLikeOperator();
     where[Op.or] = [
-      { symbol: { [Op.iLike]: `%${search}%` } },
-      { name: { [Op.iLike]: `%${search}%` } }
+      { symbol: { [likeOp]: `%${search}%` } },
+      { name: { [likeOp]: `%${search}%` } }
     ];
   }
 
