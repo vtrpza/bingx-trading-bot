@@ -72,7 +72,7 @@ export default function RealTimeSignals() {
             >
               {marketOverview?.topVolume?.map((item: any) => (
                 <option key={item.symbol} value={item.symbol}>
-                  {item.symbol} (Vol: ${(item.volume / 1000000).toFixed(1)}M)
+                  {item.symbol} (Vol: ${(Number(item.volume) / 1000000).toFixed(1)}M)
                 </option>
               ))}
             </select>
@@ -123,19 +123,19 @@ export default function RealTimeSignals() {
                   <div className="flex justify-between">
                     <span className="text-sm text-gray-600">Current:</span>
                     <span className="text-sm font-medium">
-                      ${currentSignal.indicators.price ? currentSignal.indicators.price.toFixed(4) : 'N/A'}
+                      ${currentSignal.indicators.price ? Number(currentSignal.indicators.price).toFixed(4) : 'N/A'}
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-sm text-gray-600">MA1 (9):</span>
                     <span className="text-sm font-medium">
-                      ${currentSignal.indicators.ma1 ? currentSignal.indicators.ma1.toFixed(4) : 'N/A'}
+                      ${currentSignal.indicators.ma1 ? Number(currentSignal.indicators.ma1).toFixed(4) : 'N/A'}
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-sm text-gray-600">MA2 (21):</span>
                     <span className="text-sm font-medium">
-                      ${currentSignal.indicators.ma2 ? currentSignal.indicators.ma2.toFixed(4) : 'N/A'}
+                      ${currentSignal.indicators.ma2 ? Number(currentSignal.indicators.ma2).toFixed(4) : 'N/A'}
                     </span>
                   </div>
                 </div>
@@ -145,7 +145,7 @@ export default function RealTimeSignals() {
               <div>
                 <h4 className="text-sm font-medium text-gray-500 mb-2">RSI</h4>
                 <div className="text-2xl font-bold text-gray-900">
-                  {currentSignal.indicators.rsi ? currentSignal.indicators.rsi.toFixed(1) : 'N/A'}
+                  {currentSignal.indicators.rsi ? Number(currentSignal.indicators.rsi).toFixed(1) : 'N/A'}
                 </div>
                 <div className="text-sm text-gray-500">
                   {currentSignal.indicators.rsi ? (
@@ -162,13 +162,13 @@ export default function RealTimeSignals() {
                   <div className="flex justify-between">
                     <span className="text-sm text-gray-600">Current:</span>
                     <span className="text-sm font-medium">
-                      {currentSignal.indicators.volume ? (currentSignal.indicators.volume / 1000).toFixed(1) + 'K' : 'N/A'}
+                      {currentSignal.indicators.volume ? (Number(currentSignal.indicators.volume) / 1000).toFixed(1) + 'K' : 'N/A'}
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-sm text-gray-600">Average:</span>
                     <span className="text-sm font-medium">
-                      {currentSignal.indicators.avgVolume ? (currentSignal.indicators.avgVolume / 1000).toFixed(1) + 'K' : 'N/A'}
+                      {currentSignal.indicators.avgVolume ? (Number(currentSignal.indicators.avgVolume) / 1000).toFixed(1) + 'K' : 'N/A'}
                     </span>
                   </div>
                   <div className="flex justify-between">
@@ -178,7 +178,7 @@ export default function RealTimeSignals() {
                       currentSignal.indicators.volume / currentSignal.indicators.avgVolume > 1.5 ? 'text-green-600' : 'text-gray-600'
                     }`}>
                       {currentSignal.indicators.volume && currentSignal.indicators.avgVolume ? 
-                        (currentSignal.indicators.volume / currentSignal.indicators.avgVolume).toFixed(2) + 'x' : 'N/A'
+                        (Number(currentSignal.indicators.volume) / Number(currentSignal.indicators.avgVolume)).toFixed(2) + 'x' : 'N/A'
                       }
                     </span>
                   </div>
