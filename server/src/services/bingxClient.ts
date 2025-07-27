@@ -25,11 +25,15 @@ export class BingXClient {
   private config: BingXConfig;
 
   constructor() {
+    const demoMode = process.env.DEMO_MODE === 'true';
+
     this.config = {
       apiKey: process.env.BINGX_API_KEY || '',
       secretKey: process.env.BINGX_SECRET_KEY || '',
-      baseURL: process.env.BINGX_API_URL || 'https://open-api.bingx.com',
-      demoMode: process.env.DEMO_MODE === 'true'
+      baseURL: demoMode 
+        ? 'https://open-api-vst.bingx.com' 
+        : process.env.BINGX_API_URL || 'https://open-api.bingx.com',
+      demoMode
     };
 
     // Debug API key loading

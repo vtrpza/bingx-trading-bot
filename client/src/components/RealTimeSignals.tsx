@@ -47,7 +47,7 @@ export default function RealTimeSignals() {
 
   // Function to format the symbol for the API call
   const formatSymbolForApi = (symbol: string) => {
-    if (symbol && !symbol.endsWith('-USDT') && !symbol.endsWith('-USDC')) {
+    if (symbol && !symbol.endsWith('-USDT') && !symbol.endsWith('-USDC') && !symbol.endsWith('-VST')) {
       return `${symbol}-USDT`;
     }
     return symbol;
