@@ -108,6 +108,14 @@ export interface BotConfig {
   takeProfitPercent: number;
   trailingStopPercent: number;
   minVolumeUSDT: number;
+  // Signal generation parameters
+  rsiOversold: number;
+  rsiOverbought: number;
+  volumeSpikeThreshold: number;
+  minSignalStrength: number;
+  confirmationRequired: boolean;
+  ma1Period: number;
+  ma2Period: number;
 }
 
 export interface MarketData {

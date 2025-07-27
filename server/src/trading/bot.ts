@@ -16,6 +16,14 @@ interface BotConfig {
   takeProfitPercent: number;
   trailingStopPercent: number;
   minVolumeUSDT: number;
+  // Signal generation parameters
+  rsiOversold: number;
+  rsiOverbought: number;
+  volumeSpikeThreshold: number;
+  minSignalStrength: number;
+  confirmationRequired: boolean;
+  ma1Period: number;
+  ma2Period: number;
 }
 
 interface Position {
@@ -45,12 +53,23 @@ export class TradingBot extends EventEmitter {
       stopLossPercent: 2,
       takeProfitPercent: 3,
       trailingStopPercent: 1,
-      minVolumeUSDT: 100000 // 1M USDT minimum volume
+      minVolumeUSDT: 100000, // 1M USDT minimum volume
+      // Signal generation parameters (Balanced profile defaults)
+      rsiOversold: 30,
+      rsiOverbought: 70,
+      volumeSpikeThreshold: 1.5,
+      minSignalStrength: 65,
+      confirmationRequired: true,
+      ma1Period: 9,
+      ma2Period: 21
     };
 
     this.signalGenerator = new SignalGenerator({
-      minSignalStrength: 65,
-      confirmationRequired: true
+      rsiOversold: this.config.rsiOversold,
+      rsiOverbought: this.config.rsiOverbought,
+      volumeSpikeThreshold: this.config.volumeSpikeThreshold,
+      minSignalStrength: this.config.minSignalStrength,
+      confirmationRequired: this.config.confirmationRequired
     });
 
     this.setupWebSocketListeners();
@@ -350,8 +369,11 @@ export class TradingBot extends EventEmitter {
         return;
       }
 
-      // Generate signal
-      const signal = this.signalGenerator.generateSignal(symbol, candles);
+      // Generate signal with MA period configuration
+      const signal = this.signalGenerator.generateSignal(symbol, candles, {
+        ma1Period: this.config.ma1Period,
+        ma2Period: this.config.ma2Period
+      });
       
       this.emit('signal', signal);
 
@@ -549,6 +571,20 @@ export class TradingBot extends EventEmitter {
 
   updateConfig(config: Partial<BotConfig>) {
     this.config = { ...this.config, ...config };
+    
+    // Update signal generator if any signal-related parameters changed
+    const signalParams = ['rsiOversold', 'rsiOverbought', 'volumeSpikeThreshold', 'minSignalStrength', 'confirmationRequired'];
+    if (signalParams.some(param => param in config)) {
+      this.signalGenerator.updateConfig({
+        rsiOversold: this.config.rsiOversold,
+        rsiOverbought: this.config.rsiOverbought,
+        volumeSpikeThreshold: this.config.volumeSpikeThreshold,
+        minSignalStrength: this.config.minSignalStrength,
+        confirmationRequired: this.config.confirmationRequired
+      });
+      logger.info('Signal generator configuration updated');
+    }
+    
     logger.info('Bot configuration updated');
   }
 }
