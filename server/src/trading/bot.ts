@@ -119,57 +119,111 @@ export class TradingBot extends EventEmitter {
 
   private async updateSymbolList() {
     try {
-      // Get all symbols
-      const symbolsData = await bingxClient.getSymbols();
+      // Use predefined popular symbols for faster startup
+      const popularSymbols = [
+        'BTC-USDT', 'ETH-USDT', 'BNB-USDT', 'SOL-USDT', 'XRP-USDT',
+        'ADA-USDT', 'DOGE-USDT', 'DOT-USDT', 'MATIC-USDT', 'AVAX-USDT',
+        'LINK-USDT', 'UNI-USDT', 'LTC-USDT', 'BCH-USDT', 'ATOM-USDT'
+      ];
+
+      // Start with popular symbols immediately
+      this.config.symbolsToScan = popularSymbols;
+      logger.info(`Initialized with ${popularSymbols.length} popular symbols for immediate scanning`);
+
+      // Async update with real data (don't await)
+      this.updateSymbolListAsync().catch(error => {
+        logger.error('Failed to update symbol list asynchronously:', error);
+      });
+
+    } catch (error) {
+      logger.error('Failed to initialize symbol list:', error);
+    }
+  }
+
+  private async updateSymbolListAsync() {
+    try {
+      logger.debug('Starting async symbol list update...');
+      
+      // Get all symbols with timeout
+      const symbolsPromise = Promise.race([
+        bingxClient.getSymbols(),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Symbols fetch timeout')), 15000)
+        )
+      ]) as Promise<any>;
+
+      const symbolsData = await symbolsPromise;
       
       if (!symbolsData.data || !Array.isArray(symbolsData.data)) {
-        logger.error('Invalid symbols data received');
+        logger.warn('Invalid symbols data received, keeping current symbols');
         return;
       }
 
-      logger.debug(`Processing ${symbolsData.data.length} contracts for symbol list...`);
+      // Filter active contracts (quick filter, no API calls)
+      const activeContracts = symbolsData.data
+        .filter((contract: any) => contract.status === 1)
+        .slice(0, 30); // Limit to top 30 most popular
 
-      // Filter active contracts and get their tickers for volume data
-      const activeContracts = symbolsData.data.filter((contract: any) => {
-        return contract.status === 1; // Active trading status
-      });
+      logger.debug(`Found ${activeContracts.length} active contracts for async update`);
 
-      logger.debug(`Found ${activeContracts.length} active contracts`);
+      // Get volume data with limited concurrency
+      const symbolsWithVolume = await this.getSymbolVolumes(activeContracts);
 
-      // Get ticker data for volume filtering
-      const symbolsWithVolume = [];
+      if (symbolsWithVolume.length > 0) {
+        // Sort by volume and take top symbols
+        const eligibleSymbols = symbolsWithVolume
+          .sort((a, b) => b.volume - a.volume)
+          .slice(0, 20)
+          .map(item => item.symbol);
+
+        this.config.symbolsToScan = eligibleSymbols;
+        logger.info(`Updated symbol list with real volume data: ${eligibleSymbols.length} symbols`, {
+          symbols: eligibleSymbols.slice(0, 5)
+        });
+      }
+
+    } catch (error) {
+      logger.warn('Async symbol update failed, keeping current symbols:', error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  private async getSymbolVolumes(contracts: any[], batchSize = 5): Promise<{symbol: string, volume: number}[]> {
+    const symbolsWithVolume: {symbol: string, volume: number}[] = [];
+    
+    // Process in small batches to avoid overwhelming the API
+    for (let i = 0; i < contracts.length; i += batchSize) {
+      const batch = contracts.slice(i, i + batchSize);
       
-      for (const contract of activeContracts.slice(0, 50)) { // Limit to top 50 for performance
+      const promises = batch.map(async (contract) => {
         try {
           const ticker = await bingxClient.getTicker(contract.symbol);
           if (ticker.code === 0 && ticker.data) {
             const volume = parseFloat(ticker.data.quoteVolume || 0);
             if (volume >= this.config.minVolumeUSDT) {
-              symbolsWithVolume.push({
-                symbol: contract.symbol,
-                volume: volume
-              });
+              return { symbol: contract.symbol, volume };
             }
           }
         } catch (error) {
-          logger.debug(`Failed to get ticker for ${contract.symbol}:`, error);
+          logger.debug(`Failed to get ticker for ${contract.symbol}:`, error instanceof Error ? error.message : String(error));
         }
-      }
-
-      // Sort by volume and take top symbols
-      const eligibleSymbols = symbolsWithVolume
-        .sort((a, b) => b.volume - a.volume)
-        .slice(0, 20) // Top 20 by volume
-        .map(item => item.symbol);
-
-      this.config.symbolsToScan = eligibleSymbols;
-      logger.info(`Updated symbol list: ${eligibleSymbols.length} symbols`, {
-        symbols: eligibleSymbols.slice(0, 5) // Log first 5 symbols
+        return null;
       });
 
-    } catch (error) {
-      logger.error('Failed to update symbol list:', error);
+      const results = await Promise.allSettled(promises);
+      
+      results.forEach(result => {
+        if (result.status === 'fulfilled' && result.value) {
+          symbolsWithVolume.push(result.value);
+        }
+      });
+
+      // Small delay between batches
+      if (i + batchSize < contracts.length) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
     }
+
+    return symbolsWithVolume;
   }
 
   private startScanning() {
@@ -190,45 +244,125 @@ export class TradingBot extends EventEmitter {
       return;
     }
 
-    logger.debug(`Scanning ${this.config.symbolsToScan.length} symbols...`);
+    const symbolsToScan = this.config.symbolsToScan.filter(symbol => 
+      !this.activePositions.has(symbol)
+    );
 
-    for (const symbol of this.config.symbolsToScan) {
+    logger.debug(`Scanning ${symbolsToScan.length} symbols (${this.activePositions.size} positions active)...`);
+
+    if (symbolsToScan.length === 0) {
+      logger.debug('No new symbols to scan');
+      return;
+    }
+
+    // Process symbols in batches with timeout protection
+    const batchSize = 3;
+    const timeout = 25000; // 25 seconds timeout
+    
+    try {
+      await Promise.race([
+        this.procesSymbolBatches(symbolsToScan, batchSize),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Symbol scanning timeout')), timeout)
+        )
+      ]);
+    } catch (error) {
+      logger.warn('Symbol scanning completed with timeout:', error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  private async procesSymbolBatches(symbols: string[], batchSize: number) {
+    for (let i = 0; i < symbols.length; i += batchSize) {
+      const batch = symbols.slice(i, i + batchSize);
+      
+      // Process batch concurrently
+      const promises = batch.map(symbol => this.scanSingleSymbol(symbol));
+      
       try {
-        // Skip if already have position in this symbol
-        if (this.activePositions.has(symbol)) {
-          continue;
-        }
+        await Promise.allSettled(promises);
+      } catch (error) {
+        logger.debug(`Batch ${i/batchSize + 1} completed with some errors`);
+      }
 
-        // Get candle data
-        const klines = await bingxClient.getKlines(symbol, '5m', 100);
-        
-        if (!klines.data || !Array.isArray(klines.data)) {
-          continue;
-        }
+      // Small delay between batches to avoid rate limiting
+      if (i + batchSize < symbols.length) {
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+    }
+  }
 
-        // Convert to candle format
-        const candles = klines.data.map((k: any) => ({
-          timestamp: k[0],
+  private async scanSingleSymbol(symbol: string): Promise<void> {
+    try {
+      // Individual symbol timeout
+      const symbolTimeout = 8000; // 8 seconds per symbol
+      
+      await Promise.race([
+        this.processSymbolSignal(symbol),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error(`Symbol ${symbol} timeout`)), symbolTimeout)
+        )
+      ]);
+
+    } catch (error) {
+      logger.debug(`Error scanning ${symbol}:`, error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  private async processSymbolSignal(symbol: string): Promise<void> {
+    try {
+      // Get candle data with error handling
+      const klines = await bingxClient.getKlines(symbol, '5m', 100);
+      
+      if (!klines || klines.code !== 0 || !klines.data || !Array.isArray(klines.data)) {
+        logger.debug(`No valid klines data for ${symbol}: ${klines?.code || 'unknown error'}`);
+        return;
+      }
+
+      if (klines.data.length < 50) {
+        logger.debug(`Insufficient klines data for ${symbol}: ${klines.data.length} candles`);
+        return;
+      }
+
+      // Convert to candle format with validation
+      const candles = klines.data.map((k: any) => {
+        const candle = {
+          timestamp: parseInt(k[0]),
           open: parseFloat(k[1]),
           high: parseFloat(k[2]),
           low: parseFloat(k[3]),
           close: parseFloat(k[4]),
           volume: parseFloat(k[5])
-        }));
-
-        // Generate signal
-        const signal = this.signalGenerator.generateSignal(symbol, candles);
+        };
         
-        this.emit('signal', signal);
-
-        // Execute trade if signal is strong enough
-        if (signal.action !== 'HOLD' && signal.strength >= 65) {
-          await this.executeTrade(signal);
+        // Validate candle data
+        if (isNaN(candle.open) || isNaN(candle.high) || isNaN(candle.low) || 
+            isNaN(candle.close) || isNaN(candle.volume) || 
+            candle.open <= 0 || candle.high <= 0 || candle.low <= 0 || candle.close <= 0) {
+          logger.warn(`Invalid candle data for ${symbol}:`, candle);
+          return null;
         }
+        
+        return candle;
+      }).filter((candle: any): candle is {timestamp: number, open: number, high: number, low: number, close: number, volume: number} => candle !== null);
 
-      } catch (error) {
-        logger.error(`Error scanning ${symbol}:`, error);
+      if (candles.length < 50) {
+        logger.debug(`Insufficient valid candles for ${symbol}: ${candles.length} valid candles`);
+        return;
       }
+
+      // Generate signal
+      const signal = this.signalGenerator.generateSignal(symbol, candles);
+      
+      this.emit('signal', signal);
+
+      // Execute trade if signal is strong enough
+      if (signal.action !== 'HOLD' && signal.strength >= 65) {
+        await this.executeTrade(signal);
+      }
+    } catch (error) {
+      logger.debug(`Error processing signal for ${symbol}:`, {
+        error: error instanceof Error ? error.message : error
+      });
     }
   }
 

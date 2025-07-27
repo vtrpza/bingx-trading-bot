@@ -1,8 +1,11 @@
+// Load environment variables FIRST
+import dotenv from 'dotenv';
+dotenv.config();
+
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import compression from 'compression';
-import dotenv from 'dotenv';
 import { createServer } from 'http';
 import { setupWebSocket } from './services/websocket';
 import { errorHandler } from './utils/errorHandler';
@@ -12,9 +15,6 @@ import tradingRouter from './api/trading';
 import marketDataRouter from './api/marketData';
 import { sequelize } from './config/database';
 import { startTradingBot } from './trading/bot';
-
-// Load environment variables
-dotenv.config();
 
 const app = express();
 const server = createServer(app);

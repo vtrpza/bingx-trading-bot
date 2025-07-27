@@ -2,6 +2,10 @@ import axios, { AxiosInstance } from 'axios';
 import crypto from 'crypto';
 import { logger } from '../utils/logger';
 
+// Ensure environment variables are loaded
+import dotenv from 'dotenv';
+dotenv.config();
+
 interface BingXConfig {
   apiKey: string;
   secretKey: string;
@@ -20,6 +24,14 @@ export class BingXClient {
       baseURL: process.env.BINGX_API_URL || 'https://open-api.bingx.com',
       demoMode: process.env.DEMO_MODE === 'true'
     };
+
+    // Debug API key loading
+    logger.info('BingX Client initialized', {
+      hasApiKey: !!this.config.apiKey,
+      hasSecretKey: !!this.config.secretKey,
+      demoMode: this.config.demoMode,
+      apiKeyLength: this.config.apiKey ? this.config.apiKey.length : 0
+    });
 
     this.axios = axios.create({
       baseURL: this.config.baseURL,
@@ -50,6 +62,20 @@ export class BingXClient {
   }
 
   private addAuthentication(config: any) {
+    // Skip authentication for public endpoints
+    const publicEndpoints = ['/openApi/swap/v2/quote/contracts', '/openApi/swap/v2/quote/ticker', '/openApi/swap/v2/quote/klines', '/openApi/swap/v2/quote/depth'];
+    const isPublicEndpoint = publicEndpoints.some(endpoint => config.url.includes(endpoint));
+    
+    if (isPublicEndpoint) {
+      return config;
+    }
+
+    // Only add auth for private endpoints
+    if (!this.config.apiKey || !this.config.secretKey) {
+      logger.warn('API credentials not configured, skipping private endpoint authentication');
+      return config;
+    }
+
     if (!config.params) {
       config.params = {};
     }
