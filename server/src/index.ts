@@ -20,7 +20,7 @@ const app = express();
 const server = createServer(app);
 const PORT = process.env.PORT || 3001;
 
-// Middleware - Configure helmet with proper CSP for production
+// Middleware - Configure helmet with relaxed CSP
 app.use(helmet({
   contentSecurityPolicy: process.env.NODE_ENV === 'production' ? {
     directives: {
@@ -36,7 +36,15 @@ app.use(helmet({
       baseUri: ["'self'"],
       formAction: ["'self'"]
     }
-  } : false
+  } : {
+    directives: {
+      defaultSrc: ["'self'"],
+      imgSrc: ["'self'", "data:", "https:", "blob:"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      connectSrc: ["'self'", "wss:", "ws:", "https:"]
+    }
+  }
 }));
 app.use(compression());
 app.use(cors({
