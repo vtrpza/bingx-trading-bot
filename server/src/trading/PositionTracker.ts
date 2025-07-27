@@ -257,7 +257,7 @@ export class PositionTracker extends EventEmitter {
   /**
    * Calculate smart entry price based on strategy
    */
-  calculateSmartEntryPrice(symbol: string, side: 'LONG' | 'SHORT', currentPrice: number): number {
+  calculateSmartEntryPrice(_symbol: string, side: 'LONG' | 'SHORT', currentPrice: number): number {
     switch (this.strategy.entryStrategy) {
       case 'MARKET':
         return currentPrice;

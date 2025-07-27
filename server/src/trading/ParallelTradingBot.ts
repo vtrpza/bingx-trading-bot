@@ -782,7 +782,7 @@ export class ParallelTradingBot extends EventEmitter {
   }
 
   // Get real-time positions directly from BingX API with enhanced data processing
-  private async getRealTimePositions(): Promise<any[]> {
+  private async getBingXRealTimePositions(): Promise<any[]> {
     try {
       const positions = await apiRequestManager.getPositions() as any;
       
@@ -1028,7 +1028,7 @@ export class ParallelTradingBot extends EventEmitter {
   // Public API methods
   async getStatus() {
     // Get real-time positions from BingX API
-    const realTimePositions = await this.getRealTimePositions();
+    const realTimePositions = await this.getBingXRealTimePositions();
     
     return {
       isRunning: this.isRunning,
@@ -1230,6 +1230,28 @@ export class ParallelTradingBot extends EventEmitter {
     return this.positionManager.getPositions();
   }
 
+  getPositionMetrics() {
+    return this.positionManager.getMetrics();
+  }
+
+  // Position tracker methods for enhanced real-time data
+  getRealTimePositions() {
+    return this.positionTracker.getPositions();
+  }
+
+  getPositionSnapshot() {
+    return this.positionTracker.getLatestSnapshot();
+  }
+
+  getTradingStrategy() {
+    return this.positionTracker.getStrategy();
+  }
+
+  updateTradingStrategy(strategy: any) {
+    return this.positionTracker.updateStrategy(strategy);
+  }
+
+
   async signalClosePosition(symbol: string): Promise<void> {
     await this.positionManager.signalClosePosition(symbol);
     logger.info(`Close signal sent for position: ${symbol}`);
@@ -1243,10 +1265,6 @@ export class ParallelTradingBot extends EventEmitter {
   async confirmPositionClosed(symbol: string, actualPnl?: number): Promise<void> {
     await this.positionManager.confirmPositionClosed(symbol, actualPnl);
     logger.info(`Position closure confirmed: ${symbol}`);
-  }
-
-  getPositionMetrics() {
-    return this.positionManager.getMetrics();
   }
 
   // Advanced execution controls
