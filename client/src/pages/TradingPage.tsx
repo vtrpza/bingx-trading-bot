@@ -19,7 +19,7 @@ import { useTranslation } from '../hooks/useTranslation'
 export default function TradingPage() {
   // Removendo tabs - agora é um dashboard unificado
   const [showHistoryModal, setShowHistoryModal] = useLocalStorage('tradingPageShowHistory', false)
-  const [selectedSymbol, setSelectedSymbol] = useLocalStorage<string | null>('tradingPageSelectedSymbol', null)
+  const [selectedSymbol] = useLocalStorage<string | null>('tradingPageSelectedSymbol', null)
   const queryClient = useQueryClient()
   const { t } = useTranslation()
 
@@ -33,31 +33,31 @@ export default function TradingPage() {
   )
 
   // Get parallel bot performance data
-  const { data: performanceData } = useQuery(
-    'parallel-bot-performance',
-    () => fetch('/api/trading/parallel-bot/performance?minutes=30').then(res => res.json()).then(data => data.data),
-    { 
-      enabled: botStatus?.isRunning,
-      refetchInterval: 10000 
-    }
-  )
-  // Get parallel bot activity events
-  const { data: activityEvents } = useQuery(
-    'parallel-bot-activity',
-    () => fetch('/api/trading/parallel-bot/activity?limit=50').then(res => res.json()).then(data => data.data),
-    { 
-      refetchInterval: 5000 
-    }
-  )
+  // const { data: performanceData } = useQuery(
+  //   'parallel-bot-performance',
+  //   () => fetch('/api/trading/parallel-bot/performance?minutes=30').then(res => res.json()).then(data => data.data),
+  //   { 
+  //     enabled: botStatus?.isRunning,
+  //     refetchInterval: 10000 
+  //   }
+  // )
+  // // Get parallel bot activity events
+  // const { data: activityEvents } = useQuery(
+  //   'parallel-bot-activity',
+  //   () => fetch('/api/trading/parallel-bot/activity?limit=50').then(res => res.json()).then(data => data.data),
+  //   { 
+  //     refetchInterval: 5000 
+  //   }
+  // )
 
-  // Get rate limit status
-  const { data: rateLimitStatus } = useQuery(
-    'parallel-bot-rate-limit',
-    () => fetch('/api/trading/parallel-bot/rate-limit').then(res => res.json()).then(data => data.data),
-    { 
-      refetchInterval: 2000 
-    }
-  )
+  // // Get rate limit status
+  // const { data: rateLimitStatus } = useQuery(
+  //   'parallel-bot-rate-limit',
+  //   () => fetch('/api/trading/parallel-bot/rate-limit').then(res => res.json()).then(data => data.data),
+  //   { 
+  //     refetchInterval: 2000 
+  //   }
+  // )
 
   // Get trading statistics
   const { data: tradingStats } = useQuery(

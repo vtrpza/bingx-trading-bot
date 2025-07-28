@@ -59,18 +59,18 @@ export default function PainelFluxoTrading() {
     }
   )
 
-  // Buscar sinais recentes em processamento
-  const { data: recentSignals } = useQuery(
-    'pipeline-signals',
-    async () => {
-      const response = await fetch('/api/trading/parallel-bot/activity?limit=20&type=signal_generated,trade_executed')
-      const data = await response.json()
-      return data.data
-    },
-    {
-      refetchInterval: 3000,
-    }
-  )
+  // // Buscar sinais recentes em processamento
+  // const { data: recentSignals } = useQuery(
+  //   'pipeline-signals',
+  //   async () => {
+  //     const response = await fetch('/api/trading/parallel-bot/activity?limit=20&type=signal_generated,trade_executed')
+  //     const data = await response.json()
+  //     return data.data
+  //   },
+  //   {
+  //     refetchInterval: 3000,
+  //   }
+  // )
 
   // Atualizar sinais no pipeline com eventos WebSocket
   useEffect(() => {

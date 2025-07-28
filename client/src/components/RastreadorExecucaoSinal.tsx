@@ -40,47 +40,47 @@ export default function RastreadorExecucaoSinal({ symbolFilter, limit = 10 }: Pr
   const { lastMessage } = useWebSocket('/ws')
 
   // Buscar sinais recentes para rastreamento
-  const { data: recentSignals } = useQuery(
-    ['signal-tracking', symbolFilter],
-    async () => {
-      const url = symbolFilter 
-        ? `/api/trading/parallel-bot/signal-tracking?symbol=${symbolFilter}&limit=${limit}`
-        : `/api/trading/parallel-bot/signal-tracking?limit=${limit}`
+  // const { data: recentSignals } = useQuery(
+  //   ['signal-tracking', symbolFilter],
+  //   async () => {
+  //     const url = symbolFilter 
+  //       ? `/api/trading/parallel-bot/signal-tracking?symbol=${symbolFilter}&limit=${limit}`
+  //       : `/api/trading/parallel-bot/signal-tracking?limit=${limit}`
       
-      const response = await fetch(url)
-      const data = await response.json()
-      return data.data || []
-    },
-    {
-      refetchInterval: 5000,
-      onSuccess: (data) => {
-        // Atualizar sinais rastreados com dados da API
-        const newSignals = data.map((signal: any) => ({
-          id: signal.id,
-          symbol: signal.symbol,
-          action: signal.action,
-          strength: signal.strength,
-          status: signal.status,
-          stages: signal.stages || {
-            analyzed: true,
-            queued: signal.status !== 'analyzing',
-            executed: ['executing', 'completed'].includes(signal.status),
-            positionOpened: signal.status === 'completed'
-          },
-          timeline: signal.timeline || {
-            created: signal.timestamp,
-            analyzed: signal.analyzedAt,
-            queued: signal.queuedAt,
-            executionStarted: signal.executionStartedAt,
-            executionCompleted: signal.executionCompletedAt
-          },
-          details: signal.details || {}
-        }))
+  //     const response = await fetch(url)
+  //     const data = await response.json()
+  //     return data.data || []
+  //   },
+  //   {
+  //     refetchInterval: 5000,
+  //     onSuccess: (data) => {
+  //       // Atualizar sinais rastreados com dados da API
+  //       const newSignals = data.map((signal: any) => ({
+  //         id: signal.id,
+  //         symbol: signal.symbol,
+  //         action: signal.action,
+  //         strength: signal.strength,
+  //         status: signal.status,
+  //         stages: signal.stages || {
+  //           analyzed: true,
+  //           queued: signal.status !== 'analyzing',
+  //           executed: ['executing', 'completed'].includes(signal.status),
+  //           positionOpened: signal.status === 'completed'
+  //         },
+  //         timeline: signal.timeline || {
+  //           created: signal.timestamp,
+  //           analyzed: signal.analyzedAt,
+  //           queued: signal.queuedAt,
+  //           executionStarted: signal.executionStartedAt,
+  //           executionCompleted: signal.executionCompletedAt
+  //         },
+  //         details: signal.details || {}
+  //       }))
 
-        setTrackedSignals(newSignals)
-      }
-    }
-  )
+  //       setTrackedSignals(newSignals)
+  //     }
+  //   }
+  // )
 
   // Processar eventos WebSocket para atualização em tempo real
   useEffect(() => {
