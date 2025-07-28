@@ -377,16 +377,46 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
       total: 0
     });
     
-    const parallelData = await bingxClient.getSymbolsAndTickersParallel();
-    const contractsResponse = parallelData.symbols;
-    const tickersResponse = parallelData.tickers;
+    let parallelData;
+    let contractsResponse;
+    let tickersResponse;
+    
+    try {
+      parallelData = await bingxClient.getSymbolsAndTickersParallel();
+      contractsResponse = parallelData.symbols;
+      tickersResponse = parallelData.tickers;
+    } catch (parallelError: any) {
+      logger.warn('⚠️  Parallel fetch failed, trying individual calls:', parallelError.message);
+      
+      // Fallback to individual calls if parallel fails
+      try {
+        contractsResponse = await bingxClient.getSymbols();
+        
+        // Try to get tickers individually with error handling
+        try {
+          tickersResponse = await bingxClient.getAllTickers();
+        } catch (tickerError: any) {
+          logger.warn('⚠️  Ticker fetch failed, proceeding with contracts only:', tickerError.message);
+          tickersResponse = { code: 0, data: [], msg: 'Ticker data unavailable in production' };
+        }
+      } catch (contractError: any) {
+        await sendProgress(sessionId, {
+          type: 'error',
+          message: `Failed to fetch asset data: ${contractError.message}`
+        });
+        throw new AppError(`Failed to fetch asset data: ${contractError.message}`, 500);
+      }
+    }
     
     await sendProgress(sessionId, {
-      type: 'progress',
-      message: `✅ Paralelo completo: ${contractsResponse?.data?.length || 0} contratos + ${tickersResponse?.data?.length || 0} preços`,
+      type: 'progress', 
+      message: `✅ Data fetched: ${contractsResponse?.data?.length || 0} contracts + ${tickersResponse?.data?.length || 0} tickers`,
       progress: 45,
       processed: 0,
-      total: contractsResponse?.data?.length || 0
+      total: contractsResponse?.data?.length || 0,
+      ...(tickersResponse?.data?.length === 0 && {
+        warning: 'Market data unavailable - using contracts only'
+      })
     });
     
     await yieldEventLoop();
