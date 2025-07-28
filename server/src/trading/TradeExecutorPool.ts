@@ -331,8 +331,16 @@ class TradeExecutor extends EventEmitter {
   private calculatePosition(task: TradeTask, currentPrice: number) {
     const { riskManagement } = this.config;
     
-    // Calculate quantity based on position size
-    const quantity = parseFloat((task.positionSize / currentPrice).toFixed(6));
+    // SAFETY: Ensure position size never exceeds 800 USDT (buffer under 1000 USDT limit)
+    const maxPositionValue = 800; // USDT
+    const safePositionSize = Math.min(task.positionSize, maxPositionValue);
+    
+    if (task.positionSize > maxPositionValue) {
+      logger.warn(`⚠️  Position size ${task.positionSize} USDT reduced to ${safePositionSize} USDT for safety`);
+    }
+    
+    // Calculate quantity based on safe position size
+    const quantity = parseFloat((safePositionSize / currentPrice).toFixed(6));
     
     // Calculate stop loss and take profit
     const stopLossPrice = task.action === 'BUY'

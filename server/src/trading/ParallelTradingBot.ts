@@ -134,7 +134,7 @@ export class ParallelTradingBot extends EventEmitter {
       scanInterval: parseInt(process.env.SCAN_INTERVAL || '15000'), // 15 seconds - ULTRA FAST scanning
       symbolsToScan: [],
       maxConcurrentTrades: 5,
-      defaultPositionSize: 100,
+      defaultPositionSize: 25, // Reduced to stay under 1000 USDT limit with leverage
       stopLossPercent: 2,
       takeProfitPercent: 3,
       trailingStopPercent: 1,

@@ -13,8 +13,8 @@ import { logger } from '../utils/logger';
 // Ultra High-Performance Configuration (Maximum Symbols)
 export const ultraPerformanceConfig: Partial<ParallelBotConfig> = {
   scanInterval: 15000, // 15 seconds - ULTRA FAST scanning
-  maxConcurrentTrades: 15,
-  defaultPositionSize: 50, // Smaller positions for more trades
+  maxConcurrentTrades: 25, // Increased concurrent trades
+  defaultPositionSize: 20, // SAFE: 20 USDT base position to avoid 1000 USDT limit
   minSignalStrength: 35, // Lower threshold for more signals (more aggressive)
   
   signalWorkers: {
@@ -55,8 +55,8 @@ export const ultraPerformanceConfig: Partial<ParallelBotConfig> = {
 // High-frequency trading configuration (aggressive)
 export const highFrequencyConfig: Partial<ParallelBotConfig> = {
   scanInterval: 20000, // 20 seconds - high frequency scanning
-  maxConcurrentTrades: 10,
-  defaultPositionSize: 50, // Smaller positions for more trades
+  maxConcurrentTrades: 15,
+  defaultPositionSize: 30, // SAFE: 30 USDT to avoid leverage limits
   minSignalStrength: 40, // Lower threshold for more signals
   
   signalWorkers: {
@@ -98,7 +98,7 @@ export const highFrequencyConfig: Partial<ParallelBotConfig> = {
 export const conservativeConfig: Partial<ParallelBotConfig> = {
   scanInterval: 120000, // 2 minutes - still frequent but stable
   maxConcurrentTrades: 3,
-  defaultPositionSize: 200, // Larger positions
+  defaultPositionSize: 50, // SAFE: Conservative but under limits
   minSignalStrength: 55, // Balanced threshold for quality
   confirmationRequired: true,
   
@@ -140,8 +140,8 @@ export const conservativeConfig: Partial<ParallelBotConfig> = {
 // Balanced trading configuration (recommended)
 export const balancedConfig: Partial<ParallelBotConfig> = {
   scanInterval: 30000, // 30 seconds - optimized balanced scanning
-  maxConcurrentTrades: 5,
-  defaultPositionSize: 100,
+  maxConcurrentTrades: 8,
+  defaultPositionSize: 25, // SAFE: 25 USDT base position
   minSignalStrength: 50, // Balanced threshold
   confirmationRequired: false, // Allow more signals for testing
   
@@ -184,7 +184,7 @@ export const balancedConfig: Partial<ParallelBotConfig> = {
 export const developmentConfig: Partial<ParallelBotConfig> = {
   scanInterval: 60000, // 1 minute - faster testing feedback
   maxConcurrentTrades: 2,
-  defaultPositionSize: 10, // Small positions for testing
+  defaultPositionSize: 5, // VERY SAFE: Minimal positions for testing
   minSignalStrength: 70,
   
   signalWorkers: {
