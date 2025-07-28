@@ -19,15 +19,27 @@ const refreshSessions = new Map<string, Response>();
 // SSE endpoint for refresh progress - RENDER.COM OPTIMIZED
 router.get('/refresh/progress/:sessionId', (req: Request, res: Response) => {
   const sessionId = req.params.sessionId;
-  console.log(`🔌 Nova conexão SSE: ${sessionId}`);
+  console.log(`🔌 Nova conexão SSE: ${sessionId} from ${req.headers.origin}`);
   
   // RENDER-SPECIFIC SSE HEADERS - Critical for production deployment
   res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('X-Accel-Buffering', 'no'); // CRITICAL: Prevents nginx buffering on Render
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', 'Cache-Control');
+  
+  // Set CORS headers properly for SSE
+  const origin = req.headers.origin;
+  if (origin && (origin.includes('localhost') || origin.includes('onrender.com'))) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Headers', 'Cache-Control, Accept, Accept-Encoding');
+  
+  // Additional headers for better compatibility
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
   
   // Immediately flush headers to establish connection
   res.flushHeaders();

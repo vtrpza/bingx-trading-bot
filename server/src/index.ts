@@ -44,11 +44,12 @@ app.use(cors({
     'http://localhost:3000',
     'https://bingx-trading-bot-1.onrender.com',
     'https://bingx-trading-bot-lu0z-frontend.onrender.com',
+    'https://bingx-trading-bot-lu0z-frontend-rjhj.onrender.com',
     ...(process.env.FRONTEND_URL ? [process.env.FRONTEND_URL] : [])
   ],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  allowedHeaders: ['Content-Type', 'Authorization', 'Cache-Control', 'Accept', 'Accept-Encoding']
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));

@@ -23,7 +23,7 @@ services:
       - key: DEFAULT_POSITION_SIZE
         value: 100
       - key: FRONTEND_URL
-        value: https://bingx-trading-bot-lu0z-frontend.onrender.com
+        value: https://bingx-trading-bot-lu0z-frontend-rjhj.onrender.com
       - key: NODE_ENV
         value: production
       - key: REDIS_URL
