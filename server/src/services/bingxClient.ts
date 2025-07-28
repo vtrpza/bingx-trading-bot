@@ -240,66 +240,6 @@ export class BingXClient {
     return config;
   }
 
-  // Exponential backoff retry for rate limiting
-  private async makeRequestWithRetry(endpoint: string, config: any, maxRetries: number = 3): Promise<any> {
-    let lastError: any;
-    
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
-      try {
-        // Add delay before retry (exponential backoff)
-        if (attempt > 0) {
-          const delay = Math.min(1000 * Math.pow(2, attempt - 1), 10000); // Cap at 10s
-          logger.debug(`⏳ Rate limited, waiting ${delay}ms before retry ${attempt}/${maxRetries}`);
-          await new Promise(resolve => setTimeout(resolve, delay));
-        }
-        
-        const response = await this.axios.get(endpoint, config);
-        
-        // Success - log if this was a retry
-        if (attempt > 0) {
-          logger.info(`✅ Retry successful on attempt ${attempt + 1} for ${endpoint}`);
-          await logToExternal('info', 'Rate limit retry successful', {
-            endpoint,
-            attempt: attempt + 1,
-            totalAttempts: maxRetries
-          });
-        }
-        
-        return response;
-        
-      } catch (error: any) {
-        lastError = error;
-        
-        // If it's a 429 (rate limit), retry
-        if (error.response?.status === 429) {
-          logger.warn(`⚠️ Rate limited on ${endpoint}, attempt ${attempt + 1}/${maxRetries}`);
-          
-          // Check if we have retry-after header
-          const retryAfter = error.response.headers['retry-after'];
-          if (retryAfter && attempt < maxRetries - 1) {
-            const waitTime = parseInt(retryAfter) * 1000; // Convert to ms
-            logger.info(`📡 Server requested ${retryAfter}s wait, honoring it...`);
-            await new Promise(resolve => setTimeout(resolve, Math.min(waitTime, 30000))); // Cap at 30s
-          }
-          
-          continue; // Try again
-        }
-        
-        // For non-rate-limit errors, don't retry
-        throw error;
-      }
-    }
-    
-    // All retries failed
-    await logToExternal('error', 'All rate limit retries failed', {
-      endpoint,
-      maxRetries,
-      finalError: lastError.message,
-      status: lastError.response?.status
-    });
-    
-    throw lastError;
-  }
 
   // OPTIMIZED: Parallel API calls for maximum performance
   async getSymbolsAndTickersParallel() {
@@ -446,13 +386,7 @@ export class BingXClient {
           try {
             logger.debug(`🔍 Testando: ${endpoint} com params:`, params);
             
-            // Add base delay to prevent rate limiting in production
-            if (process.env.NODE_ENV === 'production') {
-              await new Promise(resolve => setTimeout(resolve, 200)); // 200ms between requests
-            }
-            
-            // Implement exponential backoff for rate limiting
-            const response = await this.makeRequestWithRetry(endpoint, { params }, 3);
+            const response = await this.axios.get(endpoint, { params });
             const contracts = this.extractContractsFromResponse(response.data);
             
             if (contracts.length > 0) {
@@ -683,7 +617,7 @@ export class BingXClient {
         try {
           logger.debug(`🔍 Trying ticker endpoint: ${endpoint}`);
           
-          const response = await this.makeRequestWithRetry(endpoint, {}, 3);
+          const response = await this.axios.get(endpoint);
           
           if (response.data && response.data.code === 0) {
             const tickers = response.data.data;
