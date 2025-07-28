@@ -30,9 +30,9 @@ async function verifyDeployment() {
     
     // Test Asset table structure
     try {
-      const tableInfo = await sequelize.getQueryInterface().describeTable('Assets');
+      const tableInfo = await sequelize.getQueryInterface().describeTable('assets');
       const columnCount = Object.keys(tableInfo).length;
-      logger.info(`✅ Assets table structure: OK (${columnCount} columns)`);
+      logger.info(`✅ assets table structure: OK (${columnCount} columns)`);
       
       // Verify critical columns exist
       const requiredColumns = ['symbol', 'status', 'lastPrice', 'quoteVolume24h', 'updatedAt'];
@@ -56,7 +56,7 @@ async function verifyDeployment() {
         const indexQuery = `
           SELECT indexname, indexdef 
           FROM pg_indexes 
-          WHERE tablename = 'Assets' 
+          WHERE tablename = 'assets' 
           AND indexname LIKE 'idx_assets_%';
         `;
         
