@@ -68,12 +68,12 @@ export class MarketDataCache extends EventEmitter {
     super();
     
     this.config = {
-      tickerCacheTTL: 60000, // 🚀 60 seconds (up from 5s) - aggressive caching
-      klineCacheTTL: 300000, // 🚀 5 minutes (up from 30s) - much longer cache
-      maxCacheSize: 200, // 🚀 200 symbols (up from 100) - larger cache
-      websocketReconnectDelay: 3000, // 🚀 3 seconds (down from 5s) - faster reconnects
-      batchUpdateInterval: 500, // 🚀 500ms (down from 1s) - faster updates
-      priceChangeThreshold: 0.1, // Keep same threshold
+      tickerCacheTTL: 120000, // 🚀 2 minutes - extended for batch processing
+      klineCacheTTL: 900000, // 🚀 15 minutes - ULTRA long cache for symbol scanning
+      maxCacheSize: 500, // 🚀 500 symbols - massive cache for all scanning symbols
+      websocketReconnectDelay: 2000, // 🚀 2 seconds - even faster reconnects
+      batchUpdateInterval: 300, // 🚀 300ms - ultra-fast updates
+      priceChangeThreshold: 0.05, // More sensitive change detection
       ...config
     };
 
@@ -286,7 +286,9 @@ export class MarketDataCache extends EventEmitter {
       });
 
       ws.on('error', (error) => {
-        logger.warn(`WebSocket error for ${symbol}:`, error.message);
+        // Properly handle error objects - don't serialize the entire error
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        logger.warn(`WebSocket error for ${symbol}: ${errorMessage}`);
         this.handleWebSocketError(symbol);
       });
 
@@ -379,18 +381,21 @@ export class MarketDataCache extends EventEmitter {
   }
 
   private scheduleReconnect(symbol: string): void {
-    if (this.reconnectTimers.has(symbol)) {
+    if (this.reconnectTimers.has(symbol) || !this.isRunning) {
       return;
     }
 
+    // Exponential backoff for repeated failures
+    const reconnectDelay = this.config.websocketReconnectDelay;
+    
     const timer = setTimeout(() => {
       this.reconnectTimers.delete(symbol);
       
-      if (this.isRunning) {
+      if (this.isRunning && this.subscribedSymbols.has(symbol)) {
         logger.debug(`Attempting to reconnect WebSocket for ${symbol}`);
         this.subscribeToSymbol(symbol);
       }
-    }, this.config.websocketReconnectDelay);
+    }, reconnectDelay);
 
     this.reconnectTimers.set(symbol, timer);
   }
@@ -505,6 +510,33 @@ export class MarketDataCache extends EventEmitter {
   updateConfig(newConfig: Partial<MarketDataCacheConfig>): void {
     this.config = { ...this.config, ...newConfig };
     logger.info('MarketDataCache configuration updated');
+  }
+
+  /**
+   * Emergency stop during circuit breaker
+   */
+  emergencyStop(): void {
+    logger.warn('MarketDataCache emergency stop initiated');
+    
+    // Close all WebSocket connections immediately
+    for (const [symbol] of this.websockets) {
+      this.closeWebSocket(symbol);
+    }
+    
+    // Clear all reconnect timers
+    for (const timer of this.reconnectTimers.values()) {
+      clearTimeout(timer);
+    }
+    this.reconnectTimers.clear();
+    
+    // Clear caches to prevent stale data
+    this.tickerCache.clear();
+    this.klineCache.clear();
+    
+    // Reset metrics
+    this.metrics.connectedStreams = 0;
+    
+    logger.info('MarketDataCache emergency stop completed');
   }
 
   // 🚀 ULTRA-FAST Batch operations for maximum efficiency

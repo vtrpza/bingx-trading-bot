@@ -125,7 +125,6 @@ export class ParallelTradingBot extends EventEmitter {
   private metrics!: ParallelBotMetrics;
   private scanStartTime: number = 0;
   private totalScans: number = 0;
-  private lastScanIndex: number = 0; // Track where scanner left off
 
   constructor(config?: Partial<ParallelBotConfig>) {
     super();
@@ -158,10 +157,12 @@ export class ParallelTradingBot extends EventEmitter {
       
       // Component configurations
       signalWorkers: {
-        maxWorkers: 5,
-        maxConcurrentTasks: 15,
-        taskTimeout: 15000, // Increased timeout for symbol processing
-        retryAttempts: 2
+        maxWorkers: 6, // Increased workers for better parallelism
+        maxConcurrentTasks: 20, // Increased concurrent tasks for batch processing
+        taskTimeout: 12000, // Optimized timeout for batch operations
+        retryAttempts: 1, // Reduced retries for faster processing
+        enableParallelProcessing: true, // 🚀 ENABLED for ultra-fast batch processing
+        batchSize: 15 // Increased batch size for maximum performance
       },
       signalQueue: {
         maxSize: 100,
@@ -273,7 +274,9 @@ export class ParallelTradingBot extends EventEmitter {
     
     this.signalWorkerPool = new SignalWorkerPool({
       ...this.config.signalWorkers,
-      signalConfig
+      signalConfig,
+      minVolumeUSDT: this.config.minVolumeUSDT,
+      symbolProcessingEnabled: true // Enable integrated symbol processing
     });
     
     // Initialize signal queue
@@ -356,6 +359,30 @@ export class ParallelTradingBot extends EventEmitter {
         `Circuit breaker opened after ${info.consecutiveErrors} consecutive errors. System paused for 5 minutes.`, 
         'error'
       );
+      
+      // Emergency stop all components during circuit breaker
+      this.handleCircuitBreakerOpened(info);
+    });
+
+    // 🚀 NEW: Symbol processing events
+    this.signalWorkerPool.on('symbolsProcessed', (data) => {
+      this.config.symbolsToScan = data.symbols;
+      const waveInfo = data.wave ? ` (Wave ${data.wave}/${data.totalWaves})` : '';
+      this.addActivityEvent('info', 
+        `Symbols processed: ${data.count} symbols ready for scanning${waveInfo}`, 
+        'success'
+      );
+      logger.info(`🚀 Symbols integrated: ${data.count} symbols loaded from SignalWorkerPool${waveInfo}`);
+    });
+
+    // 🚀 Progressive loading wave updates
+    this.signalWorkerPool.on('symbolWaveAdded', (data) => {
+      this.config.symbolsToScan = this.signalWorkerPool.getAvailableSymbols();
+      this.addActivityEvent('info', 
+        `Symbol wave added: ${data.newSymbols.length} new symbols (${data.totalSymbols} total, ${data.progress.toFixed(1)}% complete)`, 
+        'info'
+      );
+      logger.info(`🌊 Wave ${data.wave}: Added ${data.newSymbols.length} symbols, total active: ${data.totalSymbols}`);
     });
 
     // Signal queue events
@@ -532,9 +559,9 @@ export class ParallelTradingBot extends EventEmitter {
       this.isRunning = true;
       this.emit('started');
 
-      // Start all components
+      // Start all components - SignalWorkerPool now processes symbols on start
       this.marketDataCache.start();
-      this.signalWorkerPool.start();
+      await this.signalWorkerPool.start(); // Now async and processes symbols
       this.tradeExecutorPool.start();
       this.positionManager.start();
       this.positionTracker.start();
@@ -552,8 +579,24 @@ export class ParallelTradingBot extends EventEmitter {
       // Load active positions
       await this.loadActivePositions();
 
-      // Update symbol list and preload market data
-      await this.updateSymbolList();
+      // 🚀 SYMBOLS ARE NOW PROCESSED BY SIGNALWORKERPOOL - No need to call updateSymbolList
+      // Wait for symbols to be processed if not ready yet
+      if (!this.signalWorkerPool.areSymbolsReady()) {
+        logger.info('⏳ Waiting for symbol processing to complete...');
+        await new Promise<void>((resolve) => {
+          const checkSymbols = () => {
+            if (this.signalWorkerPool.areSymbolsReady()) {
+              this.config.symbolsToScan = this.signalWorkerPool.getAvailableSymbols();
+              resolve();
+            } else {
+              setTimeout(checkSymbols, 1000);
+            }
+          };
+          checkSymbols();
+        });
+      } else {
+        this.config.symbolsToScan = this.signalWorkerPool.getAvailableSymbols();
+      }
       
       // Start scanning
       this.startScanning();
@@ -601,34 +644,36 @@ export class ParallelTradingBot extends EventEmitter {
     logger.info('Parallel Trading Bot stopped successfully');
   }
 
+  // 🚀 DEPRECATED: Symbol processing now handled by SignalWorkerPool
+  // Kept for potential compatibility/fallback purposes
   private async updateSymbolList(): Promise<void> {
+    logger.warn('⚠️ DEPRECATED: updateSymbolList() is deprecated. Symbol processing is now handled by SignalWorkerPool.');
+    
+    // Fallback: refresh symbols via SignalWorkerPool
     try {
-      // Predefined popular symbols for immediate start
-      // Directly fetch symbols from API instead of using hard-coded list
-      logger.info('🔄 Fetching symbols dynamically from BingX API...');
-      
-      try {
-        await this.fetchAllAvailableSymbols();
-        
-        // Only use fallback if API call completely failed
-        if (this.config.symbolsToScan.length === 0) {
-          const fallbackSymbols = [
-            'BTC-USDT', 'ETH-USDT', 'BNB-USDT', 'SOL-USDT', 'XRP-USDT'
-          ];
-          this.config.symbolsToScan = fallbackSymbols;
-          logger.warn(`⚠️  Using fallback symbols: ${fallbackSymbols.length} symbols`);
-        }
-      } catch (error) {
-        logger.error('Failed to fetch symbols from API, using minimal fallback:', error);
-        this.config.symbolsToScan = ['BTC-USDT', 'ETH-USDT', 'BNB-USDT'];
-      }
-
+      await this.signalWorkerPool.refreshSymbols();
+      this.config.symbolsToScan = this.signalWorkerPool.getAvailableSymbols();
     } catch (error) {
-      logger.error('Failed to update symbol list:', error);
+      logger.error('Failed to refresh symbols via SignalWorkerPool:', error);
+      // Ultimate fallback
+      this.config.symbolsToScan = ['BTC-USDT', 'ETH-USDT', 'BNB-USDT'];
     }
   }
 
+  // Legacy method for emergency fallback
+  async refreshSymbolsLegacy(): Promise<void> {
+    await this.updateSymbolList();
+  }
+
+  // Legacy method for direct symbol fetching
+  async fetchSymbolsLegacy(): Promise<void> {
+    await this.fetchAllAvailableSymbols();
+  }
+
+  // 🚀 DEPRECATED: Symbol processing now handled by SignalWorkerPool
+  // Kept for potential compatibility/fallback purposes
   private async fetchAllAvailableSymbols(): Promise<void> {
+    logger.warn('⚠️ DEPRECATED: fetchAllAvailableSymbols() is deprecated. Symbol processing is now handled by SignalWorkerPool.');
     try {
       logger.info('Fetching all available symbols from exchange...');
       
@@ -699,7 +744,9 @@ export class ParallelTradingBot extends EventEmitter {
     }
   }
 
+  // 🚀 DEPRECATED: Symbol processing now handled by SignalWorkerPool
   private async getSymbolVolumes(symbols: string[], batchSize = 20): Promise<{symbol: string, volume: number}[]> {
+    logger.warn('⚠️ DEPRECATED: getSymbolVolumes() is deprecated. Symbol processing is now handled by SignalWorkerPool.');
     const symbolsWithVolume: {symbol: string, volume: number}[] = [];
     
     logger.info(`🚀 ULTRA-FAST: Getting volume data for ${symbols.length} symbols with ${batchSize} parallel requests...`);
@@ -769,42 +816,24 @@ export class ParallelTradingBot extends EventEmitter {
   }
 
   private async scanSymbols(): Promise<void> {
-    logger.info(`🔍 STARTING SYMBOL SCAN - Cycle #${this.totalScans + 1}`);
+    logger.info(`🚀 ULTRA FAST SYMBOL SCAN - Cycle #${this.totalScans + 1}`);
     
-    // Sync positions every scan cycle to maintain real-time accuracy
-    await this.syncPositionsWithBingX();
+    // 🚀 OPTIMIZATION: Sync positions less frequently (every 3rd scan cycle)
+    if (this.totalScans % 3 === 0) {
+      await this.syncPositionsWithBingX();
+      logger.debug('📊 Position sync completed (every 3rd cycle)');
+    }
     
     if (this.activePositions.size >= this.config.maxConcurrentTrades) {
       logger.warn(`⚠️ Max concurrent trades reached (${this.activePositions.size}/${this.config.maxConcurrentTrades}), skipping scan`);
       return;
     }
 
-    // Get available symbols starting from where we left off
+    // 🚀 ULTRA PERFORMANCE: Process ALL available symbols in one massive batch
     const allSymbols = this.config.symbolsToScan;
-    logger.debug(`📋 Total symbols to scan: ${allSymbols.length}, Starting from index: ${this.lastScanIndex}`);
-    const availableSymbols = [];
-    
-    // Continue scanning from last index, wrapping around if needed
-    let currentIndex = this.lastScanIndex;
-    let scannedCount = 0;
-    
-    while (scannedCount < allSymbols.length && availableSymbols.length < 8) { // Limit batch size
-      const symbol = allSymbols[currentIndex];
-      
-      // Check if symbol is available for scanning
-      if (!this.activePositions.has(symbol) && !this.isSymbolBlacklisted(symbol)) {
-        availableSymbols.push(symbol);
-      } else if (this.isSymbolBlacklisted(symbol)) {
-        logger.debug(`Skipping blacklisted symbol: ${symbol}`);
-      }
-      
-      // Move to next symbol, wrap around if at end
-      currentIndex = (currentIndex + 1) % allSymbols.length;
-      scannedCount++;
-    }
-    
-    // Update scan position for next iteration
-    this.lastScanIndex = currentIndex;
+    const availableSymbols = allSymbols.filter(symbol => 
+      !this.activePositions.has(symbol) && !this.isSymbolBlacklisted(symbol)
+    );
 
     if (availableSymbols.length === 0) {
       logger.debug('No available symbols to scan (all blacklisted or in positions)');
@@ -814,21 +843,25 @@ export class ParallelTradingBot extends EventEmitter {
     this.scanStartTime = Date.now();
     this.totalScans++;
 
-    // Sequential processing - add symbols ONE BY ONE to queue
-    logger.debug(`Starting sequential scan of ${availableSymbols.length} symbols (resume from index ${this.lastScanIndex})`);
+    // 🚀 ULTRA FAST: Process up to 50 symbols simultaneously with batch processing
+    const batchSize = Math.min(50, availableSymbols.length);
+    const symbolsToProcess = availableSymbols.slice(0, batchSize);
+
+    logger.info(`🚀 BATCH SCAN: Processing ${symbolsToProcess.length} symbols simultaneously (${availableSymbols.length} available)`);
     this.addActivityEvent('scan_started', 
-      `Starting sequential scan of ${availableSymbols.length} symbols (resume from index ${this.lastScanIndex})`, 
+      `ULTRA FAST: Batch processing ${symbolsToProcess.length} symbols simultaneously`, 
       'info'
     );
     
-    // Add symbols individually to prevent parallel processing
-    const taskIds = this.signalWorkerPool.addSymbols(availableSymbols, 1);
-    logger.debug(`Added ${availableSymbols.length} symbols to sequential processing queue → ${taskIds.length} tasks`);
+    // 🚀 MASSIVE PERFORMANCE BOOST: Add all symbols to batch processing queue
+    const taskIds = this.signalWorkerPool.addSymbols(symbolsToProcess, 1);
+    logger.info(`🎯 QUEUED: ${taskIds.length} symbols for ultra-fast batch processing`);
     
     // Update metrics
-    this.updateScanMetrics(availableSymbols.length);
+    this.updateScanMetrics(symbolsToProcess.length);
     
-    logger.debug(`Completed batched processing of ${availableSymbols.length} symbols`);
+    const scanTime = Date.now() - this.scanStartTime;
+    logger.info(`⚡ SCAN COMPLETED: ${symbolsToProcess.length} symbols queued for batch processing in ${scanTime}ms`);
   }
 
   private async handleSignalGenerated(signal: any): Promise<void> {
@@ -1312,7 +1345,8 @@ export class ParallelTradingBot extends EventEmitter {
           isActive: this.riskManager.isRiskManagerActive(),
           dailyPnl: this.riskManager.getDailyPnl(),
           riskParameters: this.riskManager.getRiskParameters()
-        }
+        },
+        progressiveLoading: this.signalWorkerPool.getProgressiveLoadingStatus()
       }
     };
   }
@@ -1707,6 +1741,38 @@ export class ParallelTradingBot extends EventEmitter {
       
       logger.info('Circuit breaker manually reset');
       this.addActivityEvent('info', 'Circuit breaker manually reset - resuming operations', 'info');
+    }
+  }
+
+  /**
+   * 🚀 PROGRESSIVE LOADING: Force next symbol wave
+   */
+  forceNextSymbolWave(): void {
+    this.signalWorkerPool.forceNextSymbolWave();
+    this.addActivityEvent('info', 'Manually triggered next symbol wave', 'info');
+  }
+
+  /**
+   * 🚀 PROGRESSIVE LOADING: Get progressive loading status
+   */
+  getProgressiveLoadingStatus() {
+    return this.signalWorkerPool.getProgressiveLoadingStatus();
+  }
+
+  private handleCircuitBreakerOpened(info: any): void {
+    logger.warn('Circuit breaker opened - initiating emergency procedures');
+    
+    try {
+      // Stop market data cache to prevent stale data
+      this.marketDataCache.emergencyStop();
+      
+      // Log current queue status for debugging
+      const queueStatus = this.prioritySignalQueue.getStatus();
+      logger.info(`Circuit breaker: ${queueStatus.queueLength} signals in queue during emergency`);
+      
+      logger.info('Emergency procedures completed for circuit breaker');
+    } catch (error) {
+      logger.error('Error during circuit breaker emergency procedures:', error);
     }
   }
 
