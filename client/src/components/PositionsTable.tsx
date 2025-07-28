@@ -59,7 +59,7 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
     },
     {
       onSuccess: (data) => {
-        queryClient.invalidateQueries('positions')
+        // Immediate UI cleanup
         setSelectedSymbol(null)
         setClosePercentage(100)
         setShowConfirmation(false)
@@ -67,17 +67,21 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
         // Success toast
         addToast('success', `Position ${data.data.symbol} closed successfully (${data.data.percentage}%)`)
         
-        // Optimistic UI update - remove from list if 100% closed
+        // Immediate optimistic update for 100% closes
         if (data.data.percentage === 100) {
-          setTimeout(() => {
-            queryClient.setQueryData('positions', (oldData: any) => {
-              if (Array.isArray(oldData)) {
-                return oldData.filter((pos: Position) => pos.symbol !== data.data.symbol)
-              }
-              return oldData
-            })
-          }, 1000) // Small delay to show toast first
+          queryClient.setQueryData('positions', (oldData: any) => {
+            if (Array.isArray(oldData)) {
+              return oldData.filter((pos: Position) => pos.symbol !== data.data.symbol)
+            }
+            return oldData
+          })
         }
+        
+        // Force refetch positions from server for accurate data
+        setTimeout(() => {
+          queryClient.invalidateQueries('positions')
+          refetch() // Force immediate refetch
+        }, 500) // Short delay to allow server to process
       },
       onError: (error: any) => {
         addToast('error', `Failed to close position: ${error.message}`)
@@ -101,11 +105,11 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
   }
 
   // Get real-time positions from API
-  const { data: realTimePositions, error } = useQuery(
+  const { data: realTimePositions, error, refetch } = useQuery(
     'positions',
     api.getPositions,
     {
-      refetchInterval: 30000,
+      refetchInterval: 15000, // Faster refresh - every 15 seconds
       onError: (error) => {
         console.error('Failed to fetch positions:', error)
       }

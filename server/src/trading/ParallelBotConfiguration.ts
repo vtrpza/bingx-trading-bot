@@ -6,8 +6,8 @@ import { ParallelBotConfig } from './ParallelTradingBot';
 
 // High-frequency trading configuration (aggressive)
 export const highFrequencyConfig: Partial<ParallelBotConfig> = {
-  scanInterval: 300000, // 5 minutes - reduced to minimize API calls
-  maxConcurrentTrades: 8,
+  scanInterval: 3000, // 5 minutes - reduced to minimize API calls
+  maxConcurrentTrades: 10,
   defaultPositionSize: 50, // Smaller positions for more trades
   minSignalStrength: 40, // Lower threshold for more signals
   

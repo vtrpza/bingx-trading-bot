@@ -1,477 +1,536 @@
-import { useEffect } from 'react'
-import { useQuery } from 'react-query'
-import { api } from '../services/api'
+import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useQuery, useMutation, useQueryClient } from 'react-query'
 import { useWebSocket } from '../hooks/useWebSocket'
-import { getConnectionStatusMessage } from '../config/websocket'
 import { useLocalStorage } from '../hooks/useLocalStorage'
-import { useTranslation } from '../hooks/useTranslation'
-import type { TradingSignal } from '../types'
+import { toast } from 'react-hot-toast'
+import {
+  formatPrice,
+  formatVolume,
+  indicatorCache,
+  cleanupCaches,
+  VolumeSpikeDetector,
+  FastRSI,
+  FastSMA
+} from '../utils/trading-optimizations'
+
+interface CandleData {
+  timestamp: number
+  open: number
+  high: number
+  low: number
+  close: number
+  volume: number
+  ma1: number | null // MM1
+  center: number | null // Center (média mais longa)
+  rsi: number | null
+}
+
+interface TimeframeData {
+  timeframe: '5m' | '2h' | '4h'
+  current: CandleData
+  previous: CandleData | null
+}
+
+interface TradingSignal {
+  symbol: string
+  signal: 'BUY' | 'SELL' | 'NEUTRAL'
+  confidence: number
+  reason: string
+  timestamp: number
+  timeframes: TimeframeData[]
+  shouldExecute: boolean
+}
+
+interface TradeExecution {
+  symbol: string
+  side: 'BUY' | 'SELL'
+  type: 'MARKET'
+  quantity: number
+  price?: number
+  stopLoss?: number
+  takeProfit?: number
+}
+
+// Constantes para otimização
+const RSI_MIN = 35
+const RSI_MAX = 73
+const DIST_2H_THRESHOLD = 2
+const DIST_4H_THRESHOLD = 3
+const VOLUME_SPIKE_THRESHOLD = 2.0
+const VOLUME_ELEVATED_THRESHOLD = 1.5
+const CONFIDENCE_THRESHOLD = 70
+const BATCH_SIZE = 5
+const MAX_SYMBOLS = 15
+const CACHE_TTL = 30000
 
 export default function RealTimeSignals() {
-  const [signals, setSignals] = useLocalStorage<TradingSignal[]>('realTimeSignals', [])
-  const [selectedSymbol, setSelectedSymbol] = useLocalStorage('realTimeSignalsSelectedSymbol', 'BTC-USDT')
-  const { t } = useTranslation()
+  const [signals, setSignals] = useState<TradingSignal[]>([])
+  const [maxOpenTrades] = useLocalStorage('maxOpenTrades', 10)
+  const queryClient = useQueryClient()
   
-  // Calculate signal statistics
-  const signalStats = {
-    total: signals.length,
-    buy: signals.filter(s => s.action === 'BUY').length,
-    sell: signals.filter(s => s.action === 'SELL').length,
-    hold: signals.filter(s => s.action === 'HOLD').length,
-    avgStrength: signals.length > 0 
-      ? (signals.reduce((sum, s) => sum + (s.strength || 0), 0) / signals.length).toFixed(1)
-      : '0',
-    recentStrong: signals.filter(s => (s.strength || 0) >= 70).length
-  }
+  // Detectores de volume por símbolo (cache)
+  const volumeDetectors = useMemo(() => new Map<string, VolumeSpikeDetector>(), [])
 
-  const { lastMessage, connectionStatus } = useWebSocket('/ws')
-  
-  // Debug WebSocket connection
-  useEffect(() => {
-    console.log('🔌 WebSocket connection status:', connectionStatus)
-  }, [connectionStatus])
-
-  // Get parallel bot status (only parallel mode now)
+  // Buscar símbolos do bot paralelo
   const { data: botStatus } = useQuery(
-    'parallel-bot-status', 
-    () => fetch('/api/trading/parallel-bot/status').then(res => res.json()).then(data => data.data)
+    'parallel-bot-status',
+    () => fetch('/api/trading/parallel-bot/status').then(res => res.json()).then(data => data.data),
+    { refetchInterval: 5000 }
   )
 
-  // Get parallel bot metrics (commented out for now as not used in display)
-  // const { data: parallelMetrics } = useQuery(
-  //   'parallel-bot-metrics',
-  //   () => fetch('/api/trading/parallel-bot/metrics').then(res => res.json()).then(data => data.data),
-  //   { 
-  //     enabled: botStatus?.isRunning,
-  //     refetchInterval: 5000 
-  //   }
-  // )
+  // Buscar posições abertas para controle de trades
+  const { data: openPositions } = useQuery(
+    'open-positions',
+    () => fetch('/api/trading/positions').then(res => res.json()).then(data => data.data),
+    { refetchInterval: 3000 }
+  )
 
-  // Get parallel bot activity events for signal display (commented out for now as not used in display)
-  // const { data: parallelActivity } = useQuery(
-  //   'parallel-bot-activity',
-  //   () => fetch('/api/trading/parallel-bot/activity?limit=20&type=signal_generated').then(res => res.json()).then(data => data.data),
-  //   { 
-  //     refetchInterval: 3000 
-  //   }
-  // )
-  
-  // Get market overview for fallback
-  const { data: marketOverview } = useQuery('market-overview', api.getMarketOverview)
-  
-  // Use symbols from bot or fallback to market overview
-  const availableSymbols = botStatus?.scannedSymbols || marketOverview?.topVolume?.map((item: any) => item.symbol) || []
-  const watchedSymbols = availableSymbols
-
-  // Function to format the symbol for the API call
-  const formatSymbolForApi = (symbol: string) => {
-    if (symbol && !symbol.endsWith('-USDT') && !symbol.endsWith('-USDC')) {
-      return `${symbol}-USDT`;
-    }
-    return symbol;
-  };
-
-  const apiReadySymbol = formatSymbolForApi(selectedSymbol);
-
-  // Get signal for selected symbol
-  const { data: currentSignal, isLoading: signalLoading, error: signalError } = useQuery(
-    ['signal', apiReadySymbol],
-    () => api.getSignal(apiReadySymbol),
+  // Mutation para executar trade
+  const executeTradeThudamutation = useMutation(
+    (trade: TradeExecution) => fetch('/api/trading/execute', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(trade)
+    }).then(res => res.json()),
     {
-      refetchInterval: 10000, // Refresh every 10 seconds
-      enabled: !!apiReadySymbol, // Only fetch if symbol is selected
-      retry: 2, // Retry failed requests
-    }
-  )
-  console.log(signalError)
-  // Clean old signals (older than 1 hour) on component mount
-  useEffect(() => {
-    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000)
-    setSignals(prev => prev.filter(signal => 
-      signal.timestamp && new Date(signal.timestamp) > oneHourAgo
-    ))
-  }, [])
-
-  useEffect(() => {
-    if (lastMessage) {
-      console.log('🔄 WebSocket message received:', lastMessage.data)
-      try {
-        const data = JSON.parse(lastMessage.data)
-        console.log('📊 Parsed WebSocket data:', data)
-        
-        if (data.type === 'signal') {
-          console.log('📈 Signal data received:', data.data)
-          // Add new signal to the list and keep only 50 latest signals
-          setSignals(prev => {
-            const newSignals = [data.data, ...prev]
-            console.log('💾 Updated signals array:', newSignals.length, 'signals')
-            // Keep only 50 most recent signals
-            return newSignals.slice(0, 50)
-          })
-        } else {
-          console.log('ℹ️ Non-signal WebSocket message type:', data.type)
-        }
-      } catch (error) {
-        console.error('❌ Error parsing WebSocket message:', error)
+      onSuccess: (_, variables) => {
+        toast.success(`Trade executado: ${variables.side} ${variables.symbol}`)
+        queryClient.invalidateQueries('open-positions')
+        queryClient.invalidateQueries('parallel-bot-status')
+      },
+      onError: (error: any) => {
+        toast.error(`Erro ao executar trade: ${error.message}`)
       }
     }
-  }, [lastMessage, setSignals])
+  )
 
-  const getSignalStrengthColor = (strength: number) => {
-    if (strength >= 80) return 'text-green-600'
-    if (strength >= 60) return 'text-yellow-600'
-    return 'text-red-600'
-  }
+  // Análise de sinais otimizada com cache de timeframes
+  const analyzeSignal = useCallback((timeframes: TimeframeData[]): { signal: 'BUY' | 'SELL' | 'NEUTRAL', confidence: number, reason: string } => {
+    // Cache dos timeframes para evitar múltiplas buscas
+    const timeframeMap = new Map(timeframes.map(tf => [tf.timeframe, tf]))
+    const tf2h = timeframeMap.get('2h')?.current
+    const tf4h = timeframeMap.get('4h')?.current
+    const tf5m = timeframeMap.get('5m')?.current
+    const tf5mPrev = timeframeMap.get('5m')?.previous
 
-  const getActionBadge = (action: string) => {
-    const config = {
-      'BUY': { bg: 'bg-green-100', text: 'text-green-800' },
-      'SELL': { bg: 'bg-red-100', text: 'text-red-800' },
-      'HOLD': { bg: 'bg-gray-100', text: 'text-gray-800' }
+    if (!tf2h || !tf4h || !tf5m) {
+      return { signal: 'NEUTRAL', confidence: 0, reason: 'Dados insuficientes' }
     }
 
-    const style = config[action as keyof typeof config] || config['HOLD']
+    // Estratégia 1: Cruzamento de MM1 com Center + RSI (otimizada)
+    const has2hData = tf2h.ma1 && tf2h.center && tf2h.rsi
+    const has4hData = tf4h.ma1 && tf4h.center && tf4h.rsi
+    
+    if (has2hData && has4hData) {
+      const cross2h = tf2h.ma1! > tf2h.center!
+      const cross4h = tf4h.ma1! > tf4h.center!
+      const rsi2hValid = tf2h.rsi! >= RSI_MIN && tf2h.rsi! <= RSI_MAX
+      const rsi4hValid = tf4h.rsi! >= RSI_MIN && tf4h.rsi! <= RSI_MAX
+
+      if ((cross2h || cross4h) && (rsi2hValid || rsi4hValid)) {
+        const signal = cross2h || cross4h ? 'BUY' : 'SELL'
+        const timeframe = cross2h ? '2h' : '4h'
+        return {
+          signal,
+          confidence: 85,
+          reason: `Cruzamento MM1/Center em ${timeframe} + RSI válido`
+        }
+      }
+    }
+
+    // Estratégia 2: Distância MM1 vs Center (otimizada)
+    const hasDistanceData = tf2h.ma1 && tf2h.center && tf4h.ma1 && tf4h.center
+    
+    if (hasDistanceData) {
+      const dist2h = ((tf2h.ma1! - tf2h.center!) / tf2h.center!) * 100
+      const dist4h = ((tf4h.ma1! - tf4h.center!) / tf4h.center!) * 100
+      const absDist2h = Math.abs(dist2h)
+      const absDist4h = Math.abs(dist4h)
+
+      if (absDist2h >= DIST_2H_THRESHOLD || absDist4h >= DIST_4H_THRESHOLD) {
+        const signal = (dist2h >= DIST_2H_THRESHOLD || dist4h >= DIST_4H_THRESHOLD) ? 'BUY' : 'SELL'
+        return {
+          signal,
+          confidence: 75,
+          reason: `Distância MM1/Center: 2h=${dist2h.toFixed(2)}%, 4h=${dist4h.toFixed(2)}%`
+        }
+      }
+    }
+
+    // Estratégia 3: Volume súbito + direção das médias (ultra-otimizada)
+    const hasVolumeData = tf5m.volume && tf5mPrev?.volume && tf2h.ma1 && tf2h.center
+    
+    if (hasVolumeData) {
+      const currentVolume = tf5m.volume!
+      const previousVolume = tf5mPrev!.volume!
+      const volumeRatio5m = currentVolume / previousVolume
+      const trendSignal = tf2h.ma1! > tf2h.center! ? 'BUY' : 'SELL'
+      
+      // Volume spike otimizado - evitar cálculos desnecessários
+      if (volumeRatio5m >= VOLUME_SPIKE_THRESHOLD) {
+        return {
+          signal: trendSignal,
+          confidence: 70,
+          reason: `Volume súbito 5m (${volumeRatio5m.toFixed(1)}x) + tendência ${trendSignal}`
+        }
+      }
+
+      // Volume elevado - verificação otimizada
+      if (tf2h.volume && volumeRatio5m >= VOLUME_ELEVATED_THRESHOLD) {
+        return {
+          signal: trendSignal,
+          confidence: 60,
+          reason: `Volume elevado + tendência ${trendSignal}`
+        }
+      }
+    }
+
+    return { signal: 'NEUTRAL', confidence: 0, reason: 'Nenhuma condição atendida' }
+  }, [])
+
+  // Executar trade automaticamente
+  const executeTradeIfValid = useCallback((signal: TradingSignal) => {
+    if (!signal.shouldExecute || signal.signal === 'NEUTRAL') return
+
+    const currentOpenTrades = openPositions?.length || 0
+    if (currentOpenTrades >= maxOpenTrades) {
+      console.log(`Máximo de trades atingido: ${currentOpenTrades}/${maxOpenTrades}`)
+      return
+    }
+
+    // Verificar se já existe posição para este símbolo
+    const existingPosition = openPositions?.find((pos: any) => pos.symbol === signal.symbol)
+    if (existingPosition) {
+      console.log(`Posição já aberta para ${signal.symbol}`)
+      return
+    }
+
+    const currentPrice = signal.timeframes.find(tf => tf.timeframe === '5m')?.current.close || 0
+    const stopLossPercent = signal.signal === 'BUY' ? -2 : 2 // -2% para BUY, +2% para SELL
+    const stopLossPrice = currentPrice * (1 + stopLossPercent / 100)
+
+    const trade: TradeExecution = {
+      symbol: signal.symbol,
+      side: signal.signal,
+      type: 'MARKET',
+      quantity: 0.001, // Quantidade mínima - deve ser configurável
+      stopLoss: stopLossPrice
+    }
+
+    executeTradeThudamutation.mutate(trade)
+  }, [openPositions, maxOpenTrades, executeTradeThudamutation])
+
+  // Buscar dados de múltiplos timeframes com cache otimizado
+  const { data: marketData } = useQuery(
+    'multi-timeframe-data',
+    async () => {
+      const symbols = botStatus?.scannedSymbols || ['BTCUSDT', 'ETHUSDT', 'ADAUSDT']
+      const results: TradingSignal[] = []
+      const timestamp = Date.now()
+
+      // Processar símbolos em lotes para otimizar performance
+      const limitedSymbols = symbols.slice(0, MAX_SYMBOLS)
+      const symbolBatches: string[][] = []
+      for (let i = 0; i < limitedSymbols.length; i += BATCH_SIZE) {
+        symbolBatches.push(limitedSymbols.slice(i, i + BATCH_SIZE))
+      }
+
+      for (const batch of symbolBatches) {
+        const batchPromises = batch.map(async (symbol: string) => {
+          try {
+            const cacheKey = `${symbol}-${Math.floor(timestamp / CACHE_TTL)}`
+            const cachedData = indicatorCache.get(cacheKey)
+            
+            if (cachedData) {
+              return cachedData as TradingSignal
+            }
+
+            // Buscar dados para os 3 timeframes
+            const [data5m, data2h, data4h] = await Promise.all([
+              fetch(`/api/trading/candles/${symbol}?interval=5m&limit=50`).then(r => r.json()),
+              fetch(`/api/trading/candles/${symbol}?interval=2h&limit=50`).then(r => r.json()),
+              fetch(`/api/trading/candles/${symbol}?interval=4h&limit=50`).then(r => r.json())
+            ])
+
+            if (data5m.success && data2h.success && data4h.success) {
+              const timeframes: TimeframeData[] = [
+                {
+                  timeframe: '5m',
+                  current: data5m.data[0] || null,
+                  previous: data5m.data[1] || null
+                },
+                {
+                  timeframe: '2h',
+                  current: data2h.data[0] || null,
+                  previous: data2h.data[1] || null
+                },
+                {
+                  timeframe: '4h',
+                  current: data4h.data[0] || null,
+                  previous: data4h.data[1] || null
+                }
+              ]
+
+              const analysis = analyzeSignal(timeframes)
+              const shouldExecute = analysis.confidence >= CONFIDENCE_THRESHOLD && analysis.signal !== 'NEUTRAL'
+              const signal: TradingSignal = {
+                symbol,
+                signal: analysis.signal,
+                confidence: analysis.confidence,
+                reason: analysis.reason,
+                timestamp,
+                timeframes,
+                shouldExecute
+              }
+
+              // Cache do resultado com TTL otimizado
+              indicatorCache.set(cacheKey, signal, CACHE_TTL)
+              
+              // Executar trade se necessário
+              if (signal.shouldExecute) {
+                executeTradeIfValid(signal)
+              }
+
+              return signal
+            }
+          } catch (error) {
+            console.error(`Erro ao buscar dados para ${symbol}:`, error)
+            return null
+          }
+        })
+
+        const batchResults = await Promise.all(batchPromises)
+        results.push(...batchResults.filter(Boolean) as TradingSignal[])
+      }
+
+      return results
+    },
+    {
+      refetchInterval: 10000, // Atualizar a cada 10 segundos
+      enabled: !!botStatus?.scannedSymbols
+    }
+  )
+
+  // Memoização dos sinais ativos para evitar recálculos
+  const activeSignals = useMemo(() => {
+    return signals.filter(s => s.signal !== 'NEUTRAL')
+  }, [signals])
+
+  // Memoização das estatísticas de sinais
+  const signalStats = useMemo(() => {
+    const buyCount = signals.filter(s => s.signal === 'BUY').length
+    const sellCount = signals.filter(s => s.signal === 'SELL').length
+    const neutralCount = signals.filter(s => s.signal === 'NEUTRAL').length
+    return { buyCount, sellCount, neutralCount }
+  }, [signals])
+
+  useEffect(() => {
+    if (marketData) {
+      setSignals(marketData)
+    }
+  }, [marketData])
+
+    // Limpeza periódica de cache
+  useEffect(() => {
+    const cleanup = setInterval(cleanupCaches, 60000) // A cada minuto
+    return () => clearInterval(cleanup)
+  }, [])
+
+  const getSignalBadge = (signal: string, confidence: number) => {
+    const config = {
+      'BUY': { bg: 'bg-green-100', text: 'text-green-800', icon: '📈' },
+      'SELL': { bg: 'bg-red-100', text: 'text-red-800', icon: '📉' },
+      'NEUTRAL': { bg: 'bg-gray-100', text: 'text-gray-800', icon: '➖' }
+    }
+    const style = config[signal as keyof typeof config] || config['NEUTRAL']
     
     return (
-      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${style.bg} ${style.text}`}>
-        {action}
+      <span className={`inline-flex items-center px-2 py-1 text-xs font-semibold rounded-full ${style.bg} ${style.text}`}>
+        {style.icon} {signal} {confidence > 0 && `(${confidence}%)`}
       </span>
     )
   }
 
   return (
-    <div className="space-y-6">
-      {/* Signal Statistics */}
-      <div className="grid grid-cols-2 md:grid-cols-6 gap-4 mb-6">
-        <div className="card p-4 text-center">
-          <div className="text-2xl font-bold text-gray-900">{signalStats.total}</div>
-          <div className="text-sm text-gray-500">Total Sinais</div>
+    <div className="bg-white rounded-lg shadow-lg border border-blue-300 h-full flex flex-col relative overflow-hidden">
+      {/* Destaque visual superior */}
+      <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500"></div>
+      
+      <div className="px-4 py-3 border-b border-blue-200 flex justify-between items-center bg-gradient-to-r from-blue-50 to-indigo-50">
+        <div className="flex items-center space-x-2">
+          <div className="w-3 h-3 rounded-full bg-blue-500 animate-pulse"></div>
+          <h3 className="text-lg font-bold text-blue-900">
+            🎯 Motor de Sinais Inteligentes
+          </h3>
+          <span className="px-2 py-1 bg-blue-500 text-white text-xs font-bold rounded-full animate-pulse">
+            LIVE
+          </span>
         </div>
-        <div className="card p-4 text-center">
-          <div className="text-2xl font-bold text-green-600">{signalStats.buy}</div>
-          <div className="text-sm text-gray-500">BUY</div>
-        </div>
-        <div className="card p-4 text-center">
-          <div className="text-2xl font-bold text-red-600">{signalStats.sell}</div>
-          <div className="text-sm text-gray-500">SELL</div>
-        </div>
-        <div className="card p-4 text-center">
-          <div className="text-2xl font-bold text-gray-600">{signalStats.hold}</div>
-          <div className="text-sm text-gray-500">HOLD</div>
-        </div>
-        <div className="card p-4 text-center">
-          <div className="text-2xl font-bold text-blue-600">{signalStats.avgStrength}%</div>
-          <div className="text-sm text-gray-500">Força Média</div>
-        </div>
-        <div className="card p-4 text-center">
-          <div className="text-2xl font-bold text-purple-600">{signalStats.recentStrong}</div>
-          <div className="text-sm text-gray-500">Sinais Fortes</div>
-        </div>
-      </div>
-
-      {/* Symbol Selection */}
-      <div className="card p-6">
-        <div className="flex justify-between items-center mb-4">
-          <h3 className="text-lg font-medium text-gray-900">{t('trading.signals.title')}</h3>
-          <div className="flex items-center space-x-4">
-            <div className={`flex items-center space-x-2 ${
-              connectionStatus === 'connected' ? 'text-green-600' : 
-              connectionStatus === 'connecting' ? 'text-yellow-600' : 'text-red-600'
-            }`}>
-              <div className={`w-2 h-2 rounded-full ${
-                connectionStatus === 'connected' ? 'bg-green-500' : 
-                connectionStatus === 'connecting' ? 'bg-yellow-500' : 'bg-red-500'
-              }`}></div>
-              <span className="text-sm font-medium">{getConnectionStatusMessage(connectionStatus)}</span>
+        <div className="flex items-center space-x-4">
+          <div className="text-right">
+            <div className="text-sm font-medium text-blue-700">
+              {signals.length} símbolos | {activeSignals.length} sinais ativos
             </div>
-            <div className="text-sm text-gray-500">
-              {signals.length} signals
-            </div>
-          </div>
-        </div>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div>
-            <label className="label">{t('trading.signals.selectedSymbol')}</label>
-            <select
-              value={selectedSymbol}
-              onChange={(e) => setSelectedSymbol(e.target.value)}
-              className="input"
-            >
-              {availableSymbols.length === 0 ? (
-                <option value="">Loading symbols...</option>
-              ) : (
-                availableSymbols.map((symbol: string) => (
-                  <option key={symbol} value={symbol}>
-                    {symbol} {botStatus?.scannedSymbols ? '(Parallel Bot)' : '(High Volume)'}
-                  </option>
-                ))
-              )}
-            </select>
-          </div>
-          
-          <div>
-            <label className="label">{t('trading.signals.watchedSymbols')}</label>
-            <div className="flex flex-wrap gap-2">
-              {watchedSymbols.map((symbol: string) => (
-                <button
-                  key={symbol}
-                  onClick={() => setSelectedSymbol(symbol)}
-                  className={`px-3 py-1 text-sm rounded-full border ${
-                    selectedSymbol === symbol
-                      ? 'bg-primary-100 border-primary-300 text-primary-700'
-                      : 'bg-gray-100 border-gray-300 text-gray-700 hover:bg-gray-200'
-                  }`}
-                >
-                  {symbol}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Current Signal Analysis */}
-      {signalLoading ? (
-        <div className="card p-6">
-          <div className="flex items-center justify-center h-32">
-            <div className="text-center">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-600 mx-auto mb-2"></div>
-              <div className="text-gray-600">Loading signal for {selectedSymbol}...</div>
-            </div>
-          </div>
-        </div>
-      ) : signalError ? (
-        <div className="card p-6">
-          <div className="flex items-center justify-center h-32">
-            <div className="text-center">
-              <div className="text-red-600 text-lg mb-2">⚠️</div>
-              <div className="text-gray-600">Failed to load signal for {selectedSymbol}</div>
-              <div className="text-sm text-gray-500 mt-1">
-                {signalError instanceof Error ? signalError.message : 'Unknown error'}
-              </div>
-            </div>
-          </div>
-        </div>
-      ) : currentSignal ? (
-        <div className="card p-6">
-          <div className="flex justify-between items-center mb-4">
-            <h3 className="text-lg font-medium text-gray-900">
-              Current Signal: {selectedSymbol}
-            </h3>
-            <div className="flex items-center space-x-2">
-              {getActionBadge(currentSignal.action)}
-              <span className={`font-bold ${getSignalStrengthColor(currentSignal.strength)}`}>
-                {currentSignal.strength}%
+            <div className="text-xs text-blue-600">
+              Trades: {openPositions?.length || 0}/{maxOpenTrades} | 
+              <span className="text-green-600 font-medium ml-1">
+                ✅ {signalStats.buyCount} BUY
+              </span> | 
+              <span className="text-red-600 font-medium">
+                ❌ {signalStats.sellCount} SELL
               </span>
             </div>
           </div>
-
-          {currentSignal.indicators && (
-            currentSignal.indicators.price !== null || 
-            currentSignal.indicators.ma1 !== null || 
-            currentSignal.indicators.ma2 !== null || 
-            currentSignal.indicators.rsi !== null
-          ) ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-              {/* Price Info */}
-              <div>
-                <h4 className="text-sm font-medium text-gray-500 mb-2">Price Info</h4>
-                <div className="space-y-1">
-                  <div className="flex justify-between">
-                    <span className="text-sm text-gray-600">Current:</span>
-                    <span className="text-sm font-medium">
-                      {currentSignal.indicators.price && currentSignal.indicators.price !== null ? 
-                        `$${Number(currentSignal.indicators.price).toFixed(4)}` : 'N/A'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm text-gray-600">MA1 (9):</span>
-                    <span className="text-sm font-medium">
-                      {currentSignal.indicators.ma1 && currentSignal.indicators.ma1 !== null ? 
-                        `$${Number(currentSignal.indicators.ma1).toFixed(4)}` : 'N/A'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm text-gray-600">MA2 (21):</span>
-                    <span className="text-sm font-medium">
-                      {currentSignal.indicators.ma2 && currentSignal.indicators.ma2 !== null ? 
-                        `$${Number(currentSignal.indicators.ma2).toFixed(4)}` : 'N/A'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* RSI */}
-              <div>
-                <h4 className="text-sm font-medium text-gray-500 mb-2">RSI</h4>
-                <div className="text-2xl font-bold text-gray-900">
-                  {currentSignal.indicators.rsi ? Number(currentSignal.indicators.rsi).toFixed(1) : 'N/A'}
-                </div>
-                <div className="text-sm text-gray-500">
-                  {currentSignal.indicators.rsi ? (
-                    currentSignal.indicators.rsi <= 30 ? 'Oversold' : 
-                    currentSignal.indicators.rsi >= 70 ? 'Overbought' : 'Neutral'
-                  ) : 'No data'}
-                </div>
-              </div>
-
-              {/* Volume */}
-              <div>
-                <h4 className="text-sm font-medium text-gray-500 mb-2">Volume</h4>
-                <div className="space-y-1">
-                  <div className="flex justify-between">
-                    <span className="text-sm text-gray-600">Current:</span>
-                    <span className="text-sm font-medium">
-                      {currentSignal.indicators.volume && currentSignal.indicators.volume !== null ? 
-                        (Number(currentSignal.indicators.volume) / 1000).toFixed(1) + 'K' : 'N/A'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm text-gray-600">Average:</span>
-                    <span className="text-sm font-medium">
-                      {currentSignal.indicators.avgVolume && currentSignal.indicators.avgVolume !== null ? 
-                        (Number(currentSignal.indicators.avgVolume) / 1000).toFixed(1) + 'K' : 'N/A'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm text-gray-600">Ratio:</span>
-                    <span className={`text-sm font-medium ${
-                      currentSignal.indicators.volume && currentSignal.indicators.avgVolume &&
-                      currentSignal.indicators.volume !== null && currentSignal.indicators.avgVolume !== null &&
-                      currentSignal.indicators.volume / currentSignal.indicators.avgVolume > 1.5 ? 'text-green-600' : 'text-gray-600'
-                    }`}>
-                      {currentSignal.indicators.volume && currentSignal.indicators.avgVolume && 
-                       currentSignal.indicators.volume !== null && currentSignal.indicators.avgVolume !== null ? 
-                        (Number(currentSignal.indicators.volume) / Number(currentSignal.indicators.avgVolume)).toFixed(2) + 'x' : 'N/A'
-                      }
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Conditions */}
-              <div>
-                <h4 className="text-sm font-medium text-gray-500 mb-2">Conditions</h4>
-                <div className="space-y-1">
-                  <div className="flex justify-between">
-                    <span className="text-sm text-gray-600">MA Cross:</span>
-                    <span className={`text-sm ${currentSignal.conditions?.maCrossover ? 'text-green-600' : 'text-gray-400'}`}>
-                      {currentSignal.conditions?.maCrossover ? '✓' : '✗'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm text-gray-600">RSI Signal:</span>
-                    <span className={`text-sm ${currentSignal.conditions?.rsiSignal ? 'text-green-600' : 'text-gray-400'}`}>
-                      {currentSignal.conditions?.rsiSignal ? '✓' : '✗'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm text-gray-600">Volume:</span>
-                    <span className={`text-sm ${currentSignal.conditions?.volumeConfirmation ? 'text-green-600' : 'text-gray-400'}`}>
-                      {currentSignal.conditions?.volumeConfirmation ? '✓' : '✗'}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-sm text-gray-600">Trend:</span>
-                    <span className={`text-sm ${currentSignal.conditions?.trendAlignment ? 'text-green-600' : 'text-gray-400'}`}>
-                      {currentSignal.conditions?.trendAlignment ? '✓' : '✗'}
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="p-8 text-center">
-              <div className="animate-pulse flex items-center justify-center mb-4">
-                <svg className="h-8 w-8 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                </svg>
-              </div>
-              <div className="text-blue-600 text-lg mb-2 font-medium">Calculando Indicadores Técnicos</div>
-              <p className="text-gray-600 mb-3">
-                Os indicadores técnicos estão sendo calculados. Aguarde enquanto os dados de mercado são processados.
-              </p>
-              <div className="text-sm text-gray-500">
-                • Análise de médias móveis (MA1/MA2)<br/>
-                • Cálculo do RSI<br/>
-                • Análise de volume<br/>
-                • Verificação de condições de entrada
-              </div>
-            </div>
-          )}
-
-          <div className="mt-4 p-3 bg-gray-50 rounded-lg">
-            <p className="text-sm text-gray-700">
-              <strong>Reason:</strong> {currentSignal.reason || 'No reason provided'}
-            </p>
-          </div>
         </div>
-      ) : (
-        <div className="card p-6">
-          <div className="flex items-center justify-center h-32">
-            <div className="text-center">
-              <div className="text-gray-400 text-lg mb-2">📊</div>
-              <div className="text-gray-600">No signal data available</div>
-              <div className="text-sm text-gray-500 mt-1">
-                Please select a valid symbol to view trading signals
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      </div>
 
-      {/* Live Signals Feed */}
-      <div className="card">
-        <div className="px-6 py-4 border-b border-gray-200 flex justify-between items-center">
-          <h3 className="text-lg font-medium text-gray-900">{t('trading.signals.recentSignals')}</h3>
-          <div className="flex items-center space-x-2">
-            <span className="text-sm text-gray-500">{signals.length} signals</span>
-            {signals.length > 0 && (
-              <button
-                onClick={() => setSignals([])}
-                className="text-sm text-red-600 hover:text-red-800 px-2 py-1 rounded border border-red-300 hover:bg-red-50"
-              >
-                {t('common.clear')}
-              </button>
-            )}
-          </div>
-        </div>
-
-        <div className="divide-y divide-gray-200">
-          {signals.length === 0 ? (
-            <div className="p-6 text-center text-gray-500">
-              No signals received yet. Signals will appear here as they are generated.
-            </div>
-          ) : (
-            signals.map((signal, index) => {
-              const isNew = signal.timestamp && (Date.now() - new Date(signal.timestamp).getTime()) < 30000 // 30 seconds
-              return (
-                <div key={index} className={`p-4 hover:bg-gray-50 ${isNew ? 'bg-blue-50 border-l-4 border-blue-400' : ''}`}>
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-4">
-                      <div className="font-medium text-gray-900">{signal.symbol || 'Unknown'}</div>
-                      {getActionBadge(signal.action || 'HOLD')}
-                      <span className={`font-bold ${getSignalStrengthColor(signal.strength || 0)}`}>
-                        {signal.strength || 0}%
+      <div className="flex-1 overflow-auto">
+        <table className="min-w-full divide-y divide-gray-200">
+          <thead className="bg-gray-50 sticky top-0">
+            <tr>
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Símbolo
+              </th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Horário
+              </th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                5m
+              </th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                2h
+              </th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                4h
+              </th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Sinal
+              </th>
+              <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Ação
+              </th>
+            </tr>
+          </thead>
+          <tbody className="bg-white divide-y divide-gray-200">
+            {signals.map((signal, index) => (
+              <tr key={index} className={`hover:bg-blue-50 transition-colors ${
+                signal.shouldExecute 
+                  ? 'bg-gradient-to-r from-yellow-50 to-orange-50 border-l-4 border-orange-400 shadow-sm' 
+                  : signal.signal !== 'NEUTRAL' 
+                    ? 'bg-gray-50' 
+                    : ''
+              }`}>
+                <td className="px-3 py-2 whitespace-nowrap">
+                  <div className="font-medium text-gray-900">{signal.symbol}</div>
+                </td>
+                <td className="px-3 py-2 whitespace-nowrap text-xs text-gray-500">
+                  {new Date(signal.timestamp).toLocaleString('pt-BR', {
+                    day: '2-digit',
+                    month: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit'
+                  })}
+                </td>
+                
+                {(() => {
+                  // Cache dos timeframes para evitar múltiplas buscas
+                  const tf5m = signal.timeframes.find(tf => tf.timeframe === '5m')?.current
+                  const tf2h = signal.timeframes.find(tf => tf.timeframe === '2h')?.current
+                  const tf4h = signal.timeframes.find(tf => tf.timeframe === '4h')?.current
+                  
+                  return (
+                    <>
+                      {/* Dados 5m */}
+                      <td className="px-3 py-2">
+                        <div className="text-xs space-y-1">
+                          <div>Preço: {formatPrice(tf5m?.close)}</div>
+                          <div>MM1: {formatPrice(tf5m?.ma1)}</div>
+                          <div>Center: {formatPrice(tf5m?.center)}</div>
+                          <div>RSI: {tf5m?.rsi?.toFixed(1) || 'N/A'}</div>
+                          <div>Vol: {formatVolume(tf5m?.volume)}</div>
+                        </div>
+                      </td>
+                      
+                      {/* Dados 2h */}
+                      <td className="px-3 py-2">
+                        <div className="text-xs space-y-1">
+                          <div>Preço: {formatPrice(tf2h?.close)}</div>
+                          <div>MM1: {formatPrice(tf2h?.ma1)}</div>
+                          <div>Center: {formatPrice(tf2h?.center)}</div>
+                          <div>RSI: {tf2h?.rsi?.toFixed(1) || 'N/A'}</div>
+                          <div>Vol: {formatVolume(tf2h?.volume)}</div>
+                        </div>
+                      </td>
+                      
+                      {/* Dados 4h */}
+                      <td className="px-3 py-2">
+                        <div className="text-xs space-y-1">
+                          <div>Preço: {formatPrice(tf4h?.close)}</div>
+                          <div>MM1: {formatPrice(tf4h?.ma1)}</div>
+                          <div>Center: {formatPrice(tf4h?.center)}</div>
+                          <div>RSI: {tf4h?.rsi?.toFixed(1) || 'N/A'}</div>
+                          <div>Vol: {formatVolume(tf4h?.volume)}</div>
+                        </div>
+                      </td>
+                    </>
+                  )
+                })()}
+                
+                {/* Sinal */}
+                <td className="px-3 py-2">
+                  <div className="space-y-1">
+                    {getSignalBadge(signal.signal, signal.confidence)}
+                    <div className="text-xs text-gray-600 max-w-32">
+                      {signal.reason}
+                    </div>
+                  </div>
+                </td>
+                
+                {/* Ação */}
+                <td className="px-3 py-2">
+                  <div className="text-xs">
+                    {signal.shouldExecute ? (
+                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+                        🚀 Executando
                       </span>
-                      {isNew && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                          NEW
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-sm text-gray-500">
-                      {signal.timestamp ? new Date(signal.timestamp).toLocaleTimeString() : 'Unknown time'}
-                    </div>
+                    ) : signal.signal !== 'NEUTRAL' ? (
+                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                        📊 Monitorando
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                        ⏸️ Aguardando
+                      </span>
+                    )}
                   </div>
-                  <div className="mt-2 text-sm text-gray-600">
-                    {signal.reason || 'No reason provided'}
-                  </div>
-                </div>
-              )
-            })
-          )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        
+        {signals.length === 0 && (
+          <div className="p-8 text-center text-gray-500">
+            <div className="text-4xl mb-4">📊</div>
+            <div className="text-lg font-medium mb-2">Carregando sinais...</div>
+            <div className="text-sm">Aguarde enquanto os dados dos símbolos são processados</div>
+          </div>
+        )}
+      </div>
+      
+      {/* Rodapé simplificado */}
+      <div className="px-4 py-2 bg-gradient-to-r from-blue-50 to-indigo-50 border-t border-blue-200">
+        <div className="flex justify-between items-center text-sm">
+          <div className="flex items-center space-x-2">
+            <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+            <span className="text-blue-700 font-medium">
+              Última atualização: {new Date().toLocaleTimeString('pt-BR')}
+            </span>
+          </div>
+          <span className="text-blue-600 font-medium">
+            ⏸️ {signalStats.neutralCount} símbolos neutros
+          </span>
         </div>
       </div>
     </div>

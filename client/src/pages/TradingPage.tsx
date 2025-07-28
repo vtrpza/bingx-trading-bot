@@ -7,15 +7,19 @@ import PositionsTable from '../components/PositionsTable'
 import TradingStats from '../components/TradingStats'
 import TradeHistory from '../components/TradeHistory'
 import RealTimeSignals from '../components/RealTimeSignals'
-// import TradingFlowMonitor from '../components/TradingFlowMonitor'
+import BarraMetricasTrading from '../components/BarraMetricasTrading'
+import PainelFluxoTrading from '../components/PainelFluxoTrading'
+import FeedTradingAoVivo from '../components/FeedTradingAoVivo'
+import RastreadorExecucaoSinal from '../components/RastreadorExecucaoSinal'
 import type { BotStatus2, BotConfig } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { useLocalStorage } from '../hooks/useLocalStorage'
 import { useTranslation } from '../hooks/useTranslation'
 
 export default function TradingPage() {
-  // Use localStorage for persistent state
-  const [activeTab, setActiveTab] = useLocalStorage<'overview' | 'positions' | 'history' | 'signals' | 'logs' | 'performance'>('tradingPageActiveTab', 'overview')
+  // Removendo tabs - agora é um dashboard unificado
+  const [showHistoryModal, setShowHistoryModal] = useLocalStorage('tradingPageShowHistory', false)
+  const [selectedSymbol, setSelectedSymbol] = useLocalStorage<string | null>('tradingPageSelectedSymbol', null)
   const queryClient = useQueryClient()
   const { t } = useTranslation()
 
@@ -208,412 +212,158 @@ export default function TradingPage() {
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Parallel Trading Bot</h1>
-          <p className="text-sm text-gray-600">High-performance parallel signal processing and trade execution</p>
-        </div>
-        <div className="flex items-center space-x-4">
-          {/* Architecture Indicator */}
-          <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800">
-            Parallel Architecture
-          </span>
-          
-          {/* Rate Limit Status */}
-          <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${
-            rateLimitStatus?.remainingRequests > 50 ? 'bg-green-100 text-green-800' :
-            rateLimitStatus?.remainingRequests > 20 ? 'bg-yellow-100 text-yellow-800' :
-            'bg-red-100 text-red-800'
-          }`}>
-            {rateLimitStatus 
-              ? `${rateLimitStatus.remainingRequests}/${rateLimitStatus.maxRequests} Available`
-              : '100 req/10s Rate Limited'
-            }
-          </span>
-          
-          {/* Connection Status */}
-          <div className="flex items-center space-x-2">
-            <div className="w-3 h-3 rounded-full bg-green-500" />
-            <span className="text-sm text-gray-600">{t('trading.connectionStatus')}</span>
+    <div className="flex flex-col bg-gray-50">
+      {/* Barra de Métricas Superior */}
+      <BarraMetricasTrading />
+
+      {/* Dashboard Principal */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Header e Controles */}
+        <div className="bg-white border-b border-gray-200 px-6 py-4">
+          <div className="flex justify-between items-center">
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900">
+                🎯 Central de Sinais de Trading 
+              </h1>
+            </div>
+            <div className="flex items-center space-x-4">
+              {/* Connection Status */}
+              <div className="flex items-center space-x-2">
+                <div className="w-3 h-3 rounded-full bg-green-500 animate-pulse" />
+                <span className="text-sm text-gray-600">Conectado</span>
+              </div>
+              
+              {/* Demo Mode Indicator */}
+              {botStatus?.demoMode && (
+                <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-yellow-100 text-yellow-800">
+                  Modo Demo (VST)
+                </span>
+              )}
+              
+              {/* History Button */}
+              <button
+                onClick={() => setShowHistoryModal(true)}
+                className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
+              >
+                📜 Histórico
+              </button>
+            </div>
           </div>
-          
-          {/* Demo Mode Indicator */}
-          {botStatus?.demoMode && (
-            <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-yellow-100 text-yellow-800">
-              {t('dashboard.demoMode')} (VST)
-            </span>
+
+          {/* Bot Controls */}
+          <div className="mt-4">
+            <BotControls
+              botStatus={botStatus}
+              onStart={handleStartBot}
+              onStop={handleStopBot}
+              onUpdateConfig={handleUpdateConfig}
+              isStarting={startBotMutation.isLoading}
+              isStopping={stopBotMutation.isLoading}
+              isUpdatingConfig={updateConfigMutation.isLoading}
+            />
+          </div>
+        </div>
+
+        {/* Layout Principal - Design Hierárquico com Foco em Sinais */}
+        <div className="flex-1 overflow-hidden p-4">
+          <div className="trading-dashboard-grid">
+            {/* 🎯 DESTAQUE PRINCIPAL - Sinais em Tempo Real (40% da tela) */}
+            <div className="grid-area-signals">
+              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 p-1 rounded-lg border-2 border-blue-200 h-full">
+                <RealTimeSignals />
+              </div>
+            </div>
+
+            {/* 🔥 SEGUNDO DESTAQUE - Pipeline de Trading (20% da tela - linha completa) */}
+            <div className="grid-area-pipeline">
+              <div className="bg-gradient-to-r from-green-50 to-emerald-50 p-1 rounded-lg border-2 border-green-200 h-full">
+                <PainelFluxoTrading />
+              </div>
+            </div>
+            
+            {/* 📊 TERCEIRO DESTAQUE - Posições Abertas (20% da tela - linha completa) */}
+            <div className="grid-area-positions">
+              <div className="bg-gradient-to-r from-orange-50 to-amber-50 p-1 rounded-lg border-2 border-orange-200 h-full">
+                <PositionsTable positions={botStatus?.activePositions || []} />
+              </div>
+            </div>
+
+            {/* 📈 COMPONENTES SECUNDÁRIOS - Organizados Embaixo (20% da tela) */}
+            
+            {/* Estatísticas de Trading */}
+            <div className="grid-area-stats">
+              <TradingStats stats={tradingStats} />
+            </div>
+
+            {/* Rastreador de Execução */}
+            <div className="grid-area-tracker">
+              <RastreadorExecucaoSinal 
+                symbolFilter={selectedSymbol || undefined}
+                limit={3}
+              />
+            </div>
+
+            {/* Feed de Atividades */}
+            <div className="grid-area-feed">
+              <FeedTradingAoVivo />
+            </div>
+          </div>
+
+          {/* Blacklisted Symbols Warning - Seção separada abaixo do grid */}
+          {blacklistedSymbols && blacklistedSymbols.length > 0 && (
+            <div className="mt-4 bg-yellow-50 border-2 border-yellow-200 rounded-lg p-4">
+              <div className="flex items-center justify-between mb-2">
+                <div>
+                  <h3 className="font-medium text-yellow-900">Símbolos na Lista Negra</h3>
+                  <p className="text-sm text-yellow-700">
+                    {blacklistedSymbols.length} símbolo(s) temporariamente bloqueados devido a erros
+                  </p>
+                </div>
+                <button
+                  onClick={() => clearBlacklistMutation.mutate()}
+                  disabled={clearBlacklistMutation.isLoading}
+                  className="px-3 py-1 bg-yellow-600 text-white text-sm rounded hover:bg-yellow-700 disabled:opacity-50"
+                >
+                  {clearBlacklistMutation.isLoading ? 'Limpando...' : 'Limpar Todos'}
+                </button>
+              </div>
+              <div className="grid grid-cols-6 gap-2">
+                {blacklistedSymbols.slice(0, 6).map((item: any) => (
+                  <div key={item.symbol} className="flex items-center justify-between bg-white p-2 rounded border border-yellow-300">
+                    <span className="font-medium text-gray-900">{item.symbol}</span>
+                    <div className="text-xs text-gray-600">
+                      <div>Falhas: {item.count}</div>
+                      <div>Até: {new Date(item.backoffUntil).toLocaleTimeString('pt-BR')}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
         </div>
       </div>
 
-      {/* Bot Controls */}
-      <BotControls
-        botStatus={botStatus}
-        onStart={handleStartBot}
-        onStop={handleStopBot}
-        onUpdateConfig={handleUpdateConfig}
-        isStarting={startBotMutation.isLoading}
-        isStopping={stopBotMutation.isLoading}
-        isUpdatingConfig={updateConfigMutation.isLoading}
-      />
-     
-      {/* Navigation Tabs */}
-      <div className="border-b border-gray-200">
-        <nav className="-mb-px flex space-x-8">
-          {[
-            { id: 'overview', name: 'Overview', count: botStatus?.activePositions?.length },
-            // { id: 'performance', name: 'Performance', count: performanceData?.alerts?.length },
-            { id: 'signals', name: 'Signals', count: activityEvents?.filter((e: any) => e.type === 'signal_generated')?.length },
-            { id: 'positions', name: 'Positions', count: botStatus?.activePositions?.length },
-            { id: 'history', name: 'History' },
-            { id: 'logs', name: 'Activity' }
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id as any)}
-              className={`py-2 px-1 border-b-2 font-medium text-sm whitespace-nowrap ${
-                activeTab === tab.id
-                  ? 'border-primary-500 text-primary-600'
-                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-              }`}
-            >
-              {tab.name}
-              {tab.count !== undefined && tab.count > 0 && (
-                <span className="ml-2 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-                  {tab.count}
-                </span>
-              )}
-            </button>
-          ))}
-        </nav>
-      </div>
-
-      {/* Tab Content */}
-      <div className="mt-6">
-        {activeTab === 'overview' && (
-          <div className="space-y-6">
-            <TradingStats stats={tradingStats} />
-            
-            {/* Trading Flow Monitor */}
-            {/* <TradingFlowMonitor 
-              activityEvents={activityEvents}
-              parallelMetrics={parallelMetrics}
-              isParallelBot={true}
-            /> */}
-            
-            {/* Blacklisted Symbols Warning */}
-            {blacklistedSymbols && blacklistedSymbols.length > 0 && (
-              <div className="card p-6 border-l-4 border-yellow-500 bg-yellow-50">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-lg font-medium text-yellow-800">Blacklisted Symbols</h3>
-                    <p className="text-sm text-yellow-700 mt-1">
-                      {blacklistedSymbols.length} symbol(s) temporarily blacklisted due to errors
-                    </p>
-                  </div>
-                  <button
-                    onClick={() => clearBlacklistMutation.mutate()}
-                    disabled={clearBlacklistMutation.isLoading}
-                    className="px-3 py-1 bg-yellow-600 text-white text-sm rounded hover:bg-yellow-700 disabled:opacity-50"
-                  >
-                    {clearBlacklistMutation.isLoading ? 'Clearing...' : 'Clear All'}
-                  </button>
-                </div>
-                <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                  {blacklistedSymbols.map((item: any) => (
-                    <div key={item.symbol} className="flex items-center justify-between bg-white p-2 rounded border">
-                      <span className="font-medium text-gray-900">{item.symbol}</span>
-                      <div className="text-xs text-gray-500">
-                        <div>Failures: {item.count}</div>
-                        <div>Until: {new Date(item.backoffUntil).toLocaleTimeString()}</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-            
-            {botStatus?.activePositions && botStatus.activePositions.length > 0 && (
-              <PositionsTable positions={botStatus.activePositions} />
-            )}
-          </div>
-        )}
-
-        {activeTab === 'positions' && (
-          <PositionsTable positions={botStatus?.activePositions || []} />
-        )}
-
-        {activeTab === 'history' && (
-          <TradeHistory />
-        )}
-
-        {activeTab === 'performance' && (
-          <div className="space-y-6">
-            {/* Rate Limit Status */}
-            {rateLimitStatus && (
-              <div className="card p-6">
-                <h3 className="text-lg font-medium text-gray-900 mb-4">API Rate Limit Status</h3>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                  <div>
-                    <h4 className="text-sm font-medium text-gray-500">Current Usage</h4>
-                    <p className="text-xl font-bold text-blue-600">
-                      {rateLimitStatus.currentRequests}/{rateLimitStatus.maxRequests}
-                    </p>
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-medium text-gray-500">Remaining</h4>
-                    <p className={`text-xl font-bold ${
-                      rateLimitStatus.remainingRequests > 50 ? 'text-green-600' :
-                      rateLimitStatus.remainingRequests > 20 ? 'text-yellow-600' : 'text-red-600'
-                    }`}>
-                      {rateLimitStatus.remainingRequests}
-                    </p>
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-medium text-gray-500">Window</h4>
-                    <p className="text-xl font-bold text-gray-900">
-                      {(rateLimitStatus.windowMs / 1000).toFixed(0)}s
-                    </p>
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-medium text-gray-500">Oldest Request</h4>
-                    <p className="text-xl font-bold text-gray-900">
-                      {rateLimitStatus.oldestRequestAge > 0 
-                        ? `${(rateLimitStatus.oldestRequestAge / 1000).toFixed(1)}s ago`
-                        : 'None'
-                      }
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Performance Summary */}
-            {performanceData?.summary && (
-              <div className="card p-6">
-                <h3 className="text-lg font-medium text-gray-900 mb-4">Performance Summary (30 min)</h3>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                  <div>
-                    <h4 className="text-sm font-medium text-gray-500">Avg Throughput</h4>
-                    <p className="text-xl font-bold text-blue-600">
-                      {performanceData.summary.averages.signalsPerMinute.toFixed(1)} signals/min
-                    </p>
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-medium text-gray-500">Avg Latency</h4>
-                    <p className="text-xl font-bold text-gray-900">
-                      {(performanceData.summary.averages.avgLatency / 1000).toFixed(1)}s
-                    </p>
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-medium text-gray-500">Worker Utilization</h4>
-                    <p className="text-xl font-bold text-indigo-600">
-                      {performanceData.summary.averages.workerUtilization.toFixed(1)}%
-                    </p>
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-medium text-gray-500">Cache Hit Rate</h4>
-                    <p className="text-xl font-bold text-green-600">
-                      {performanceData.summary.averages.cacheHitRate.toFixed(1)}%
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Performance Trends */}
-            {performanceData?.trends && (
-              <div className="card p-6">
-                <h3 className="text-lg font-medium text-gray-900 mb-4">Performance Trends</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                  <div>
-                    <h4 className="text-sm font-medium text-gray-500">Throughput Trend</h4>
-                    <p className={`text-lg font-bold ${
-                      performanceData.trends.trends.throughput.direction === 'increasing' ? 'text-green-600' :
-                      performanceData.trends.trends.throughput.direction === 'decreasing' ? 'text-red-600' : 'text-gray-600'
-                    }`}>
-                      {performanceData.trends.trends.throughput.direction}
-                    </p>
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-medium text-gray-500">Latency Trend</h4>
-                    <p className={`text-lg font-bold ${
-                      performanceData.trends.trends.latency.direction === 'decreasing' ? 'text-green-600' :
-                      performanceData.trends.trends.latency.direction === 'increasing' ? 'text-red-600' : 'text-gray-600'
-                    }`}>
-                      {performanceData.trends.trends.latency.direction}
-                    </p>
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-medium text-gray-500">Utilization Trend</h4>
-                    <p className={`text-lg font-bold ${
-                      performanceData.trends.trends.utilization.direction === 'increasing' ? 'text-blue-600' :
-                      performanceData.trends.trends.utilization.direction === 'decreasing' ? 'text-orange-600' : 'text-gray-600'
-                    }`}>
-                      {performanceData.trends.trends.utilization.direction}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* Bottleneck Analysis */}
-            {performanceData?.bottlenecks && (
-              <div className="card p-6">
-                <h3 className="text-lg font-medium text-gray-900 mb-4">Bottleneck Analysis</h3>
-                <div className={`p-4 rounded-lg ${
-                  performanceData.bottlenecks.overallHealth === 'healthy' ? 'bg-green-50 border border-green-200' :
-                  performanceData.bottlenecks.overallHealth === 'warning' ? 'bg-yellow-50 border border-yellow-200' :
-                  performanceData.bottlenecks.overallHealth === 'degraded' ? 'bg-orange-50 border border-orange-200' :
-                  'bg-red-50 border border-red-200'
-                }`}>
-                  <h4 className="font-medium">Overall Health: {performanceData.bottlenecks.overallHealth}</h4>
-                  {performanceData.bottlenecks.bottlenecks.length > 0 ? (
-                    <div className="mt-2 space-y-2">
-                      {performanceData.bottlenecks.bottlenecks.map((bottleneck: any, index: number) => (
-                        <div key={index} className="text-sm">
-                          <span className="font-medium">{bottleneck.component}:</span> {bottleneck.issue}
-                          <div className="text-gray-600 ml-2">→ {bottleneck.recommendation}</div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="mt-2 text-sm text-green-600">No bottlenecks detected</p>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {/* Performance Alerts */}
-            {performanceData?.alerts && performanceData.alerts.length > 0 && (
-              <div className="card p-6">
-                <h3 className="text-lg font-medium text-gray-900 mb-4">Performance Alerts</h3>
-                <div className="space-y-3">
-                  {performanceData.alerts.map((alert: any) => (
-                    <div key={alert.id} className={`p-3 rounded-lg border ${
-                      alert.severity === 'critical' ? 'bg-red-50 border-red-200' : 'bg-yellow-50 border-yellow-200'
-                    }`}>
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <h4 className="font-medium">{alert.type}</h4>
-                          <p className="text-sm text-gray-600">{alert.message}</p>
-                        </div>
-                        <span className={`px-2 py-1 text-xs rounded ${
-                          alert.severity === 'critical' ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'
-                        }`}>
-                          {alert.severity}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-
-        {activeTab === 'signals' && (
-          <RealTimeSignals />
-        )}
-
-        {activeTab === 'logs' && (
-          <div className="bg-white rounded-lg shadow p-6">
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-gray-900">Parallel Bot Activity</h2>
-              <div className="flex items-center space-x-4">
-                <span className="text-sm text-gray-500">
-                  {activityEvents?.length || 0} events
-                </span>
-                {activityEvents && activityEvents.length > 0 && (
-                  <button
-                    onClick={() => {
-                      // Clear activity events via API
-                      fetch('/api/trading/parallel-bot/clear-queue', { method: 'POST' })
-                        .then(() => queryClient.invalidateQueries('parallel-bot-activity'))
-                    }}
-                    className="text-sm text-red-600 hover:text-red-800 px-2 py-1 rounded border border-red-300 hover:bg-red-50"
-                  >
-                    Clear
-                  </button>
-                )}
-              </div>
+      {/* Modal de Histórico */}
+      {showHistoryModal && (
+        <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-6xl w-full max-h-[90vh] overflow-hidden">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
+              <h2 className="text-xl font-semibold text-gray-900">Histórico de Trades</h2>
+              <button
+                onClick={() => setShowHistoryModal(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
             </div>
-            
-            <div className="space-y-2 h-96 overflow-y-auto">
-              {activityEvents && activityEvents.length > 0 ? (
-                activityEvents.map((event: any, index: number) => {
-                  const isRecent = event.timestamp && (Date.now() - event.timestamp) < 30000; // 30 seconds
-                  const levelColors: Record<string, string> = {
-                    info: 'text-blue-600',
-                    success: 'text-green-600', 
-                    warning: 'text-yellow-600',
-                    error: 'text-red-600'
-                  };
-                  const levelBg: Record<string, string> = {
-                    info: 'bg-blue-50 border-blue-200',
-                    success: 'bg-green-50 border-green-200',
-                    warning: 'bg-yellow-50 border-yellow-200', 
-                    error: 'bg-red-50 border-red-200'
-                  };
-                  
-                  return (
-                    <div 
-                      key={index} 
-                      className={`p-3 rounded-lg border ${isRecent ? 'ring-2 ring-blue-200' : ''} ${levelBg[event.level] || 'bg-gray-50 border-gray-200'}`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-3">
-                          <span className={`text-xs font-medium uppercase ${levelColors[event.level] || 'text-gray-600'}`}>
-                            {event.level}
-                          </span>
-                          <span className="text-xs text-gray-500 font-mono">
-                            {event.type.replace(/_/g, ' ')}
-                          </span>
-                          {event.symbol && (
-                            <span className="text-xs font-medium text-gray-700 bg-gray-100 px-2 py-0.5 rounded">
-                              {event.symbol}
-                            </span>
-                          )}
-                          {isRecent && (
-                            <span className="text-xs bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
-                              NEW
-                            </span>
-                          )}
-                        </div>
-                        <span className="text-xs text-gray-500">
-                          {new Date(event.timestamp).toLocaleTimeString()}
-                        </span>
-                      </div>
-                      <div className="mt-1 text-sm text-gray-700">
-                        {event.message}
-                      </div>
-                      {event.metadata && (
-                        <div className="mt-1 text-xs text-gray-500 font-mono">
-                          {Object.entries(event.metadata).map(([key, value]) => (
-                            <span key={key} className="mr-3">
-                              {key}: {String(value)}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )
-                })
-              ) : (
-                <div className="flex items-center justify-center h-64 text-gray-500">
-                  <div className="text-center">
-                    <div className="text-2xl mb-2">📊</div>
-                    <div>No activity events yet</div>
-                    <div className="text-sm mt-1">Activity will appear here when the parallel bot is running</div>
-                  </div>
-                </div>
-              )}
+            <div className="p-6 overflow-y-auto max-h-[calc(90vh-80px)]">
+              <TradeHistory />
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   )
 }

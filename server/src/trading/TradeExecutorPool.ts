@@ -363,29 +363,28 @@ class TradeExecutor extends EventEmitter {
       takeProfit: positionDetails.takeProfit
     };
 
-    const order = await bingxClient.placeOrder(orderData);
+    const orderResponse = await bingxClient.placeOrder(orderData);
     
-    // Check if order was successful - BingX response structure can vary
-    const orderData_response = order.data || order.order;
-    
-    if (!orderData_response || order.code !== 0) {
+    // Check if order was successful
+    if (orderResponse.code !== 0) {
       logger.error('Order placement failed:', {
         orderData,
-        response: order,
-        code: order.code,
-        message: order.msg
+        response: orderResponse,
+        code: orderResponse.code,
+        message: orderResponse.msg
       });
-      throw new Error(`Order placement failed: ${order.msg || 'Unknown error'}`);
+      throw new Error(`Order placement failed: ${orderResponse.msg || 'Unknown error'}`);
     }
 
     // Extract orderId from response - check multiple possible locations
-    const orderId = orderData_response.orderId || orderData_response.orderID || orderData_response.id;
+    // BingX API typically returns orderId directly in the data field for successful orders
+    const orderId = orderResponse.data?.orderId || orderResponse.data?.orderID || orderResponse.data?.id;
     
     if (!orderId) {
       logger.error('Order response missing orderId:', {
-        fullResponse: order,
-        orderData_response,
-        availableFields: Object.keys(orderData_response)
+        fullResponse: orderResponse,
+        availableFields: orderResponse.data ? Object.keys(orderResponse.data) : 'No data field',
+        message: 'Could not find orderId in expected fields (data.orderId, data.orderID, data.id)'
       });
       throw new Error('Order response missing orderId');
     }
@@ -399,7 +398,7 @@ class TradeExecutor extends EventEmitter {
       stopLoss: positionDetails.stopLoss,
       takeProfit: positionDetails.takeProfit,
       timestamp: Date.now(),
-      orderStatus: orderData_response.status || 'NEW'
+      orderStatus: orderResponse.data.status || 'NEW'
     };
   }
 

@@ -136,7 +136,7 @@ const getTradingProfiles = (t: any) => ({
       stopLossPercent: 3,
       takeProfitPercent: 5,
       trailingStopPercent: 1.5,
-      minVolumeUSDT: 500000,
+      minVolumeUSDT: 100000,
       rsiOversold: 35,
       rsiOverbought: 65,
       volumeSpikeThreshold: 1.2,

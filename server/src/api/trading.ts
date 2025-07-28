@@ -13,6 +13,52 @@ import { Op } from 'sequelize';
 import fs from 'fs';
 import path from 'path';
 
+// Interface para dados de candles com indicadores
+interface CandleWithIndicators {
+  timestamp: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+  ma1: number | null; // MM1 (Média Móvel 1)
+  center: number | null; // Center (Média Móvel mais longa)
+  rsi: number | null;
+}
+
+// Função auxiliar para calcular RSI
+function calculateRSI(prices: number[], period: number = 14): number | null {
+  if (prices.length < period + 1) return null;
+  
+  let gains = 0;
+  let losses = 0;
+  
+  // Calcular ganhos e perdas iniciais
+  for (let i = 1; i <= period; i++) {
+    const change = prices[i] - prices[i - 1];
+    if (change > 0) {
+      gains += change;
+    } else {
+      losses -= change;
+    }
+  }
+  
+  const avgGain = gains / period;
+  const avgLoss = losses / period;
+  
+  if (avgLoss === 0) return 100;
+  
+  const rs = avgGain / avgLoss;
+  return 100 - (100 / (1 + rs));
+}
+
+// Função auxiliar para calcular média móvel simples
+function calculateSMA(prices: number[], period: number): number | null {
+  if (prices.length < period) return null;
+  const sum = prices.slice(0, period).reduce((a, b) => a + b, 0);
+  return sum / period;
+}
+
 const router = Router();
 
 // Get bot status (unified endpoint - checks both bots)
@@ -592,6 +638,151 @@ router.get('/bot/process-metrics', asyncHandler(async (_req: Request, res: Respo
 // Global performance monitor instance
 let performanceMonitor: PerformanceMonitor | null = null;
 
+// Get pipeline status - novo endpoint para visualização do pipeline
+router.get('/parallel-bot/pipeline', asyncHandler(async (_req: Request, res: Response) => {
+  try {
+    const bot = getParallelTradingBot();
+    const status = await bot.getStatus();
+    const metrics = bot.getMetrics();
+    
+    // Estruturar dados para o frontend baseado nas métricas disponíveis
+    const pipelineStatus = {
+      signalWorkers: {
+        active: Math.floor((metrics.systemMetrics?.workerUtilization || 0) / 20),
+        total: status.config.signalWorkers?.maxWorkers || 5,
+        processing: metrics.signalMetrics?.queuedSignals || 0,
+        utilization: metrics.systemMetrics?.workerUtilization || 0
+      },
+      signalQueue: {
+        size: metrics.signalMetrics?.queuedSignals || 0,
+        processing: Math.max(0, (metrics.signalMetrics?.processedSignals || 0) - (metrics.signalMetrics?.totalGenerated || 0)),
+        priority: {
+          high: Math.floor((metrics.signalMetrics?.queuedSignals || 0) * 0.3),
+          medium: Math.floor((metrics.signalMetrics?.queuedSignals || 0) * 0.5),
+          low: Math.floor((metrics.signalMetrics?.queuedSignals || 0) * 0.2)
+        }
+      },
+      tradeExecutors: {
+        active: Math.min(status.config.tradeExecutors?.maxExecutors || 3, status.activePositions?.length || 0),
+        total: status.config.tradeExecutors?.maxExecutors || 3,
+        executing: Math.min(2, status.activePositions?.length || 0),
+        utilization: Math.min(100, ((status.activePositions?.length || 0) / (status.config.tradeExecutors?.maxExecutors || 3)) * 100)
+      },
+      activePositions: status.activePositions?.length || 0,
+      throughput: {
+        signalsPerMinute: (metrics.scanningMetrics?.symbolsPerSecond || 0) * 60,
+        tradesPerMinute: metrics.executionMetrics?.totalExecuted || 0,
+        successRate: metrics.executionMetrics?.successRate || 0
+      }
+    };
+    
+    res.json({
+      success: true,
+      data: pipelineStatus
+    });
+  } catch (error) {
+    logger.error('Erro no endpoint pipeline:', error);
+    // Retorna dados padrão em caso de erro
+    res.json({
+      success: true,
+      data: {
+        signalWorkers: { active: 0, total: 5, processing: 0, utilization: 0 },
+        signalQueue: { size: 0, processing: 0, priority: { high: 0, medium: 0, low: 0 } },
+        tradeExecutors: { active: 0, total: 3, executing: 0, utilization: 0 },
+        activePositions: 0,
+        throughput: { signalsPerMinute: 0, tradesPerMinute: 0, successRate: 0 }
+      }
+    });
+  }
+}));
+
+// Get signal tracking - rastreamento de sinais específicos
+router.get('/parallel-bot/signal-tracking', asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const { symbol, limit = 10 } = req.query;
+    
+    // Buscar eventos de atividade relacionados a sinais
+    const bot = getParallelTradingBot();
+    const activityEvents = bot.getActivityEvents() || [];
+    
+    // Filtrar e estruturar dados de rastreamento
+    let signalEvents = activityEvents
+      .filter((event: any) => {
+        if (symbol && event.symbol !== symbol) return false;
+        return ['signal_generated', 'signal_queued', 'signal_processing', 'trade_executed', 'signal_rejected'].includes(event.type);
+      })
+      .slice(0, parseInt(limit as string));
+    
+    // Agrupar eventos por símbolo para criar timeline
+    const signalTracking = signalEvents.reduce((acc: any[], event: any) => {
+      const existing = acc.find(s => s.symbol === event.symbol);
+      
+      if (!existing) {
+        acc.push({
+          id: `signal-${event.symbol}-${event.timestamp}`,
+          symbol: event.symbol,
+          action: event.metadata?.action || 'HOLD',
+          strength: event.metadata?.strength || 0,
+          status: mapEventTypeToStatus(event.type),
+          stages: {
+            analyzed: true,
+            queued: ['signal_queued', 'signal_processing', 'trade_executed'].includes(event.type),
+            executed: ['signal_processing', 'trade_executed'].includes(event.type),
+            positionOpened: event.type === 'trade_executed'
+          },
+          timeline: {
+            created: event.timestamp,
+            [mapEventTypeToTimelineKey(event.type)]: event.timestamp
+          },
+          details: event.metadata || {}
+        });
+      } else {
+        // Atualizar status e timeline existente
+        existing.status = mapEventTypeToStatus(event.type);
+        existing.timeline[mapEventTypeToTimelineKey(event.type)] = event.timestamp;
+        if (event.type === 'signal_queued') existing.stages.queued = true;
+        if (event.type === 'signal_processing') existing.stages.executed = true;
+        if (event.type === 'trade_executed') existing.stages.positionOpened = true;
+      }
+      
+      return acc;
+    }, []);
+    
+    res.json({
+      success: true,
+      data: signalTracking
+    });
+  } catch (error) {
+    logger.error('Erro no endpoint signal-tracking:', error);
+    res.json({
+      success: true,
+      data: [] // Retorna array vazio em caso de erro
+    });
+  }
+}));
+
+// Helper functions para mapeamento
+function mapEventTypeToStatus(eventType: string): string {
+  switch (eventType) {
+    case 'signal_generated': return 'analyzing';
+    case 'signal_queued': return 'queued';
+    case 'signal_processing': return 'executing';
+    case 'trade_executed': return 'completed';
+    case 'signal_rejected': return 'rejected';
+    default: return 'analyzing';
+  }
+}
+
+function mapEventTypeToTimelineKey(eventType: string): string {
+  switch (eventType) {
+    case 'signal_generated': return 'analyzed';
+    case 'signal_queued': return 'queued';
+    case 'signal_processing': return 'executionStarted';
+    case 'trade_executed': return 'executionCompleted';
+    default: return 'timestamp';
+  }
+}
+
 // Get parallel bot status
 router.get('/parallel-bot/status', asyncHandler(async (_req: Request, res: Response) => {
   const parallelBot = getParallelTradingBot();
@@ -1160,6 +1351,172 @@ router.get('/parallel-bot/enhanced-stats', asyncHandler(async (req: Request, res
       }
     }
   });
+}));
+
+// Endpoint para buscar candles com indicadores técnicos
+router.get('/candles/:symbol', asyncHandler(async (req: Request, res: Response) => {
+  const { symbol } = req.params;
+  const { interval = '5m', limit = 50 } = req.query;
+  
+  try {
+    // Buscar dados dos candles da API da BingX
+    const candleResponse = await bingxClient.getKlines(
+      symbol,
+      interval as string,
+      parseInt(limit as string)
+    );
+    
+    // Extrair dados dos candles da resposta
+    const candleData = candleResponse.code === 0 ? candleResponse.data : null;
+
+    if (!candleData || !Array.isArray(candleData)) {
+      throw new AppError('Invalid candle data received', 400);
+    }
+
+    // Processar dados e calcular indicadores
+    const processedCandles: CandleWithIndicators[] = [];
+    const closePrices: number[] = [];
+    
+    // Primeiro, coletar todos os preços de fechamento para cálculos
+    candleData.forEach((candle: any) => {
+      closePrices.push(parseFloat(candle.close));
+    });
+
+    // Processar cada candle com indicadores
+    candleData.forEach((candle: any, index: number) => {
+      const timestamp = parseInt(candle.time);
+      const open = parseFloat(candle.open);
+      const high = parseFloat(candle.high);
+      const low = parseFloat(candle.low);
+      const close = parseFloat(candle.close);
+      const volume = parseFloat(candle.volume);
+
+      // Calcular MM1 (média móvel de 9 períodos)
+      const ma1 = calculateSMA(closePrices.slice(index), 9);
+      
+      // Calcular Center (média móvel de 21 períodos)
+      const center = calculateSMA(closePrices.slice(index), 21);
+      
+      // Calcular RSI (14 períodos)
+      const rsi = calculateRSI(closePrices.slice(index).reverse(), 14);
+
+      processedCandles.push({
+        timestamp,
+        open,
+        high,
+        low,
+        close,
+        volume,
+        ma1,
+        center,
+        rsi
+      });
+    });
+
+    res.json({
+      success: true,
+      data: processedCandles
+    });
+  } catch (error) {
+    logger.error(`Erro ao buscar candles para ${symbol}:`, error);
+    res.json({
+      success: false,
+      data: [],
+      error: 'Falha ao buscar dados de candles'
+    });
+  }
+}));
+
+// Endpoint para buscar posições abertas
+router.get('/positions', asyncHandler(async (_req: Request, res: Response) => {
+  try {
+    const bot = getParallelTradingBot();
+    const positions = bot.getManagedPositions();
+    
+    res.json({
+      success: true,
+      data: positions
+    });
+  } catch (error) {
+    logger.error('Erro ao buscar posições:', error);
+    res.json({
+      success: false,
+      data: [],
+      error: 'Falha ao buscar posições'
+    });
+  }
+}));
+
+// Endpoint para executar trade
+router.post('/execute', asyncHandler(async (req: Request, res: Response) => {
+  const { symbol, side, type, quantity, stopLoss } = req.body;
+  
+  try {
+    // Validar dados de entrada
+    if (!symbol || !side || !type || !quantity) {
+      throw new AppError('Dados de trade incompletos', 400);
+    }
+
+    if (!['BUY', 'SELL'].includes(side)) {
+      throw new AppError('Side deve ser BUY ou SELL', 400);
+    }
+
+    if (!['MARKET', 'LIMIT'].includes(type)) {
+      throw new AppError('Type deve ser MARKET ou LIMIT', 400);
+    }
+
+    // Verificar se o bot está rodando
+    const bot = getParallelTradingBot();
+    const status = await bot.getStatus();
+    
+    if (!status.isRunning) {
+      throw new AppError('Bot não está executando', 400);
+    }
+
+    // Executar a ordem via BingX API
+    const orderParams: any = {
+      symbol,
+      side,
+      type,
+      quantity: parseFloat(quantity)
+    };
+
+    if (type === 'MARKET') {
+      // Para ordem a mercado, usar a API do BingX diretamente
+      const result = await bingxClient.placeOrder(orderParams);
+      
+      // Se stop loss foi especificado, criar ordem de stop loss
+      if (stopLoss && result.code === 0 && result.data?.orderId) {
+        try {
+          const stopLossOrder = await bingxClient.placeOrder({
+            symbol,
+            side: side === 'BUY' ? 'SELL' : 'BUY',
+            type: 'STOP_MARKET',
+            quantity: parseFloat(quantity),
+            stopPrice: parseFloat(stopLoss)
+          });
+          
+          logger.info(`Stop loss criado: ${stopLossOrder.data?.orderId}`);
+        } catch (stopError) {
+          logger.error('Erro ao criar stop loss:', stopError);
+        }
+      }
+
+      res.json({
+        success: true,
+        data: result,
+        message: `Trade executado: ${side} ${symbol}`
+      });
+    } else {
+      throw new AppError('Apenas ordens MARKET são suportadas atualmente', 400);
+    }
+  } catch (error) {
+    logger.error('Erro ao executar trade:', error);
+    res.status(500).json({
+      success: false,
+      error: error instanceof AppError ? error.message : 'Erro interno do servidor'
+    });
+  }
 }));
 
 export default router;

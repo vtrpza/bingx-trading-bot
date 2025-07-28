@@ -215,7 +215,7 @@ export const translations = {
   
   // Assets
   assets: {
-    title: 'Carteira de Ativos',
+    title: 'Tabela de Ativos',
     totalBalance: 'Saldo Total',
     availableBalance: 'Saldo Disponível',
     inOrders: 'Em Ordens',

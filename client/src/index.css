@@ -2,6 +2,20 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Animações personalizadas */
+@keyframes pulse-once {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
+}
+
+.animate-pulse-once {
+  animation: pulse-once 1s ease-in-out 1;
+}
+
 @layer base {
   body {
     @apply bg-gray-50 text-gray-900;
@@ -39,5 +53,222 @@
   
   .label {
     @apply block text-sm font-medium text-gray-700;
+  }
+
+  /* Layout helpers */
+  .flex-2 {
+    flex: 2 1 0%;
+  }
+
+  /* Dashboard improvements */
+  .dashboard-card {
+    @apply bg-white rounded-lg shadow-sm border border-gray-200 transition-shadow duration-200 hover:shadow-md;
+  }
+  
+  .metric-value {
+    @apply font-bold text-lg;
+  }
+  
+  .metric-label {
+    @apply text-xs text-gray-600 uppercase tracking-wide;
+  }
+  
+  .status-indicator {
+    @apply inline-flex items-center px-2 py-1 rounded-full text-xs font-medium;
+  }
+  
+  .status-success {
+    @apply bg-green-100 text-green-800;
+  }
+  
+  .status-warning {
+    @apply bg-yellow-100 text-yellow-800;
+  }
+  
+  .status-error {
+    @apply bg-red-100 text-red-800;
+  }
+  
+  .status-info {
+    @apply bg-blue-100 text-blue-800;
+  }
+
+  /* Trading Dashboard Grid Layout - Design Hierárquico com Tamanhos Automáticos */
+  .trading-dashboard-grid {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    grid-template-rows: 
+      [signals-start] auto
+      [pipeline-start] auto 
+      [positions-start] auto
+      [secondary-start] auto
+      [grid-end];
+    gap: 1rem;
+    padding: 1rem;
+    min-height: 100vh;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  /* Hierarquia Visual: Sinais → Pipeline → Posições → Resto */
+  
+  /* 1. DESTAQUE PRINCIPAL - Sinais em Tempo Real (tamanho automático) */
+  .grid-area-signals {
+    grid-column: 1 / -1;
+    grid-row: signals-start / pipeline-start;
+    display: flex;
+    flex-direction: column;
+    min-height: 500px; /* Altura mínima generosa */
+  }
+
+  /* 2. SEGUNDO DESTAQUE - Pipeline de Trading (tamanho automático) */
+  .grid-area-pipeline {
+    grid-column: 1 / -1;
+    grid-row: pipeline-start / positions-start;
+    display: flex;
+    flex-direction: column;
+    min-height: 400px; /* Altura mínima generosa */
+  }
+
+  /* 3. TERCEIRO DESTAQUE - Posições Abertas (tamanho automático) */
+  .grid-area-positions {
+    grid-column: 1 / -1;
+    grid-row: positions-start / secondary-start;
+    display: flex;
+    flex-direction: column;
+    min-height: 300px; /* Altura mínima generosa */
+  }
+
+  /* 4. COMPONENTES SECUNDÁRIOS (tamanho automático) */
+  .grid-area-stats {
+    grid-column: 1 / 5;
+    grid-row: secondary-start / grid-end;
+    display: flex;
+    flex-direction: column;
+    min-height: 250px; /* Altura mínima generosa */
+  }
+
+  .grid-area-tracker {
+    grid-column: 5 / 9;
+    grid-row: secondary-start / grid-end;
+    display: flex;
+    flex-direction: column;
+    min-height: 250px; /* Altura mínima generosa */
+  }
+
+  .grid-area-feed {
+    grid-column: 9 / -1;
+    grid-row: secondary-start / grid-end;
+    display: flex;
+    flex-direction: column;
+    min-height: 250px; /* Altura mínima generosa */
+  }
+
+  /* Responsive Design - Mobile e Tablet */
+  @media (max-width: 1024px) {
+    .trading-dashboard-grid {
+      grid-template-rows: 
+        [signals-start] auto
+        [pipeline-start] auto 
+        [positions-start] auto
+        [stats-start] auto
+        [tracker-start] auto
+        [feed-start] auto
+        [grid-end];
+      gap: 0.75rem;
+      padding: 0.75rem;
+    }
+    
+    /* Mobile: Stack vertical com tamanhos automáticos */
+    .grid-area-signals {
+      grid-column: 1 / -1;
+      grid-row: signals-start / pipeline-start;
+      min-height: 400px; /* Altura mínima generosa */
+    }
+    
+    .grid-area-pipeline {
+      grid-column: 1 / -1;
+      grid-row: pipeline-start / positions-start;
+      min-height: 350px; /* Altura mínima generosa */
+    }
+    
+    .grid-area-positions {
+      grid-column: 1 / -1;
+      grid-row: positions-start / stats-start;
+      min-height: 280px; /* Altura mínima generosa */
+    }
+    
+    .grid-area-stats {
+      grid-column: 1 / -1;
+      grid-row: stats-start / tracker-start;
+      min-height: 220px; /* Altura mínima generosa */
+    }
+    
+    .grid-area-tracker {
+      grid-column: 1 / -1;
+      grid-row: tracker-start / feed-start;
+      min-height: 220px; /* Altura mínima generosa */
+    }
+    
+    .grid-area-feed {
+      grid-column: 1 / -1;
+      grid-row: feed-start / grid-end;
+      min-height: 220px; /* Altura mínima generosa */
+    }
+  }
+  
+  @media (max-width: 768px) {
+    .trading-dashboard-grid {
+      gap: 0.5rem;
+      padding: 0.5rem;
+    }
+    
+    /* Alturas mínimas adequadas para mobile */
+    .grid-area-signals {
+      min-height: 350px; /* Altura mínima adequada */
+    }
+    
+    .grid-area-pipeline {
+      min-height: 300px; /* Altura mínima adequada */
+    }
+    
+    .grid-area-positions {
+      min-height: 250px; /* Altura mínima adequada */
+    }
+    
+    .grid-area-stats,
+    .grid-area-tracker,
+    .grid-area-feed {
+      min-height: 200px; /* Altura mínima adequada */
+    }
+  }
+
+  /* Melhorias de UX sem scroll interno */
+  .trading-dashboard-grid > * {
+    /* Scroll interno removido - componentes se expandem naturalmente */
+    scroll-behavior: smooth;
+  }
+
+  /* Permitir que todos os componentes se expandam para mostrar todo o conteúdo */
+  .grid-area-signals > *,
+  .grid-area-pipeline > *,
+  .grid-area-positions > *,
+  .grid-area-stats > *,
+  .grid-area-tracker > *,
+  .grid-area-feed > * {
+    /* Remover limitações de altura para permitir expansão total */
+    height: auto;
+    min-height: auto;
+    overflow: visible;
+  }
+
+  /* Garantir que tabelas e listas não tenham scroll interno */
+  .grid-area-signals .overflow-auto,
+  .grid-area-pipeline .overflow-auto,
+  .grid-area-positions .overflow-auto,
+  .grid-area-feed .overflow-auto {
+    overflow: visible !important;
+    height: auto !important;
+    max-height: none !important;
   }
 }
