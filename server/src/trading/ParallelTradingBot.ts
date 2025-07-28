@@ -157,7 +157,7 @@ export class ParallelTradingBot extends EventEmitter {
       
       // Component configurations
       signalWorkers: {
-        maxWorkers: 6, // Increased workers for better parallelism
+        maxWorkers: 12, // Increased workers for better parallelism
         maxConcurrentTasks: 20, // Increased concurrent tasks for batch processing
         taskTimeout: 12000, // Optimized timeout for batch operations
         retryAttempts: 1, // Reduced retries for faster processing
@@ -831,12 +831,16 @@ export class ParallelTradingBot extends EventEmitter {
 
     // 🚀 ULTRA PERFORMANCE: Process ALL available symbols in one massive batch
     const allSymbols = this.config.symbolsToScan;
+    logger.info(`🔍 SCAN DEBUG: Starting with ${allSymbols.length} configured symbols: ${allSymbols.slice(0, 10).join(', ')}${allSymbols.length > 10 ? '...' : ''}`);
+    
     const availableSymbols = allSymbols.filter(symbol => 
       !this.activePositions.has(symbol) && !this.isSymbolBlacklisted(symbol)
     );
 
+    logger.info(`🔍 SCAN DEBUG: After filtering - ${availableSymbols.length}/${allSymbols.length} symbols available. Active positions: ${this.activePositions.size}, Blacklisted: ${Array.from(this.symbolBlacklist).length}`);
+
     if (availableSymbols.length === 0) {
-      logger.debug('No available symbols to scan (all blacklisted or in positions)');
+      logger.warn('No available symbols to scan (all blacklisted or in positions)');
       return;
     }
 
@@ -1767,8 +1771,8 @@ export class ParallelTradingBot extends EventEmitter {
       this.marketDataCache.emergencyStop();
       
       // Log current queue status for debugging
-      const queueStatus = this.prioritySignalQueue.getStatus();
-      logger.info(`Circuit breaker: ${queueStatus.queueLength} signals in queue during emergency`);
+      const queueStatus = this.signalQueue.getStatus();
+      logger.info(`Circuit breaker: ${queueStatus.total} signals in queue during emergency`);
       
       logger.info('Emergency procedures completed for circuit breaker');
     } catch (error) {

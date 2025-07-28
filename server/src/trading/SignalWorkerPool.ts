@@ -229,7 +229,7 @@ export class SignalWorkerPool extends EventEmitter {
     super();
     
     this.config = {
-      maxWorkers: config.enableParallelProcessing ? 12 : 3, // 🚀 12 workers for ultra performance (4x increase)
+      maxWorkers: config.enableParallelProcessing ? 24 : 3, // 🚀 12 workers for ultra performance (4x increase)
       maxConcurrentTasks: config.enableParallelProcessing ? 15 : 3, // 🚀 15 concurrent tasks
       taskTimeout: 10000, // 🚀 AGGRESSIVE: 10s timeout (down from 30s)
       retryAttempts: 1, // 🚀 FAST FAIL: Only 1 retry for speed
@@ -243,8 +243,8 @@ export class SignalWorkerPool extends EventEmitter {
       // 🚀 Progressive Loading Defaults
       progressiveLoading: {
         enabled: true,
-        initialWaveSize: 5,        // Start with 20 symbols
-        waveIncrement: 5,          // Add 20 symbols each wave
+        initialWaveSize: 15,        // Start with 20 symbols
+        waveIncrement: 25,          // Add 20 symbols each wave
         waveInterval: 5000,       // 1 minutes between waves
         maxSymbols: 100,            // Max 100 symbols
         scalingThresholds: {
