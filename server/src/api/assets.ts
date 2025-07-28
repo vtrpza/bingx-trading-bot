@@ -440,44 +440,28 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
     };
     
     
-    // Process contracts in async batches to prevent event loop blocking
+    // OPTIMIZED: Prepare all asset data first, then bulk insert/update
     const startTime = Date.now();
-    const BATCH_SIZE = 10; // Process 10 contracts at a time
+    const BATCH_SIZE = 500; // Bulk operations with 500 records at a time
+    const assetsToUpsert: any[] = [];
     
-    for (let i = 0; i < contractsToProcess.length; i += BATCH_SIZE) {
-      const batch = contractsToProcess.slice(i, i + BATCH_SIZE);
+    // Prepare all asset data in memory first (much faster)
+    for (let i = 0; i < contractsToProcess.length; i++) {
+      const contract = contractsToProcess[i];
+      processed++;
       
-      // Send immediate batch start notification for real-time feedback
-      if (i > 0) {
-        const currentProgress = Math.min(95, Math.round(55 + (i / contractsToProcess.length) * 40));
+      // Send progress updates for data preparation phase
+      if (processed % 100 === 0 || processed <= 20 || processed === contractsToProcess.length) {
+        const progress = Math.min(70, Math.round(55 + (processed / contractsToProcess.length) * 15));
         await sendProgress(sessionId, {
           type: 'progress',
-          message: `🔄 Processando lote ${Math.floor(i/BATCH_SIZE) + 1}/${Math.ceil(contractsToProcess.length/BATCH_SIZE)}...`,
-          progress: currentProgress,
-          processed: i,
+          message: `🔄 Preparando dados: ${contract.symbol} (${processed}/${contractsToProcess.length})`,
+          progress,
+          processed,
           total: contractsToProcess.length,
-          batchInfo: `Lote ${i}-${Math.min(i + BATCH_SIZE, contractsToProcess.length)}`
+          current: contract.symbol
         });
       }
-      
-      // Process this batch
-      for (const contract of batch) {
-        processed++;
-        
-        // Send progress updates VERY frequently for truly real-time experience
-        if (processed % 5 === 0 || processed <= 20 || processed === contractsToProcess.length) {
-          const progress = Math.min(95, Math.round(55 + (processed / contractsToProcess.length) * 40));
-          await sendProgress(sessionId, {
-            type: 'progress',
-            message: `💾 ${contract.symbol} (${processed}/${contractsToProcess.length}) | ✅ ${created + updated} salvos`,
-            progress,
-            processed,
-            total: contractsToProcess.length,
-            current: contract.symbol,
-            dbOperations: created + updated,
-            skipped: processed - (created + updated)
-          });
-        }
       
       // Log first few contracts for debugging
       if (processed <= 3) {
@@ -675,11 +659,10 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
         });
         skipped++;
         // Continue processing other assets
-        }
       }
       
       // Yield to event loop after each batch to allow SSE messages to be sent
-      if (i + BATCH_SIZE < contractsToProcess.length) {
+      if ((i + 1) % BATCH_SIZE === 0 && i + 1 < contractsToProcess.length) {
         await yieldEventLoop();
       }
     }

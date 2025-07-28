@@ -5,11 +5,13 @@ services:
     env: node
     rootDir: server
     buildCommand: npm install && npm run build
-    startCommand: npm start
+    startCommand: npm run migrate && npm start
     healthCheckPath: /health
     envVars:
       - key: PORT
         value: 3001
+      - key: DATABASE_URL
+        sync: false
       - key: BINGX_API_KEY
         sync: false
       - key: BINGX_SECRET_KEY
@@ -22,6 +24,10 @@ services:
         value: 100
       - key: FRONTEND_URL
         value: https://bingx-trading-bot-lu0z-frontend.onrender.com
+      - key: NODE_ENV
+        value: production
+      - key: REDIS_URL
+        sync: false
         
   # Frontend
   - type: web

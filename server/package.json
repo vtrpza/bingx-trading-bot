@@ -7,7 +7,12 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "jest"
+    "test": "jest",
+    "migrate": "node dist/migrations/production-migrate.js",
+    "postbuild": "npm run migrate:build",
+    "migrate:build": "node -e \"console.log('Migration will run on first server start')\"",
+    "render-build": "npm install && npm run build",
+    "render-start": "npm run migrate && npm run start"
   },
   "dependencies": {
     "@types/compression": "^1.7.5",
