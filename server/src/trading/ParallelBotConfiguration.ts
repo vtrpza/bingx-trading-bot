@@ -11,7 +11,7 @@ import { ParallelBotConfig } from './ParallelTradingBot';
 
 // Ultra High-Performance Configuration (Maximum Symbols)
 export const ultraPerformanceConfig: Partial<ParallelBotConfig> = {
-  scanInterval: 60000, // 1 minute - 5x faster scanning
+  scanInterval: 15000, // 15 seconds - ULTRA FAST scanning
   maxConcurrentTrades: 15,
   defaultPositionSize: 50, // Smaller positions for more trades
   minSignalStrength: 35, // Lower threshold for more signals (more aggressive)
@@ -53,7 +53,7 @@ export const ultraPerformanceConfig: Partial<ParallelBotConfig> = {
 
 // High-frequency trading configuration (aggressive)
 export const highFrequencyConfig: Partial<ParallelBotConfig> = {
-  scanInterval: 120000, // 2 minutes - 2.5x faster scanning
+  scanInterval: 20000, // 20 seconds - high frequency scanning
   maxConcurrentTrades: 10,
   defaultPositionSize: 50, // Smaller positions for more trades
   minSignalStrength: 40, // Lower threshold for more signals
@@ -95,7 +95,7 @@ export const highFrequencyConfig: Partial<ParallelBotConfig> = {
 
 // Conservative trading configuration (stable)
 export const conservativeConfig: Partial<ParallelBotConfig> = {
-  scanInterval: 600000, // 10 minutes - reduced to minimize API calls
+  scanInterval: 120000, // 2 minutes - still frequent but stable
   maxConcurrentTrades: 3,
   defaultPositionSize: 200, // Larger positions
   minSignalStrength: 55, // Balanced threshold for quality
@@ -138,7 +138,7 @@ export const conservativeConfig: Partial<ParallelBotConfig> = {
 
 // Balanced trading configuration (recommended)
 export const balancedConfig: Partial<ParallelBotConfig> = {
-  scanInterval: 300000, // 5 minutes - reduced to minimize API calls
+  scanInterval: 30000, // 30 seconds - optimized balanced scanning
   maxConcurrentTrades: 5,
   defaultPositionSize: 100,
   minSignalStrength: 50, // Balanced threshold
@@ -181,7 +181,7 @@ export const balancedConfig: Partial<ParallelBotConfig> = {
 
 // Development/testing configuration
 export const developmentConfig: Partial<ParallelBotConfig> = {
-  scanInterval: 600000, // 10 minutes - reduced for testing to minimize API calls
+  scanInterval: 60000, // 1 minute - faster testing feedback
   maxConcurrentTrades: 2,
   defaultPositionSize: 10, // Small positions for testing
   minSignalStrength: 70,
@@ -250,7 +250,7 @@ export class ConfigurationOptimizer {
     switch (volatility) {
       case 'high':
         return {
-          scanInterval: 300000, // 5 minutes - reduced even for volatile markets
+          scanInterval: 10000, // 10 seconds - ultra fast for volatile markets
           signalQueue: {
             defaultTTL: 15000, // Shorter TTL for fresh signals
             priorityWeights: {
@@ -267,7 +267,7 @@ export class ConfigurationOptimizer {
         
       case 'low':
         return {
-          scanInterval: 600000, // 10 minutes - reduced for stable markets
+          scanInterval: 60000, // 1 minute - reasonable for stable markets
           signalQueue: {
             defaultTTL: 60000, // Longer TTL acceptable
             priorityWeights: {
