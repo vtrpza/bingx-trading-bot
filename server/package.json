@@ -10,10 +10,11 @@
     "test": "jest",
     "migrate": "node dist/migrations/production-migrate.js",
     "migrate:force": "node dist/migrations/production-migrate.js --force",
+    "migrate:render": "node dist/migrations/render-deploy-migrate.js",
     "postbuild": "npm run migrate:build",
     "migrate:build": "node -e \"console.log('Migration will run on first server start')\"",
     "render-build": "npm install && npm run build",
-    "render-start": "npm run migrate:force && npm run start",
+    "render-start": "npm run migrate:render && npm run start",
     "deploy:render": "npm run render-build && npm run render-start"
   },
   "dependencies": {
