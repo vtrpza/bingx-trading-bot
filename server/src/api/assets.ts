@@ -455,6 +455,7 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
       }
     });
     
+    // Check for API errors
     if (response.code !== 0 || !response.data) {
       await sendProgress(sessionId, {
         type: 'error',
@@ -463,9 +464,26 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
       logger.error('BingX contracts API returned error:', {
         code: response.code,
         message: response.msg,
-        data: response.data
+        data: response.data,
+        fullResponse: response
       });
       throw new AppError(`BingX Contracts API Error: ${response.msg || 'Failed to fetch assets'}`, 500);
+    }
+
+    // Check for empty data (0 assets returned)
+    if (response.data.length === 0) {
+      await sendProgress(sessionId, {
+        type: 'error',
+        message: '⚠️ BingX returned 0 contracts - API may be blocked or rate limited in production'
+      });
+      logger.error('BingX returned empty contracts array:', {
+        code: response.code,
+        message: response.msg,
+        dataLength: response.data.length,
+        environment: process.env.NODE_ENV,
+        renderIssue: 'BingX API returning empty data on Render'
+      });
+      throw new AppError('BingX API returned 0 contracts. This may be due to IP blocking or rate limiting on Render.', 500);
     }
 
     if (tickersResponse.code !== 0 || !tickersResponse.data) {

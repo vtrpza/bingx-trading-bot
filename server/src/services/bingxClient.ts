@@ -412,6 +412,17 @@ export class BingXClient {
             
           } catch (error: any) {
             logger.debug(`❌ Falhou: ${endpoint} - ${error.message}`);
+            
+            // Log critical failures to external service for production debugging
+            if (process.env.NODE_ENV === 'production' && (error.code === 'ECONNABORTED' || error.response?.status >= 400)) {
+              await logToExternal('debug', `BingX endpoint failed: ${endpoint}`, {
+                error: error.message,
+                code: error.code,
+                status: error.response?.status,
+                timeout: error.code === 'ECONNABORTED',
+                params: params
+              });
+            }
           }
         }
       }
@@ -424,6 +435,17 @@ export class BingXClient {
         totalUniqueContracts: uniqueContracts.length,
         contractsBySource: this.groupContractsBySource(uniqueContracts)
       });
+
+      // Enhanced logging for production debugging
+      if (process.env.NODE_ENV === 'production') {
+        await logToExternal('info', 'BingX exhaustive search completed', {
+          totalEndpointsTested,
+          successfulEndpoints,
+          totalUniqueContracts: uniqueContracts.length,
+          environment: 'render',
+          issue: uniqueContracts.length === 0 ? 'ALL_ENDPOINTS_RETURNED_ZERO_CONTRACTS' : null
+        });
+      }
       
       // Se ainda não encontramos muitos contratos, tentar paginação nos endpoints que funcionaram
       if (uniqueContracts.length < 1000) {
