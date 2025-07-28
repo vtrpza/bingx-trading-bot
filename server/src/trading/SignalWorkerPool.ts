@@ -244,8 +244,8 @@ export class SignalWorkerPool extends EventEmitter {
       progressiveLoading: {
         enabled: true,
         initialWaveSize: 5,        // Start with 20 symbols
-        waveIncrement: 20,          // Add 20 symbols each wave
-        waveInterval: 6000,       // 1 minutes between waves
+        waveIncrement: 5,          // Add 20 symbols each wave
+        waveInterval: 5000,       // 1 minutes between waves
         maxSymbols: 100,            // Max 100 symbols
         scalingThresholds: {
           successRate: 0.8,         // 80% success rate to scale
@@ -970,7 +970,7 @@ export class SignalWorkerPool extends EventEmitter {
       clearTimeout(this.progressiveLoadingTimer);
     }
 
-    const interval = this.config.progressiveLoading?.waveInterval || 6000; // 2 minutes default
+    const interval = this.config.progressiveLoading?.waveInterval || 5000; // 2 minutes default
     
     this.progressiveLoadingTimer = setTimeout(() => {
       if (this.isRunning && !this.circuitBreakerOpen) {
