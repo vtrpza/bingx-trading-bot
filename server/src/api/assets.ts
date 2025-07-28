@@ -318,7 +318,6 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
     let updated = 0;
     let processed = 0;
     let skipped = 0; // Contratos que não foram processados (duplicados, inválidos, etc)
-    let dbOperations = 0; // Operações reais no banco
     const statusCounts = {
       TRADING: 0,
       SUSPENDED: 0,
