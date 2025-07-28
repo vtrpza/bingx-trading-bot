@@ -9,10 +9,11 @@ import { logger } from '../utils/logger';
 import Asset from '../models/Asset';
 
 async function runRenderDeployMigration() {
-  // let migrationSuccess = false;
   
   try {
     logger.info('🚀 RENDER DEPLOY: Starting forced database migration...');
+    logger.info(`Environment: ${process.env.NODE_ENV || 'development'}`);
+    logger.info(`Database URL configured: ${!!process.env.DATABASE_URL}`);
     
     // Test database connection first
     await sequelize.authenticate();
@@ -30,19 +31,35 @@ async function runRenderDeployMigration() {
     logger.info('🔥 FORCE SYNC: Updating PostgreSQL schema to match current models...');
     
     // Import all models to ensure they're registered
-    await import('../models/Asset');
+    try {
+      await import('../models/Asset');
+      logger.info('✅ Models imported successfully');
+    } catch (modelError) {
+      logger.error('❌ Failed to import models:', modelError);
+      throw new Error(`Model import failed: ${modelError}`);
+    }
     
     // Sync with alter: true to update existing tables
-    await sequelize.sync({ 
-      alter: true,  // Modify existing tables to match models
-      force: false  // Don't drop tables
-    });
-    
-    logger.info('✅ Database schema forcefully synchronized');
+    try {
+      logger.info('🔄 Starting database sync (alter: true)...');
+      await sequelize.sync({ 
+        alter: true,  // Modify existing tables to match models
+        force: false  // Don't drop tables
+      });
+      logger.info('✅ Database schema forcefully synchronized');
+    } catch (syncError) {
+      logger.error('❌ Database sync failed:', syncError);
+      throw new Error(`Database sync failed: ${syncError}`);
+    }
     
     // Verify Asset table exists and has correct structure
-    const assetTableInfo = await sequelize.getQueryInterface().describeTable('Assets');
-    logger.info(`📋 Assets table structure verified: ${Object.keys(assetTableInfo).length} columns`);
+    try {
+      const assetTableInfo = await sequelize.getQueryInterface().describeTable('Assets');
+      logger.info(`📋 Assets table structure verified: ${Object.keys(assetTableInfo).length} columns`);
+    } catch (tableError) {
+      logger.error('❌ Failed to verify Assets table structure:', tableError);
+      throw new Error(`Assets table verification failed: ${tableError}`);
+    }
     
     // Create/update indexes with enhanced error handling
     const indexes = getRenderOptimizedIndexes();
@@ -85,8 +102,6 @@ async function runRenderDeployMigration() {
       throw new Error('Asset table is not operational after migration');
     }
     
-    // migrationSuccess = true;
-    
     logger.info('🎉 RENDER DEPLOY MIGRATION COMPLETED SUCCESSFULLY!');
     logger.info(`📊 Results: ${successCount} indexes processed, ${skipCount} skipped`);
     
@@ -101,6 +116,14 @@ async function runRenderDeployMigration() {
     
   } catch (error: any) {
     logger.error('❌ Render deployment migration failed:', error);
+    logger.error('🔍 Error details:', {
+      message: error?.message,
+      name: error?.name,
+      stack: error?.stack?.split('\n').slice(0, 5).join('\n'), // First 5 lines of stack
+      code: error?.code,
+      errno: error?.errno,
+      syscall: error?.syscall
+    });
     
     // In production, log the error but don't crash the deployment
     if (process.env.NODE_ENV === 'production') {
@@ -121,44 +144,28 @@ async function runRenderDeployMigration() {
 
 function getRenderOptimizedIndexes(): Record<string, string> {
   return {
-    // Core performance indexes for Assets table
+    // Core performance indexes for Assets table (REMOVED CONCURRENTLY for deployment safety)
     'idx_assets_symbol_unique': `
-      CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_assets_symbol_unique 
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_assets_symbol_unique 
       ON "Assets" (symbol);
     `,
     'idx_assets_status_performance': `
-      CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_assets_status_performance 
-      ON "Assets" (status, "quoteVolume24h" DESC NULLS LAST, "priceChangePercent" DESC NULLS LAST)
+      CREATE INDEX IF NOT EXISTS idx_assets_status_performance 
+      ON "Assets" (status, "quoteVolume24h", "priceChangePercent")
       WHERE status IN ('TRADING', 'SUSPENDED', 'DELISTED');
     `,
     'idx_assets_volume_trading': `
-      CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_assets_volume_trading 
-      ON "Assets" ("quoteVolume24h" DESC NULLS LAST) 
+      CREATE INDEX IF NOT EXISTS idx_assets_volume_trading 
+      ON "Assets" ("quoteVolume24h") 
       WHERE status = 'TRADING' AND "quoteVolume24h" > 0;
     `,
-    'idx_assets_price_change_trading': `
-      CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_assets_price_change_trading 
-      ON "Assets" ("priceChangePercent" DESC NULLS LAST) 
-      WHERE status = 'TRADING';
-    `,
     'idx_assets_search_composite': `
-      CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_assets_search_composite 
+      CREATE INDEX IF NOT EXISTS idx_assets_search_composite 
       ON "Assets" (symbol, name, status);
     `,
     'idx_assets_updated_recent': `
-      CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_assets_updated_recent 
-      ON "Assets" ("updatedAt" DESC)
-      WHERE "updatedAt" > NOW() - INTERVAL '7 days';
-    `,
-    'idx_assets_leverage_analysis': `
-      CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_assets_leverage_analysis
-      ON "Assets" ("maxLeverage", "maintMarginRate", "minQty") 
-      WHERE status = 'TRADING' AND "maxLeverage" > 1;
-    `,
-    'idx_assets_market_data_complete': `
-      CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_assets_market_data_complete
-      ON "Assets" ("lastPrice", "volume24h", "highPrice24h", "lowPrice24h") 
-      WHERE status = 'TRADING' AND "lastPrice" > 0;
+      CREATE INDEX IF NOT EXISTS idx_assets_updated_recent 
+      ON "Assets" ("updatedAt");
     `
   };
 }
