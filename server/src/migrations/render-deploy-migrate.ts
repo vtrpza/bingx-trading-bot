@@ -73,6 +73,19 @@ async function runRenderDeployMigration() {
         force: false  // Don't drop tables
       });
       logger.info('✅ Database schema forcefully synchronized');
+      
+      // Verify sync worked by checking if models are properly loaded
+      const modelNames = Object.keys(sequelize.models);
+      logger.info(`📋 Models registered: ${modelNames.join(', ')}`);
+      
+      if (!modelNames.includes('Asset')) {
+        logger.warn('⚠️  Asset model not found in registered models');
+        // Try to ensure Asset model is loaded
+        await import('../models/Asset');
+        const updatedModels = Object.keys(sequelize.models);
+        logger.info(`📋 Models after re-import: ${updatedModels.join(', ')}`);
+      }
+      
     } catch (syncError) {
       logger.error('❌ Database sync failed:', syncError);
       throw new Error(`Database sync failed: ${syncError}`);
@@ -80,11 +93,33 @@ async function runRenderDeployMigration() {
     
     // Verify Asset table exists and has correct structure
     try {
-      const assetTableInfo = await sequelize.getQueryInterface().describeTable('Assets');
-      logger.info(`📋 Assets table structure verified: ${Object.keys(assetTableInfo).length} columns`);
-    } catch (tableError) {
-      logger.error('❌ Failed to verify Assets table structure:', tableError);
-      throw new Error(`Assets table verification failed: ${tableError}`);
+      // The Asset model uses lowercase 'assets' as tableName
+      const queryInterface = sequelize.getQueryInterface();
+      const tableName = 'assets'; // Asset model defines tableName: 'assets'
+      
+      logger.info(`🔍 Checking for table: ${tableName}`);
+      const assetTableInfo = await queryInterface.describeTable(tableName);
+      
+      const columnCount = Object.keys(assetTableInfo).length;
+      logger.info(`📋 ${tableName} table structure verified: ${columnCount} columns`);
+      
+      // Log some column names for verification
+      const columns = Object.keys(assetTableInfo).slice(0, 5);
+      logger.debug(`Sample columns: ${columns.join(', ')}`);
+      
+    } catch (tableError: any) {
+      logger.error('❌ Failed to verify assets table structure:', tableError);
+      
+      // List all tables to help debug if table not found
+      try {
+        const queryInterface = sequelize.getQueryInterface();
+        const allTables = await queryInterface.showAllTables();
+        logger.info('📋 Available tables:', allTables);
+      } catch (showError) {
+        logger.warn('⚠️  Could not list tables:', showError);
+      }
+      
+      throw new Error(`Assets table verification failed: ${tableError.message || tableError}`);
     }
     
     // Create/update indexes with enhanced error handling
@@ -113,7 +148,7 @@ async function runRenderDeployMigration() {
     
     // Update table statistics for better query performance
     try {
-      await sequelize.query('ANALYZE "Assets";');
+      await sequelize.query('ANALYZE "assets";');
       logger.info('✅ Updated PostgreSQL table statistics');
     } catch (error) {
       logger.warn('⚠️  Failed to update statistics (non-critical):', error);
@@ -170,28 +205,28 @@ async function runRenderDeployMigration() {
 
 function getRenderOptimizedIndexes(): Record<string, string> {
   return {
-    // Core performance indexes for Assets table (REMOVED CONCURRENTLY for deployment safety)
+    // Core performance indexes for assets table (lowercase, matching model tableName)
     'idx_assets_symbol_unique': `
       CREATE UNIQUE INDEX IF NOT EXISTS idx_assets_symbol_unique 
-      ON "Assets" (symbol);
+      ON "assets" (symbol);
     `,
     'idx_assets_status_performance': `
       CREATE INDEX IF NOT EXISTS idx_assets_status_performance 
-      ON "Assets" (status, "quoteVolume24h", "priceChangePercent")
+      ON "assets" (status, "quoteVolume24h", "priceChangePercent")
       WHERE status IN ('TRADING', 'SUSPENDED', 'DELISTED');
     `,
     'idx_assets_volume_trading': `
       CREATE INDEX IF NOT EXISTS idx_assets_volume_trading 
-      ON "Assets" ("quoteVolume24h") 
+      ON "assets" ("quoteVolume24h") 
       WHERE status = 'TRADING' AND "quoteVolume24h" > 0;
     `,
     'idx_assets_search_composite': `
       CREATE INDEX IF NOT EXISTS idx_assets_search_composite 
-      ON "Assets" (symbol, name, status);
+      ON "assets" (symbol, name, status);
     `,
     'idx_assets_updated_recent': `
       CREATE INDEX IF NOT EXISTS idx_assets_updated_recent 
-      ON "Assets" ("updatedAt");
+      ON "assets" ("updatedAt");
     `
   };
 }
