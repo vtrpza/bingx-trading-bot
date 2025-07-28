@@ -1,9 +1,9 @@
-import { Worker, isMainThread, parentPort, workerData } from 'worker_threads';
+import { Worker } from 'worker_threads';
 import { EventEmitter } from 'events';
 import { logger } from '../utils/logger';
 import path from 'path';
 
-export interface WorkerTask<T = any, R = any> {
+export interface WorkerTask<T = any> {
   id: string;
   type: string;
   data: T;
@@ -13,10 +13,10 @@ export interface WorkerTask<T = any, R = any> {
   createdAt: number;
 }
 
-export interface WorkerResult<R = any> {
+export interface WorkerResult {
   taskId: string;
   success: boolean;
-  data?: R;
+  data?: any;
   error?: string;
   processingTime: number;
   workerId: string;
@@ -257,7 +257,7 @@ export class WorkerPoolManager extends EventEmitter {
     this.busyWorkers.add(workerId);
 
     // Set up task timeout
-    const timeoutId = setTimeout(() => {
+    setTimeout(() => {
       const activeTask = this.activeTasks.get(task.id);
       if (activeTask) {
         activeTask.reject(new Error(`Task ${task.id} timed out after ${task.timeout}ms`));
@@ -350,9 +350,6 @@ export class WorkerPoolManager extends EventEmitter {
    * Clean up idle workers
    */
   private cleanupIdleWorkers(): void {
-    const now = Date.now();
-    const idleTimeout = this.config.idleTimeout;
-
     // Only clean up if we have more than minimum workers
     if (this.workers.size <= this.config.minWorkers) {
       return;
@@ -360,11 +357,9 @@ export class WorkerPoolManager extends EventEmitter {
 
     const workersToTerminate: string[] = [];
     
-    for (const workerId of this.availableWorkers) {
-      // In a real implementation, you'd track last activity time
-      // For now, we'll keep it simple and not terminate idle workers
-      // This is where you'd implement idle worker cleanup logic
-    }
+    // In a real implementation, you'd track last activity time
+    // For now, we'll keep it simple and not terminate idle workers
+    // This is where you'd implement idle worker cleanup logic
 
     // Terminate idle workers
     workersToTerminate.forEach(workerId => {
@@ -450,7 +445,7 @@ export class WorkerPoolManager extends EventEmitter {
     }
 
     // Reject all pending tasks
-    for (const [taskId, activeTask] of this.activeTasks) {
+    for (const [, activeTask] of this.activeTasks) {
       activeTask.reject(new Error('Worker pool shutting down'));
     }
     this.activeTasks.clear();

@@ -440,10 +440,9 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
     };
     
     
-    // OPTIMIZED: Prepare all asset data first, then bulk insert/update
+    // OPTIMIZED: Process assets with database operations
     const startTime = Date.now();
     const BATCH_SIZE = 500; // Bulk operations with 500 records at a time
-    const assetsToUpsert: any[] = [];
     
     // Prepare all asset data in memory first (much faster)
     for (let i = 0; i < contractsToProcess.length; i++) {

@@ -1,7 +1,6 @@
-import axios, { AxiosInstance } from 'axios';
+import axios from 'axios';
 import https from 'https';
 import http from 'http';
-import crypto from 'crypto';
 import { logger } from '../utils/logger';
 import { redisCache } from './RedisCache';
 import { BingXClient } from './bingxClient';
@@ -28,8 +27,9 @@ interface ApiCallMetrics {
  * and optimized batch operations for financial market data
  */
 export class OptimizedBingXClient extends BingXClient {
-  private httpAgent: http.Agent;
-  private httpsAgent: https.Agent;
+  private httpAgent!: http.Agent;
+  private httpsAgent!: https.Agent;
+  private optimizedAxios!: any;
   private metrics: ApiCallMetrics[] = [];
   private requestQueue: Map<string, Promise<any>> = new Map();
 
@@ -70,9 +70,9 @@ export class OptimizedBingXClient extends BingXClient {
       honorCipherOrder: true
     });
 
-    // Replace the default axios instance with optimized one
-    const optimizedAxios = axios.create({
-      baseURL: this.axios.defaults.baseURL,
+    // Create optimized axios instance
+    this.optimizedAxios = axios.create({
+      baseURL: 'https://open-api-vst.bingx.com', // Use BingX demo API
       timeout: 20000, // Increased timeout for batch operations
       httpAgent: this.httpAgent,
       httpsAgent: this.httpsAgent,
@@ -84,13 +84,6 @@ export class OptimizedBingXClient extends BingXClient {
       // Enable request/response compression
       decompress: true
     });
-
-    // Copy interceptors from parent
-    optimizedAxios.interceptors.request = this.axios.interceptors.request;
-    optimizedAxios.interceptors.response = this.axios.interceptors.response;
-
-    // Replace the axios instance
-    (this as any).axios = optimizedAxios;
 
     logger.info('Optimized BingX client initialized with connection pooling');
   }
@@ -179,7 +172,7 @@ export class OptimizedBingXClient extends BingXClient {
 
     for (const endpoint of endpoints) {
       try {
-        const response = await this.axios.get(endpoint);
+        const response = await this.optimizedAxios.get(endpoint);
         
         if (response.data && response.data.code === 0) {
           logger.info(`Successfully fetched symbols from ${endpoint}: ${response.data.data?.length || 0} contracts`);
@@ -255,7 +248,7 @@ export class OptimizedBingXClient extends BingXClient {
 
     for (const endpoint of endpoints) {
       try {
-        const response = await this.axios.get(endpoint);
+        const response = await this.optimizedAxios.get(endpoint);
         
         if (response.data && response.data.code === 0 && Array.isArray(response.data.data)) {
           logger.info(`Successfully fetched ${response.data.data.length} tickers from ${endpoint}`);
@@ -362,7 +355,7 @@ export class OptimizedBingXClient extends BingXClient {
 
     // Try batch endpoint first (if supported by BingX)
     try {
-      const response = await this.axios.get('/openApi/swap/v2/quote/ticker', {
+      const response = await this.optimizedAxios.get('/openApi/swap/v2/quote/ticker', {
         params: { symbols: symbols.join(',') }
       });
 
@@ -450,13 +443,13 @@ export class OptimizedBingXClient extends BingXClient {
    * Get active connection count from agents
    */
   private getActiveConnections(): number {
-    const httpSockets = Object.keys(this.httpAgent.sockets).reduce((count, key) => {
-      return count + this.httpAgent.sockets[key].length;
-    }, 0);
+    const httpSockets = this.httpAgent.sockets ? Object.keys(this.httpAgent.sockets).reduce((count, key) => {
+      return count + (this.httpAgent.sockets[key]?.length || 0);
+    }, 0) : 0;
 
-    const httpsSockets = Object.keys(this.httpsAgent.sockets).reduce((count, key) => {
-      return count + this.httpsAgent.sockets[key].length;
-    }, 0);
+    const httpsSockets = this.httpsAgent.sockets ? Object.keys(this.httpsAgent.sockets).reduce((count, key) => {
+      return count + (this.httpsAgent.sockets[key]?.length || 0);
+    }, 0) : 0;
 
     return httpSockets + httpsSockets;
   }
@@ -535,7 +528,7 @@ class Semaphore {
   private counter: number;
   private waiting: (() => void)[] = [];
 
-  constructor(private max: number) {
+  constructor(max: number) {
     this.counter = max;
   }
 

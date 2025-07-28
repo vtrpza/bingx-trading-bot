@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { Op, QueryTypes } from 'sequelize';
+import { QueryTypes } from 'sequelize';
 import { sequelize } from '../config/database';
 import Asset from '../models/Asset';
 import { AppError, asyncHandler } from '../utils/errorHandler';
@@ -401,7 +401,7 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
 /**
  * Enhanced asset statistics with caching
  */
-router.get('/stats/overview', asyncHandler(async (req: Request, res: Response) => {
+router.get('/stats/overview', asyncHandler(async (_req: Request, res: Response) => {
   const cacheKey = 'asset_stats_overview';
   
   // Try cache first
@@ -457,13 +457,13 @@ router.get('/stats/overview', asyncHandler(async (req: Request, res: Response) =
 /**
  * Performance monitoring endpoint
  */
-router.get('/performance', asyncHandler(async (req: Request, res: Response) => {
+router.get('/performance', asyncHandler(async (_req: Request, res: Response) => {
   const performanceData = {
     bingxClient: optimizedBingXClient.getPerformanceMetrics(),
     workerPool: workerPoolManager.getPoolInfo(),
     cache: await redisCache.getDetailedStats(),
     database: {
-      connections: sequelize.connectionManager.pool.size,
+      connections: 'N/A', // Connection pool info not directly accessible
       queries: 'N/A' // Would need query monitoring setup
     },
     system: {

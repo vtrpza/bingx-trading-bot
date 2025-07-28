@@ -48,13 +48,13 @@ export class RedisCache {
       
       // Connection optimization
       maxRetriesPerRequest: 3,
-      retryDelayOnFailover: 100,
+      // retryDelayOnFailover: 100, // Not available in current ioredis version
       lazyConnect: true,
       keepAlive: 30000,
       
       // Performance settings
       enableReadyCheck: true,
-      maxLoadingTimeout: 5000,
+      // maxLoadingTimeout: 5000, // Not available in current ioredis version
       
       // Connection pool settings
       family: 4, // IPv4
@@ -77,7 +77,7 @@ export class RedisCache {
       this.fallbackEnabled = false;
     });
 
-    this.client.on('error', (error) => {
+    this.client.on('error', (error: any) => {
       logger.error('Redis connection error:', error);
       this.fallbackEnabled = true;
       this.stats.errors++;
@@ -172,7 +172,7 @@ export class RedisCache {
       const tickerMap = new Map<string, any>();
       
       if (results) {
-        results.forEach((result, index) => {
+        results.forEach((result: any, index: number) => {
           if (result && result[1]) {
             try {
               const data = JSON.parse(result[1] as string);
@@ -254,7 +254,7 @@ export class RedisCache {
   /**
    * Generic get method with automatic fallback
    */
-  private async get(key: string, options: CacheOptions = {}): Promise<any | null> {
+  async get(key: string, _options: CacheOptions = {}): Promise<any | null> {
     if (this.fallbackEnabled) {
       this.stats.misses++;
       return null;
@@ -280,7 +280,7 @@ export class RedisCache {
   /**
    * Generic set method with TTL and compression
    */
-  private async set(key: string, value: any, options: CacheOptions = {}): Promise<void> {
+  async set(key: string, value: any, options: CacheOptions = {}): Promise<void> {
     if (this.fallbackEnabled) {
       return;
     }

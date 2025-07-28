@@ -5,7 +5,6 @@
 
 import { sequelize } from '../config/database';
 import { logger } from '../utils/logger';
-import { QueryInterface, DataTypes } from 'sequelize';
 
 async function createOptimizedIndexes() {
   try {
@@ -31,21 +30,21 @@ async function createOptimizedIndexes() {
     const indexes = [
       {
         name: 'idx_assets_volume_24h_desc',
-        fields: [{ name: 'quoteVolume24h', order: 'DESC' }],
+        fields: [{ name: 'quoteVolume24h', order: 'DESC' as 'DESC' as 'DESC' }],
         where: dialect === 'postgres' ? { status: 'TRADING' } : undefined
       },
       {
         name: 'idx_assets_price_change_desc',
-        fields: [{ name: 'priceChangePercent', order: 'DESC' }],
+        fields: [{ name: 'priceChangePercent', order: 'DESC' as 'DESC' }],
         where: dialect === 'postgres' ? { status: 'TRADING' } : undefined
       },
       {
         name: 'idx_assets_status_volume',
-        fields: ['status', { name: 'quoteVolume24h', order: 'DESC' }]
+        fields: ['status', { name: 'quoteVolume24h', order: 'DESC' as 'DESC' }]
       },
       {
         name: 'idx_assets_composite_filter',
-        fields: ['status', { name: 'updatedAt', order: 'DESC' }, { name: 'quoteVolume24h', order: 'DESC' }]
+        fields: ['status', { name: 'updatedAt', order: 'DESC' as 'DESC' }, { name: 'quoteVolume24h', order: 'DESC' as 'DESC' }]
       },
       {
         name: 'idx_assets_symbol_search',
@@ -57,14 +56,14 @@ async function createOptimizedIndexes() {
       },
       {
         name: 'idx_assets_updated_at',
-        fields: [{ name: 'updatedAt', order: 'DESC' }]
+        fields: [{ name: 'updatedAt', order: 'DESC' as 'DESC' }]
       },
       {
         name: 'idx_assets_trading_comprehensive',
         fields: [
-          { name: 'quoteVolume24h', order: 'DESC' },
-          { name: 'priceChangePercent', order: 'DESC' },
-          { name: 'updatedAt', order: 'DESC' }
+          { name: 'quoteVolume24h', order: 'DESC' as 'DESC' },
+          { name: 'priceChangePercent', order: 'DESC' as 'DESC' },
+          { name: 'updatedAt', order: 'DESC' as 'DESC' }
         ],
         where: dialect === 'postgres' ? { status: 'TRADING', quoteVolume24h: { [require('sequelize').Op.gt]: 0 } } : undefined
       },

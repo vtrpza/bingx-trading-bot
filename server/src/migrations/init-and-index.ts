@@ -4,7 +4,6 @@
 
 import { sequelize } from '../config/database';
 import { logger } from '../utils/logger';
-import Asset from '../models/Asset';
 
 async function initializeAndCreateIndexes() {
   try {
