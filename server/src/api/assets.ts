@@ -238,7 +238,7 @@ router.get('/', asyncHandler(async (req: Request, res: Response) => {
 }));
 
 // Get all assets without pagination (for full data loading)
-router.get('/all', asyncHandler(async (req: Request, res: Response) => {
+router.get('/all', asyncHandler(async (req: Request, res: Response): Promise<void> => {
   const { 
     sortBy = 'quoteVolume24h', 
     sortOrder = 'DESC',
@@ -270,6 +270,23 @@ router.get('/all', asyncHandler(async (req: Request, res: Response) => {
   });
 
   const executionTime = ((Date.now() - startTime) / 1000).toFixed(3);
+
+  // If no assets found, provide helpful message
+  if (assets.length === 0) {
+    logger.warn('No assets found in database - database may be empty');
+    res.json({
+      success: true,
+      data: {
+        assets: [],
+        count: 0,
+        executionTime: `${executionTime}s`,
+        lastUpdated: new Date().toISOString(),
+        message: 'No assets found. Try refreshing the asset data from the Assets page.',
+        needsRefresh: true
+      }
+    });
+    return;
+  }
 
   res.json({
     success: true,
@@ -1207,18 +1224,29 @@ router.get('/debug/api-test', asyncHandler(async (req: Request, res: Response) =
   }
 
   try {
-    // Test 2: Database connectivity
+    // Test 2: Database connectivity and table status
     debugInfo.checks.database = 'testing...';
+    
+    // Check if assets table exists and get count
     const assetCount = await Asset.count();
+    
+    // Check table structure
+    const tableInfo = await sequelize.getQueryInterface().describeTable('assets');
+    const columnNames = Object.keys(tableInfo);
+    
     debugInfo.checks.database = {
       status: 'success',
       assetCount,
-      dialect: sequelize.getDialect()
+      dialect: sequelize.getDialect(),
+      tableExists: true,
+      columnCount: columnNames.length,
+      hasRequiredColumns: ['symbol', 'status', 'lastPrice'].every(col => columnNames.includes(col))
     };
   } catch (error: any) {
     debugInfo.checks.database = {
       status: 'error',
-      message: error.message
+      message: error.message,
+      tableExists: false
     };
   }
 
@@ -1242,7 +1270,49 @@ router.get('/debug/api-test', asyncHandler(async (req: Request, res: Response) =
     };
   }
 
-  // Test 4: Network info
+  // Test 4: Database write test
+  try {
+    debugInfo.checks.database_write = 'testing...';
+    const testSymbol = `DEBUG_TEST_${Date.now()}`;
+    
+    // Try to create a test asset
+    await Asset.create({
+      symbol: testSymbol,
+      name: 'Debug Test Asset',
+      baseCurrency: 'TEST',
+      quoteCurrency: 'USDT',
+      status: 'TRADING',
+      lastPrice: 1.0,
+      priceChangePercent: 0,
+      volume24h: 0,
+      quoteVolume24h: 0,
+      highPrice24h: 1.0,
+      lowPrice24h: 1.0,
+      openInterest: 0,
+      minQty: 0.001,
+      maxQty: 1000000,
+      tickSize: 0.0001,
+      stepSize: 0.001,
+      maxLeverage: 100,
+      maintMarginRate: 0.01
+    });
+    
+    // Clean up test asset
+    await Asset.destroy({ where: { symbol: testSymbol } });
+    
+    debugInfo.checks.database_write = {
+      status: 'success',
+      message: 'Database write operations working correctly'
+    };
+  } catch (error: any) {
+    debugInfo.checks.database_write = {
+      status: 'error',
+      message: error.message,
+      code: error.code
+    };
+  }
+
+  // Test 5: Network info
   debugInfo.network = {
     userAgent: req.headers['user-agent'],
     clientIP: req.ip,
