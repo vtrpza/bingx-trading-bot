@@ -66,17 +66,91 @@ router.get('/refresh/progress/:sessionId', (req: Request, res: Response) => {
     }
   }, 30000); // 30 seconds - CRITICAL for Render's 60-second timeout
   
-  // Clean up on client disconnect
-  req.on('close', () => {
+  // Enhanced cleanup for Render deployment stability
+  const cleanup = () => {
     console.log(`🔚 Cliente SSE desconectado: ${sessionId}`);
     clearInterval(heartbeat);
     refreshSessions.delete(sessionId);
+    
+    // Properly close the response to free resources on Render
+    if (!res.headersSent) {
+      res.end();
+    }
+    console.log(`📊 SSE sessions restantes: ${refreshSessions.size}`);
+  };
+  
+  req.on('close', cleanup);
+  req.on('aborted', cleanup);
+  req.on('error', (err) => {
+    console.error(`❌ Erro na conexão SSE ${sessionId}:`, err.message);
+    cleanup();
   });
   
-  req.on('aborted', () => {
-    console.log(`🔚 Cliente SSE abortado: ${sessionId}`);
-    clearInterval(heartbeat);
-    refreshSessions.delete(sessionId);
+  // RENDER-SPECIFIC: Handle server-side connection timeout
+  setTimeout(() => {
+    if (refreshSessions.has(sessionId)) {
+      console.log(`⏰ Timeout preventivo para sessão SSE ${sessionId} (55s)`);
+      // Send final message before potential Render timeout
+      const timeoutMessage = { 
+        type: 'timeout_warning', 
+        sessionId, 
+        message: 'Conexão será renovada automaticamente' 
+      };
+      res.write(`data: ${JSON.stringify(timeoutMessage)}\n\n`);
+      res.flush();
+    }
+  }, 55000); // 55 seconds - just before Render's 60s timeout
+});
+
+// SSE Test endpoint for debugging Render deployment
+router.get('/sse-test', (req: Request, res: Response) => {
+  console.log('🧪 SSE Test endpoint accessed');
+  
+  // Same Render-optimized headers
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  
+  res.flushHeaders();
+  
+  // Send test messages every 2 seconds
+  let counter = 0;
+  const testInterval = setInterval(() => {
+    counter++;
+    const testMessage = {
+      type: 'test',
+      counter,
+      timestamp: new Date().toISOString(),
+      message: `Test message ${counter} - Render deployment check`
+    };
+    
+    res.write(`data: ${JSON.stringify(testMessage)}\n\n`);
+    res.flush();
+    
+    // Stop after 30 messages (1 minute)
+    if (counter >= 30) {
+      clearInterval(testInterval);
+      const finalMessage = {
+        type: 'test_complete',
+        message: 'SSE test completed successfully on Render!'
+      };
+      res.write(`data: ${JSON.stringify(finalMessage)}\n\n`);
+      res.flush();
+      res.end();
+    }
+  }, 2000);
+  
+  // Cleanup on disconnect
+  req.on('close', () => {
+    console.log('🧪 SSE Test client disconnected');
+    clearInterval(testInterval);
+  });
+  
+  req.on('error', (err) => {
+    console.error('🧪 SSE Test error:', err);
+    clearInterval(testInterval);
   });
 });
 
