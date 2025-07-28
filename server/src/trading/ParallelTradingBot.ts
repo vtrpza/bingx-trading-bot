@@ -361,7 +361,7 @@ export class ParallelTradingBot extends EventEmitter {
       );
       
       // Emergency stop all components during circuit breaker
-      this.handleCircuitBreakerOpened(info);
+      this.handleCircuitBreakerOpened();
     });
 
     // 🚀 NEW: Symbol processing events
@@ -1763,7 +1763,7 @@ export class ParallelTradingBot extends EventEmitter {
     return this.signalWorkerPool.getProgressiveLoadingStatus();
   }
 
-  private handleCircuitBreakerOpened(info: any): void {
+  private handleCircuitBreakerOpened(): void {
     logger.warn('Circuit breaker opened - initiating emergency procedures');
     
     try {
