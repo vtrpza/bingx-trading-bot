@@ -517,6 +517,87 @@ export class BingXClient {
     }
   }
 
+  async getAllTickers() {
+    const cacheKey = 'all_tickers';
+    const now = Date.now();
+    const TICKERS_CACHE_DURATION = 30000; // 30 seconds cache for market data
+    
+    // Check cache first
+    if (symbolCache.has(cacheKey)) {
+      const cached = symbolCache.get(cacheKey)!;
+      if (now - cached.timestamp < TICKERS_CACHE_DURATION) {
+        logger.debug('Returning cached tickers data');
+        return cached.data;
+      }
+    }
+    
+    try {
+      logger.info('🎯 Fetching ALL market data from BingX...');
+      
+      // Try different endpoints for getting all tickers
+      const tickerEndpoints = [
+        '/openApi/swap/v2/quote/ticker',    // All tickers without symbol param
+        '/openApi/swap/v1/quote/ticker',    // v1 fallback
+        '/openApi/swap/v2/ticker/24hr',     // 24hr stats
+        '/openApi/swap/v1/ticker/24hr',     // v1 24hr stats
+        '/openApi/swap/v2/quote/tickers',   // Plural form
+        '/openApi/swap/v1/quote/tickers'    // v1 plural
+      ];
+      
+      let allTickers: any[] = [];
+      let successfulEndpoint = '';
+      
+      for (const endpoint of tickerEndpoints) {
+        try {
+          logger.debug(`🔍 Trying ticker endpoint: ${endpoint}`);
+          
+          const response = await this.axios.get(endpoint);
+          
+          if (response.data && response.data.code === 0) {
+            const tickers = response.data.data;
+            
+            if (Array.isArray(tickers) && tickers.length > 0) {
+              allTickers = tickers;
+              successfulEndpoint = endpoint;
+              logger.info(`✅ Successfully fetched ${tickers.length} tickers from ${endpoint}`);
+              break;
+            }
+          }
+          
+        } catch (error: any) {
+          logger.debug(`❌ Failed to fetch from ${endpoint}: ${error.message}`);
+          continue;
+        }
+      }
+      
+      if (allTickers.length === 0) {
+        throw new Error('No ticker endpoints returned valid market data');
+      }
+      
+      const response = {
+        code: 0,
+        data: allTickers,
+        msg: 'success',
+        endpoint: successfulEndpoint,
+        count: allTickers.length
+      };
+      
+      // Cache the tickers data
+      symbolCache.set(cacheKey, {
+        timestamp: now,
+        data: response
+      });
+      
+      logger.info(`🎉 All tickers fetched successfully: ${allTickers.length} symbols from ${successfulEndpoint}`);
+      
+      return response;
+      
+    } catch (error) {
+      logger.error('Failed to get all tickers:', error);
+      throw error;
+    }
+  }
+
   async getKlines(symbol: string, interval: string, limit: number = 500) {
     const cacheKey = `${symbol}:${interval}:${limit}`;
     const cached = klineCache.get(cacheKey);

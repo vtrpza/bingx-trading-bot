@@ -104,7 +104,12 @@ export const api = {
             const data = JSON.parse(event.data);
             console.log('📡 SSE recebido:', data);
             
-            // Skip the initial connection message
+            // Skip connection and heartbeat messages, but log heartbeat for debugging
+            if (data.type === 'heartbeat') {
+              console.log('💓 Heartbeat recebido - conexão SSE ativa');
+              return;
+            }
+            
             if (data.type !== 'connected') {
               console.log('🔄 Enviando progresso para UI:', data);
               onProgress(data);

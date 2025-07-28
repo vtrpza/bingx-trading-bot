@@ -21,11 +21,12 @@ router.get('/refresh/progress/:sessionId', (req: Request, res: Response) => {
   const sessionId = req.params.sessionId;
   console.log(`🔌 Nova conexão SSE: ${sessionId}`);
   
-  // Set up SSE headers
+  // Set up SSE headers - CRITICAL: Disable compression for real-time streaming
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
+    'Cache-Control': 'no-cache, no-transform', // no-transform disables compression
     'Connection': 'keep-alive',
+    'Content-Encoding': 'none', // Explicitly disable compression
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Headers': 'Cache-Control',
     'X-Accel-Buffering': 'no' // Disable proxy buffering for real-time updates
@@ -35,19 +36,47 @@ router.get('/refresh/progress/:sessionId', (req: Request, res: Response) => {
   refreshSessions.set(sessionId, res);
   console.log(`📊 SSE sessions ativas: ${refreshSessions.size}`);
   
-  // Send initial connection message
+  // Send initial connection message with flush
   const initialMessage = { type: 'connected', sessionId, timestamp: Date.now() };
   res.write(`data: ${JSON.stringify(initialMessage)}\n\n`);
+  if (typeof res.flush === 'function') {
+    res.flush();
+  }
   console.log(`✅ Mensagem inicial SSE enviada para ${sessionId}`);
+  
+  // Keep-alive heartbeat to maintain connection and test real-time delivery
+  const heartbeat = setInterval(() => {
+    if (refreshSessions.has(sessionId)) {
+      const pingMessage = { 
+        type: 'heartbeat', 
+        sessionId, 
+        timestamp: Date.now(),
+        message: '💓 Conexão ativa' 
+      };
+      res.write(`data: ${JSON.stringify(pingMessage)}\n\n`);
+      if (typeof res.flush === 'function') {
+        res.flush();
+      }
+    } else {
+      clearInterval(heartbeat);
+    }
+  }, 2000); // Heartbeat every 2 seconds
   
   // Clean up on client disconnect
   req.on('close', () => {
     console.log(`🔚 Cliente SSE desconectado: ${sessionId}`);
+    clearInterval(heartbeat);
+    refreshSessions.delete(sessionId);
+  });
+  
+  req.on('aborted', () => {
+    console.log(`🔚 Cliente SSE abortado: ${sessionId}`);
+    clearInterval(heartbeat);
     refreshSessions.delete(sessionId);
   });
 });
 
-// Helper function to send progress updates
+// Helper function to send progress updates - CRITICAL: Added flush() for real-time delivery
 function sendProgress(sessionId: string, data: any): Promise<void> {
   return new Promise((resolve) => {
     const session = refreshSessions.get(sessionId);
@@ -55,8 +84,17 @@ function sendProgress(sessionId: string, data: any): Promise<void> {
       const message = `data: ${JSON.stringify(data)}\n\n`;
       console.log(`📡 Enviando SSE para ${sessionId}:`, data.type, data.message);
       session.write(message);
-      // Force flush and yield to event loop
-      session.flushHeaders?.();
+      
+      // CRITICAL: Force immediate flush to bypass compression buffering
+      if (typeof session.flush === 'function') {
+        session.flush();
+      }
+      // Force socket to send data immediately by disabling Nagle's algorithm temporarily
+      if (session.socket) {
+        session.socket.setNoDelay(true);
+      }
+      
+      // Yield to event loop to ensure message is sent
       setImmediate(resolve);
     } else {
       console.log(`⚠️ Sessão SSE ${sessionId} não encontrada nas ${refreshSessions.size} sessões ativas`);
@@ -234,53 +272,114 @@ router.get('/:symbol', asyncHandler(async (req: Request, res: Response) => {
 // Refresh assets from BingX API
 router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
   const sessionId = req.body.sessionId || `refresh_${Date.now()}`;
+  const totalStartTime = Date.now(); // Real total time measurement
   logger.info('Refreshing assets from BingX API...', { sessionId });
   
   try {
     // Send initial progress IMEDIATAMENTE
     await sendProgress(sessionId, {
       type: 'progress',
-      message: 'Conectando com BingX API...',
-      progress: 5,
+      message: 'Iniciando busca completa de dados...',
+      progress: 2,
       processed: 0,
       total: 0
     });
     
     // Yield to event loop and send quick update
     await yieldEventLoop();
-    await sendProgress(sessionId, {
-      type: 'progress',
-      message: 'Buscando contratos disponíveis...',
-      progress: 10,
-      processed: 0,
-      total: 0
-    });
-
+    
     // Invalidate cache to ensure fresh data
     bingxClient.invalidateSymbolsCache();
     
-    // Get all contracts from BingX
-    const response = await bingxClient.getSymbols();
+    // STEP 1: Fetch contracts with progress updates
+    await sendProgress(sessionId, {
+      type: 'progress',
+      message: '📋 Buscando metadados dos contratos da BingX...',
+      progress: 5,
+      processed: 0,
+      total: 0
+    });
     
-    logger.info('BingX getSymbols response:', {
-      code: response?.code,
-      dataLength: response?.data?.length,
-      sampleData: response?.data?.slice(0, 2), // Show first 2 items for debugging
-      lastFewData: response?.data?.slice(-2), // Show last 2 items for debugging
-      totalContracts: response?.data?.length || 0
+    const contractsResponse = await bingxClient.getSymbols();
+    
+    await sendProgress(sessionId, {
+      type: 'progress',
+      message: `✅ ${contractsResponse?.data?.length || 0} contratos encontrados`,
+      progress: 25,
+      processed: 0,
+      total: contractsResponse?.data?.length || 0
+    });
+    
+    await yieldEventLoop();
+    
+    // STEP 2: Fetch market data with progress updates  
+    await sendProgress(sessionId, {
+      type: 'progress',
+      message: '💰 Buscando dados de mercado em tempo real...',
+      progress: 30,
+      processed: 0,
+      total: contractsResponse?.data?.length || 0
+    });
+    
+    const tickersResponse = await bingxClient.getAllTickers();
+    
+    await sendProgress(sessionId, {
+      type: 'progress',
+      message: `✅ ${tickersResponse?.data?.length || 0} dados de mercado obtidos`,
+      progress: 50,
+      processed: 0,
+      total: contractsResponse?.data?.length || 0
+    });
+    
+    await yieldEventLoop();
+    
+    // Process contracts response
+    const response = contractsResponse;
+    
+    logger.info('BingX responses received:', {
+      contracts: {
+        code: response?.code,
+        dataLength: response?.data?.length,
+        totalContracts: response?.data?.length || 0
+      },
+      tickers: {
+        code: tickersResponse?.code,
+        dataLength: tickersResponse?.data?.length,
+        totalTickers: tickersResponse?.data?.length || 0,
+        endpoint: tickersResponse?.endpoint
+      }
     });
     
     if (response.code !== 0 || !response.data) {
       await sendProgress(sessionId, {
         type: 'error',
-        message: `BingX API Error: ${response.msg || 'Failed to fetch assets'}`
+        message: `BingX Contracts API Error: ${response.msg || 'Failed to fetch assets'}`
       });
-      logger.error('BingX API returned error:', {
+      logger.error('BingX contracts API returned error:', {
         code: response.code,
         message: response.msg,
         data: response.data
       });
-      throw new AppError(`BingX API Error: ${response.msg || 'Failed to fetch assets'}`, 500);
+      throw new AppError(`BingX Contracts API Error: ${response.msg || 'Failed to fetch assets'}`, 500);
+    }
+
+    if (tickersResponse.code !== 0 || !tickersResponse.data) {
+      logger.warn('BingX tickers API returned error - proceeding with contracts only:', {
+        code: tickersResponse.code,
+        message: tickersResponse.msg
+      });
+      // Continue without market data rather than failing completely
+    }
+
+    // Create ticker map for fast lookup
+    const tickerMap = new Map<string, any>();
+    if (tickersResponse.data && Array.isArray(tickersResponse.data)) {
+      tickersResponse.data.forEach((ticker: any) => {
+        if (ticker.symbol) {
+          tickerMap.set(ticker.symbol, ticker);
+        }
+      });
+      logger.info(`📊 Created ticker map with ${tickerMap.size} market data entries`);
     }
     
    
@@ -314,21 +413,24 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
       logger.warn(`⚠️ ENCONTRADAS ${totalDuplicates} DUPLICATAS! Isso pode explicar a diferença.`);
     }
     
-    // Send progress with total count
+    // Send progress with total count - merge phase starting
     await sendProgress(sessionId, {
       type: 'progress',
-      message: `🔍 Analisando ${contractsToProcess.length} contratos (${uniqueSymbols} únicos, ${totalDuplicates} duplicatas)...`,
-      progress: 15,
+      message: `🔄 Combinando dados: ${contractsToProcess.length} contratos + ${tickerMap.size} preços (${uniqueSymbols} únicos)`,
+      progress: 55,
       processed: 0,
       total: contractsToProcess.length,
       uniqueSymbols,
-      duplicates: totalDuplicates
+      duplicates: totalDuplicates,
+      marketDataCount: tickerMap.size
     });
     
     let created = 0;
     let updated = 0;
     let processed = 0;
     let skipped = 0; // Contratos que não foram processados (duplicados, inválidos, etc)
+    let withMarketData = 0; // Contratos que foram enriched com market data
+    let withoutMarketData = 0; // Contratos sem market data
     const statusCounts = {
       TRADING: 0,
       SUSPENDED: 0,
@@ -345,16 +447,29 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
     for (let i = 0; i < contractsToProcess.length; i += BATCH_SIZE) {
       const batch = contractsToProcess.slice(i, i + BATCH_SIZE);
       
+      // Send immediate batch start notification for real-time feedback
+      if (i > 0) {
+        const currentProgress = Math.min(95, Math.round(55 + (i / contractsToProcess.length) * 40));
+        await sendProgress(sessionId, {
+          type: 'progress',
+          message: `🔄 Processando lote ${Math.floor(i/BATCH_SIZE) + 1}/${Math.ceil(contractsToProcess.length/BATCH_SIZE)}...`,
+          progress: currentProgress,
+          processed: i,
+          total: contractsToProcess.length,
+          batchInfo: `Lote ${i}-${Math.min(i + BATCH_SIZE, contractsToProcess.length)}`
+        });
+      }
+      
       // Process this batch
       for (const contract of batch) {
         processed++;
         
-        // Send progress updates mais frequentes para mostrar progresso em tempo real
-        if (processed % 25 === 0 || processed <= 10 || processed === contractsToProcess.length) {
-          const progress = Math.min(95, Math.round(15 + (processed / contractsToProcess.length) * 80));
+        // Send progress updates VERY frequently for truly real-time experience
+        if (processed % 5 === 0 || processed <= 20 || processed === contractsToProcess.length) {
+          const progress = Math.min(95, Math.round(55 + (processed / contractsToProcess.length) * 40));
           await sendProgress(sessionId, {
             type: 'progress',
-            message: `🔄 ${contract.symbol} (${processed}/${contractsToProcess.length}) | ✅ ${created + updated} salvos`,
+            message: `💾 ${contract.symbol} (${processed}/${contractsToProcess.length}) | ✅ ${created + updated} salvos`,
             progress,
             processed,
             total: contractsToProcess.length,
@@ -426,7 +541,18 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
           }
       }
 
+      // Get market data for this symbol
+      const ticker = tickerMap.get(contract.symbol);
+      
+      // Count market data availability
+      if (ticker) {
+        withMarketData++;
+      } else {
+        withoutMarketData++;
+      }
+      
       const assetData: any = {
+        // Contract metadata (from contracts API)
         symbol: contract.symbol,
         name: contract.displayName || contract.symbol,
         baseCurrency: contract.asset || 'UNKNOWN',           // BTC, ETH, etc.
@@ -438,14 +564,15 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
         stepSize: contract.quantityPrecision ? Math.pow(10, -contract.quantityPrecision) : 0.001,
         maxLeverage: parseInt(contract.maxLeverage || '100') || 100,
         maintMarginRate: parseFloat(contract.feeRate || '0') || 0,
-        // Use contract data directly instead of individual ticker calls
-        lastPrice: parseFloat(contract.lastPrice || '0') || 0,
-        priceChangePercent: parseFloat(contract.priceChangePercent || '0') || 0,
-        volume24h: parseFloat(contract.volume || '0') || 0,
-        quoteVolume24h: parseFloat(contract.turnover || '0') || 0,
-        highPrice24h: parseFloat(contract.highPrice || '0') || 0,
-        lowPrice24h: parseFloat(contract.lowPrice || '0') || 0,
-        openInterest: parseFloat(contract.openInterest || '0') || 0
+        
+        // Market data (real-time from tickers API) - THIS IS THE KEY FIX!
+        lastPrice: ticker ? parseFloat(ticker.lastPrice || '0') || 0 : 0,
+        priceChangePercent: ticker ? parseFloat(ticker.priceChangePercent || '0') || 0 : 0,
+        volume24h: ticker ? parseFloat(ticker.volume || '0') || 0 : 0,
+        quoteVolume24h: ticker ? parseFloat(ticker.quoteVolume || ticker.turnover || '0') || 0 : 0,
+        highPrice24h: ticker ? parseFloat(ticker.highPrice || '0') || 0 : 0,
+        lowPrice24h: ticker ? parseFloat(ticker.lowPrice || '0') || 0 : 0,
+        openInterest: ticker ? parseFloat(ticker.openInterest || '0') || 0 : 0
       };
       
       // FORÇAR SALVAMENTO DE TODOS - garantir que não haja valores que quebrem o banco
@@ -477,12 +604,23 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
 
       // Log detalhado dos primeiros contratos para debug
       if (processed <= 5) {
-        logger.info(`📝 SALVANDO TODOS - Preparando asset ${processed}:`, {
+        logger.info(`📝 DADOS COMPLETOS - Preparando asset ${processed}:`, {
           symbol: contract.symbol,
           originalStatus: contract.status,
           processedStatus: statusText,
           hasBaseCurrency: !!contract.asset,
-          hasQuoteCurrency: !!contract.currency
+          hasQuoteCurrency: !!contract.currency,
+          hasMarketData: !!ticker,
+          marketData: ticker ? {
+            lastPrice: ticker.lastPrice,
+            volume: ticker.volume,
+            priceChangePercent: ticker.priceChangePercent
+          } : 'NO_MARKET_DATA',
+          mergedData: {
+            lastPrice: assetData.lastPrice,
+            volume24h: assetData.volume24h,
+            priceChangePercent: assetData.priceChangePercent
+          }
         });
       }
 
@@ -546,8 +684,9 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
       }
     }
     
-    const totalTime = ((Date.now() - startTime) / 1000).toFixed(2);
-    const assetsPerSecond = ((created + updated) / parseFloat(totalTime)).toFixed(1);
+    const totalTime = ((Date.now() - totalStartTime) / 1000).toFixed(2); // Real total time
+    const processingTime = ((Date.now() - startTime) / 1000).toFixed(2); // Just processing time
+    const assetsPerSecond = ((created + updated) / parseFloat(processingTime)).toFixed(1);
     const totalSaved = created + updated;
     const successRate = ((totalSaved / processed) * 100).toFixed(1);
     
@@ -574,6 +713,12 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
         lostContracts: contractsLost,
         successRate: `${successRate}%`
       },
+      marketData: {
+        totalTickers: tickerMap.size,
+        withMarketData,
+        withoutMarketData,
+        enrichmentRate: `${((withMarketData / processed) * 100).toFixed(1)}%`
+      },
       database: {
         created,
         updated,
@@ -581,15 +726,17 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
       },
       statusDistribution: statusCounts,
       performance: {
-        executionTime: `${totalTime}s`,
+        totalExecutionTime: `${totalTime}s`,
+        processingTime: `${processingTime}s`,
         assetsPerSecond: `${assetsPerSecond} assets/second`
       }
     });
     
     // Send final progress with CORRECT metrics
+    const enrichmentRate = ((withMarketData / processed) * 100).toFixed(1);
     await sendProgress(sessionId, {
       type: 'completed',
-      message: `BUSCA EXAUSTIVA: ${totalSaved} contratos salvos de ${processed} encontrados (${successRate}% success rate) em ${totalTime}s`,
+      message: `✅ COMPLETO: ${totalSaved} contratos + preços reais (${withMarketData} enriched, ${enrichmentRate}%) em ${totalTime}s total`,
       progress: 100,
       processed,
       total: contractsToProcess.length,
@@ -597,8 +744,15 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
       updated,
       skipped: contractsLost,
       savedToDatabase: totalSaved,
+      marketData: {
+        totalTickers: tickerMap.size,
+        withMarketData,
+        withoutMarketData,
+        enrichmentRate: `${enrichmentRate}%`
+      },
       statusDistribution: statusCounts,
-      executionTime: totalTime,
+      totalExecutionTime: totalTime,
+      processingTime: processingTime,
       performance: assetsPerSecond,
       successRate: `${successRate}%`,
       contractsLost
