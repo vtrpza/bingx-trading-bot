@@ -67,8 +67,8 @@ export default function RealTimeSignals() {
   const [riskPercentage] = useLocalStorage('riskPercentage', 2) // 2% padrão
   const [loadingProgress, setLoadingProgress] = useState(0)
   const [loadingStage, setLoadingStage] = useState('Inicializando...')
-  const [loadingSymbols, setLoadingSymbols] = useState<Set<string>>(new Set())
-  const [processedCount, setProcessedCount] = useState(0)
+  const [loadingSymbols] = useState<Set<string>>(new Set())
+  const [processedCount] = useState(0)
   const queryClient = useQueryClient()
   
   // Buscar símbolos do bot paralelo
