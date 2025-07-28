@@ -1178,4 +1178,79 @@ router.delete('/clear', asyncHandler(async (_req: Request, res: Response) => {
   }
 }));
 
+// Debug endpoint for production troubleshooting
+router.get('/debug/api-test', asyncHandler(async (req: Request, res: Response) => {
+  const debugInfo: any = {
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV,
+    server: 'render',
+    checks: {}
+  };
+
+  try {
+    // Test 1: Basic BingX connectivity using public method
+    debugInfo.checks.bingx_connectivity = 'testing...';
+    const testResponse = await bingxClient.getSymbols();
+    debugInfo.checks.bingx_connectivity = {
+      status: 'success',
+      responseCode: testResponse.code,
+      dataLength: testResponse.data?.length || 0,
+      message: testResponse.msg
+    };
+  } catch (error: any) {
+    debugInfo.checks.bingx_connectivity = {
+      status: 'error',
+      message: error.message,
+      code: error.code,
+      timeout: error.code === 'ECONNABORTED'
+    };
+  }
+
+  try {
+    // Test 2: Database connectivity
+    debugInfo.checks.database = 'testing...';
+    const assetCount = await Asset.count();
+    debugInfo.checks.database = {
+      status: 'success',
+      assetCount,
+      dialect: sequelize.getDialect()
+    };
+  } catch (error: any) {
+    debugInfo.checks.database = {
+      status: 'error',
+      message: error.message
+    };
+  }
+
+  try {
+    // Test 3: Ticker data availability
+    debugInfo.checks.ticker_data = 'testing...';
+    const tickerResponse = await bingxClient.getAllTickers();
+    debugInfo.checks.ticker_data = {
+      status: 'success',
+      responseCode: tickerResponse.code,
+      dataLength: tickerResponse.data?.length || 0,
+      message: tickerResponse.msg,
+      endpoint: tickerResponse.endpoint
+    };
+  } catch (error: any) {
+    debugInfo.checks.ticker_data = {
+      status: 'error',
+      message: error.message,
+      code: error.code,
+      timeout: error.code === 'ECONNABORTED'
+    };
+  }
+
+  // Test 4: Network info
+  debugInfo.network = {
+    userAgent: req.headers['user-agent'],
+    clientIP: req.ip || req.connection?.remoteAddress,
+    forwardedFor: req.headers['x-forwarded-for'],
+    renderRegion: process.env.RENDER_REGION || 'unknown'
+  };
+
+  res.json(debugInfo);
+}));
+
 export default router;

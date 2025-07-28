@@ -59,4 +59,28 @@ logger.error = function(message: any, ...args: any[]) {
   return originalError(message, ...args);
 };
 
+// External logging for production debugging (when Render logs aren't accessible)
+export const logToExternal = async (level: string, message: string, meta?: any) => {
+  if (process.env.NODE_ENV === 'production') {
+    try {
+      // Simple HTTP logger - you can replace this with any external logging service
+      const logData = {
+        timestamp: new Date().toISOString(),
+        level,
+        message,
+        meta,
+        service: 'bingx-trading-bot',
+        environment: 'render'
+      };
+      
+      // Log to console (Render should capture these)
+      console.log('EXTERNAL_LOG:', JSON.stringify(logData));
+      
+    } catch (error) {
+      // Fail silently to not break the main application
+      console.error('External logging failed:', error);
+    }
+  }
+};
+
 export { logger };
