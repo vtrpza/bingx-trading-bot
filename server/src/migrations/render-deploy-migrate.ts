@@ -143,10 +143,12 @@ async function runRenderDeployMigration() {
       logger.warn('💡 Migration will continue - table may be created during first app run');
     }
     
-    // Create/update indexes with enhanced error handling
+    // Create/update indexes with enhanced error handling (NON-CRITICAL for deployment)
     const indexes = getRenderOptimizedIndexes();
     let successCount = 0;
     let skipCount = 0;
+    
+    logger.info(`🔧 Attempting to create ${Object.keys(indexes).length} database indexes...`);
     
     for (const [name, sql] of Object.entries(indexes)) {
       try {
@@ -160,12 +162,18 @@ async function runRenderDeployMigration() {
             (error.message.includes('relation') && error.message.includes('already exists'))) {
           logger.debug(`⏭️  Index ${name} already exists, skipping`);
           skipCount++;
+        } else if (error.message.includes('does not exist') || error.message.includes('relation') && error.message.includes('does not exist')) {
+          logger.warn(`⚠️  Table does not exist for index ${name} - skipping (normal for first deployment)`);
+          skipCount++;
         } else {
           logger.warn(`⚠️  Failed to process index ${name}: ${error.message}`);
-          // Don't fail deployment for index issues
+          // Don't fail deployment for index issues - indexes can be created later
+          skipCount++;
         }
       }
     }
+    
+    logger.info(`📊 Index creation results: ${successCount} created, ${skipCount} skipped`);
     
     // Update table statistics for better query performance
     try {
