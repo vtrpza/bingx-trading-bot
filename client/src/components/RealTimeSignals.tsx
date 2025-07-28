@@ -55,7 +55,6 @@ const RSI_MAX = 73
 const DIST_2H_THRESHOLD = 2
 const DIST_4H_THRESHOLD = 3
 const VOLUME_SPIKE_THRESHOLD = 2.0
-const VOLUME_ELEVATED_THRESHOLD = 1.5
 const CONFIDENCE_THRESHOLD = 70
 const BATCH_SIZE = 8 // Aumentado para melhor throughput
 const MAX_SYMBOLS = 20 // Aumentado com processamento otimizado
@@ -363,7 +362,6 @@ export default function RealTimeSignals() {
   // Simular progresso de loading baseado em dados reais
   useEffect(() => {
     if (signals.length === 0 && botStatus?.scannedSymbols) {
-      const symbolCount = botStatus.scannedSymbols.length
       const stages = [
         'Conectando aos mercados...',
         'Carregando símbolos...',

@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react'
-import { useQuery } from 'react-query'
 import { useWebSocket } from '../hooks/useWebSocket'
 
 interface SignalTracking {
