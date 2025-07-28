@@ -27,7 +27,8 @@ router.get('/refresh/progress/:sessionId', (req: Request, res: Response) => {
     'Cache-Control': 'no-cache',
     'Connection': 'keep-alive',
     'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Cache-Control'
+    'Access-Control-Allow-Headers': 'Cache-Control',
+    'X-Accel-Buffering': 'no' // Disable proxy buffering for real-time updates
   });
   
   // Store session
@@ -47,15 +48,26 @@ router.get('/refresh/progress/:sessionId', (req: Request, res: Response) => {
 });
 
 // Helper function to send progress updates
-function sendProgress(sessionId: string, data: any) {
-  const session = refreshSessions.get(sessionId);
-  if (session) {
-    const message = `data: ${JSON.stringify(data)}\n\n`;
-    console.log(`📡 Enviando SSE para ${sessionId}:`, data.type, data.message);
-    session.write(message);
-  } else {
-    console.log(`⚠️ Sessão SSE ${sessionId} não encontrada nas ${refreshSessions.size} sessões ativas`);
-  }
+function sendProgress(sessionId: string, data: any): Promise<void> {
+  return new Promise((resolve) => {
+    const session = refreshSessions.get(sessionId);
+    if (session) {
+      const message = `data: ${JSON.stringify(data)}\n\n`;
+      console.log(`📡 Enviando SSE para ${sessionId}:`, data.type, data.message);
+      session.write(message);
+      // Force flush and yield to event loop
+      session.flushHeaders?.();
+      setImmediate(resolve);
+    } else {
+      console.log(`⚠️ Sessão SSE ${sessionId} não encontrada nas ${refreshSessions.size} sessões ativas`);
+      resolve();
+    }
+  });
+}
+
+// Helper function to yield control to event loop
+function yieldEventLoop(): Promise<void> {
+  return new Promise(resolve => setImmediate(resolve));
 }
 
 // Get all assets with pagination, sorting, and filtering
@@ -226,7 +238,7 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
   
   try {
     // Send initial progress IMEDIATAMENTE
-    sendProgress(sessionId, {
+    await sendProgress(sessionId, {
       type: 'progress',
       message: 'Conectando com BingX API...',
       progress: 5,
@@ -234,16 +246,15 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
       total: 0
     });
     
-    // Enviar mais um update rápido para testar
-    setTimeout(() => {
-      sendProgress(sessionId, {
-        type: 'progress',
-        message: 'Buscando contratos disponíveis...',
-        progress: 10,
-        processed: 0,
-        total: 0
-      });
-    }, 100);
+    // Yield to event loop and send quick update
+    await yieldEventLoop();
+    await sendProgress(sessionId, {
+      type: 'progress',
+      message: 'Buscando contratos disponíveis...',
+      progress: 10,
+      processed: 0,
+      total: 0
+    });
 
     // Invalidate cache to ensure fresh data
     bingxClient.invalidateSymbolsCache();
@@ -260,7 +271,7 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
     });
     
     if (response.code !== 0 || !response.data) {
-      sendProgress(sessionId, {
+      await sendProgress(sessionId, {
         type: 'error',
         message: `BingX API Error: ${response.msg || 'Failed to fetch assets'}`
       });
@@ -304,10 +315,10 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
     }
     
     // Send progress with total count
-    sendProgress(sessionId, {
+    await sendProgress(sessionId, {
       type: 'progress',
       message: `🔍 Analisando ${contractsToProcess.length} contratos (${uniqueSymbols} únicos, ${totalDuplicates} duplicatas)...`,
-      progress: 5,
+      progress: 15,
       processed: 0,
       total: contractsToProcess.length,
       uniqueSymbols,
@@ -327,26 +338,31 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
     };
     
     
-    // Process contracts in batches for optimal performance
+    // Process contracts in async batches to prevent event loop blocking
     const startTime = Date.now();
+    const BATCH_SIZE = 10; // Process 10 contracts at a time
     
-    for (const contract of contractsToProcess) {
-      processed++;
+    for (let i = 0; i < contractsToProcess.length; i += BATCH_SIZE) {
+      const batch = contractsToProcess.slice(i, i + BATCH_SIZE);
       
-      // Send progress updates mais frequentes para mostrar progresso em tempo real
-      if (processed % 25 === 0 || processed <= 10 || processed === contractsToProcess.length) {
-        const progress = Math.min(95, Math.round(10 + (processed / contractsToProcess.length) * 85));
-        sendProgress(sessionId, {
-          type: 'progress',
-          message: `🔄 ${contract.symbol} (${processed}/${contractsToProcess.length}) | ✅ ${created + updated} salvos`,
-          progress,
-          processed,
-          total: contractsToProcess.length,
-          current: contract.symbol,
-          dbOperations: created + updated,
-          skipped: processed - (created + updated)
-        });
-      }
+      // Process this batch
+      for (const contract of batch) {
+        processed++;
+        
+        // Send progress updates mais frequentes para mostrar progresso em tempo real
+        if (processed % 25 === 0 || processed <= 10 || processed === contractsToProcess.length) {
+          const progress = Math.min(95, Math.round(15 + (processed / contractsToProcess.length) * 80));
+          await sendProgress(sessionId, {
+            type: 'progress',
+            message: `🔄 ${contract.symbol} (${processed}/${contractsToProcess.length}) | ✅ ${created + updated} salvos`,
+            progress,
+            processed,
+            total: contractsToProcess.length,
+            current: contract.symbol,
+            dbOperations: created + updated,
+            skipped: processed - (created + updated)
+          });
+        }
       
       // Log first few contracts for debugging
       if (processed <= 3) {
@@ -521,6 +537,12 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
         });
         skipped++;
         // Continue processing other assets
+        }
+      }
+      
+      // Yield to event loop after each batch to allow SSE messages to be sent
+      if (i + BATCH_SIZE < contractsToProcess.length) {
+        await yieldEventLoop();
       }
     }
     
@@ -565,7 +587,7 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
     });
     
     // Send final progress with CORRECT metrics
-    sendProgress(sessionId, {
+    await sendProgress(sessionId, {
       type: 'completed',
       message: `BUSCA EXAUSTIVA: ${totalSaved} contratos salvos de ${processed} encontrados (${successRate}% success rate) em ${totalTime}s`,
       progress: 100,
@@ -606,7 +628,7 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
     logger.error('Failed to refresh assets:', error);
     
     // Send error progress if session exists
-    sendProgress(sessionId, {
+    await sendProgress(sessionId, {
       type: 'error',
       message: error instanceof Error ? error.message : 'Unknown error during refresh'
     });
