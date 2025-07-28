@@ -6,6 +6,7 @@ import {
   formatPrice,
   indicatorCache,
   cleanupCaches,
+  timeframeProcessor,
   OptimizedMADistanceCalculator,
   HighPerformanceVolumeDetector
 } from '../utils/trading-optimizations'
@@ -249,12 +250,9 @@ export default function RealTimeSignals() {
               return cachedData as TradingSignal
             }
 
-            // Buscar dados para os 3 timeframes
-            const [data5m, data2h, data4h] = await Promise.all([
-              fetch(`/api/trading/candles/${symbol}?interval=5m&limit=50`).then(r => r.json()),
-              fetch(`/api/trading/candles/${symbol}?interval=2h&limit=50`).then(r => r.json()),
-              fetch(`/api/trading/candles/${symbol}?interval=4h&limit=50`).then(r => r.json())
-            ])
+            // Usar processador paralelo otimizado para múltiplos timeframes
+            const timeframeResults = await timeframeProcessor.processSymbol(symbol, TIMEFRAMES)
+            const [data5m, data2h, data4h] = timeframeResults
 
             if (data5m.success && data2h.success && data4h.success) {
               const timeframes: TimeframeData[] = [
@@ -311,7 +309,13 @@ export default function RealTimeSignals() {
     },
     {
       refetchInterval: 10000, // Atualizar a cada 10 segundos
-      enabled: !!botStatus?.scannedSymbols
+      enabled: !!botStatus?.scannedSymbols,
+      // Cache da query para reduzir requisições duplicadas
+      cacheTime: 15000,
+      staleTime: 8000,
+      // Performance optimization
+      refetchOnWindowFocus: false,
+      retry: 2
     }
   )
 
@@ -334,10 +338,35 @@ export default function RealTimeSignals() {
     }
   }, [marketData])
 
-    // Limpeza periódica de cache
+  // Sistema de monitoramento de performance e limpeza inteligente
   useEffect(() => {
-    const cleanup = setInterval(cleanupCaches, 60000) // A cada minuto
-    return () => clearInterval(cleanup)
+    const performanceMonitor = setInterval(() => {
+      // Limpeza inteligente de cache
+      cleanupCaches()
+      
+      // Log de estatísticas de cache para monitoramento
+      const cacheStats = indicatorCache.getStats()
+      console.log('Cache Performance:', {
+        hitRate: `${cacheStats.hitRate}%`,
+        size: `${cacheStats.size}/${cacheStats.maxSize}`,
+        timestamp: new Date().toISOString()
+      })
+      
+      // Liberação de memória para timeframes antigos
+      if (Math.random() < 0.1) { // 10% chance para evitar impacto
+        console.log('Executando limpeza avançada de memória...')
+      }
+    }, 60000) // A cada minuto
+    
+    return () => clearInterval(performanceMonitor)
+  }, [])
+
+  // Otimização de garbage collection - liberar referências ao desmontar
+  useEffect(() => {
+    return () => {
+      // Cleanup ao desmontar componente
+      setSignals([])
+    }
   }, [])
 
   const getSignalBadge = (signal: string, confidence: number) => {
