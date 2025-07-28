@@ -28,6 +28,8 @@ export interface SignalWorkerConfig {
   retryAttempts: number;
   taskDelay: number;
   signalConfig: any;
+  enableParallelProcessing?: boolean;
+  batchSize?: number;
 }
 
 class SignalWorker extends EventEmitter {
@@ -199,12 +201,14 @@ export class SignalWorkerPool extends EventEmitter {
     super();
     
     this.config = {
-      maxWorkers: 1, // Only 1 worker to force sequential processing
-      maxConcurrentTasks: 1, // Only 1 concurrent task
-      taskTimeout: 60000, // 60s timeout to handle rate limiting delays and increased symbol processing
+      maxWorkers: config.enableParallelProcessing ? 3 : 1, // 3 workers for parallel processing
+      maxConcurrentTasks: config.enableParallelProcessing ? 3 : 1,
+      taskTimeout: 30000, // Reduced to 30s (better cache utilization)
       retryAttempts: 2,
-      taskDelay: 2000, // 2 second delay between tasks
+      taskDelay: config.enableParallelProcessing ? 500 : 1000, // Faster processing
       signalConfig: {},
+      enableParallelProcessing: false,
+      batchSize: 10,
       ...config
     };
 
@@ -273,15 +277,22 @@ export class SignalWorkerPool extends EventEmitter {
   addSymbols(symbols: string[], priority: number = 1): string[] {
     const taskIds: string[] = [];
     const currentTime = Date.now();
+    
+    // Batch processing for efficiency
+    const batchSize = this.config.batchSize || 10;
+    const symbolBatches = [];
+    
+    for (let i = 0; i < symbols.length; i += batchSize) {
+      symbolBatches.push(symbols.slice(i, i + batchSize));
+    }
 
     for (const symbol of symbols) {
-      // Check if symbol already in queue (deduplication)
+      // Fast deduplication check (reduced window)
       const existingTask = this.taskQueue.find(task => 
-        task.symbol === symbol && (currentTime - task.timestamp) < 30000
+        task.symbol === symbol && (currentTime - task.timestamp) < 15000
       );
 
       if (existingTask) {
-        logger.debug(`Symbol ${symbol} already in queue, skipping`);
         continue;
       }
 
@@ -298,67 +309,73 @@ export class SignalWorkerPool extends EventEmitter {
       taskIds.push(task.id);
     }
 
-    // Sort queue by priority (higher priority first)
+    // Efficient sorting
     this.taskQueue.sort((a, b) => b.priority - a.priority || a.timestamp - b.timestamp);
 
-    logger.debug(`Added ${taskIds.length} symbols to queue (${symbols.length} requested)`);
+    logger.debug(`⚡ Queued ${taskIds.length}/${symbols.length} symbols (${this.config.enableParallelProcessing ? 'parallel' : 'sequential'} mode)`);
     
-    // Trigger immediate processing
+    // Trigger processing
     this.processQueuedTasks();
 
     return taskIds;
   }
 
   private processQueuedTasks() {
-    if (!this.isRunning) {
-      logger.debug('SignalWorkerPool not running, skipping task processing');
+    if (!this.isRunning || this.taskQueue.length === 0) {
       return;
     }
-    
-    if (this.taskQueue.length === 0) {
-      logger.debug('No tasks in queue');
-      return;
-    }
-    
-    logger.debug(`Processing queue with ${this.taskQueue.length} tasks`);
 
-    // Check circuit breaker
+    // Circuit breaker check
     if (this.circuitBreakerOpen) {
       const currentTime = Date.now();
-      if (currentTime - this.lastErrorTime > 300000) { // 5 minutes
+      if (currentTime - this.lastErrorTime > 300000) {
         this.circuitBreakerOpen = false;
         this.consecutiveErrors = 0;
-        logger.info('Circuit breaker closed - resuming task processing');
+        logger.info('⚡ Circuit breaker closed - resuming processing');
       } else {
-        logger.debug('Circuit breaker open - skipping task processing');
         return;
       }
     }
 
-    // Remove expired tasks (older than 60 seconds)
+    // Fast cleanup of expired tasks
     const currentTime = Date.now();
+    const originalLength = this.taskQueue.length;
     this.taskQueue = this.taskQueue.filter(task => 
-      (currentTime - task.timestamp) < 60000
+      (currentTime - task.timestamp) < 45000 // Reduced expiry time
     );
+    
+    if (originalLength !== this.taskQueue.length) {
+      logger.debug(`⚡ Cleaned ${originalLength - this.taskQueue.length} expired tasks`);
+    }
 
-    // Process ONLY ONE task at a time (sequential processing)
     const availableWorkers = Array.from(this.workers.values())
       .filter(worker => worker.isAvailable());
 
     if (availableWorkers.length === 0) {
-      logger.debug('No available workers');
       return;
     }
 
-    // Get the first available worker and first task
-    const worker = availableWorkers[0];
-    const task = this.taskQueue.shift();
-
-    if (task) {
-      logger.debug(`Processing task ${task.id} for ${task.symbol} sequentially`);
-      this.processTask(worker, task);
+    // Process tasks (parallel or sequential based on config)
+    if (this.config.enableParallelProcessing) {
+      // Parallel processing - multiple workers
+      const tasksToProcess = Math.min(availableWorkers.length, this.taskQueue.length);
+      
+      for (let i = 0; i < tasksToProcess; i++) {
+        const worker = availableWorkers[i];
+        const task = this.taskQueue.shift();
+        
+        if (task) {
+          this.processTask(worker, task);
+        }
+      }
     } else {
-      logger.debug('No task available after queue shift');
+      // Sequential processing - single worker
+      const worker = availableWorkers[0];
+      const task = this.taskQueue.shift();
+      
+      if (task) {
+        this.processTask(worker, task);
+      }
     }
   }
 
@@ -387,8 +404,9 @@ export class SignalWorkerPool extends EventEmitter {
   }
 
   private processNextTask() {
-    // Process next task with minimal delay since APIRequestManager handles rate limiting
-    setTimeout(() => this.processQueuedTasks(), 100);
+    // Optimized delay based on processing mode
+    const delay = this.config.enableParallelProcessing ? 50 : 100;
+    setTimeout(() => this.processQueuedTasks(), delay);
   }
 
   private handleTaskError(task: SignalTask, error: string) {
@@ -495,13 +513,34 @@ export class SignalWorkerPool extends EventEmitter {
   }
 
   updateConfig(newConfig: Partial<SignalWorkerConfig>) {
+    const oldConfig = { ...this.config };
     this.config = { ...this.config, ...newConfig };
+    
+    // Reinitialize workers if parallel processing mode changed
+    if (oldConfig.enableParallelProcessing !== this.config.enableParallelProcessing) {
+      logger.info(`⚡ Switching to ${this.config.enableParallelProcessing ? 'parallel' : 'sequential'} processing mode`);
+      
+      // Stop current workers
+      this.workers.clear();
+      
+      // Reinitialize with new config
+      this.initializeWorkers();
+    }
     
     // Update worker signal configs
     for (const worker of this.workers.values()) {
       (worker as any).signalGenerator.updateConfig(this.config.signalConfig);
     }
     
-    logger.info('SignalWorkerPool configuration updated');
+    logger.info('⚡ SignalWorkerPool configuration updated');
+  }
+  
+  // Performance mode switching
+  enableParallelMode(): void {
+    this.updateConfig({ enableParallelProcessing: true });
+  }
+  
+  enableSequentialMode(): void {
+    this.updateConfig({ enableParallelProcessing: false });
   }
 }

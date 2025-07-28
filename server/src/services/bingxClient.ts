@@ -294,7 +294,7 @@ export class BingXClient {
     stopLoss?: number;
   }) {
     try {
-      // Demo mode - filter out unnecessary fields for BingX
+      // VST mode (DEMO_MODE=true) sends real orders to BingX with virtual balance
       const orderParams: any = {
         symbol: orderData.symbol,
         side: orderData.side,
@@ -320,6 +320,16 @@ export class BingXClient {
         url: '/openApi/swap/v2/trade/order',
         data: orderParams
       });
+      
+      // Log detalhado da resposta completa
+      logger.info('BingX API response details:', {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers,
+        data: response.data,
+        fullDataStructure: JSON.stringify(response.data, null, 2)
+      });
+      
       return response.data;
     } catch (error) {
       logger.error('Failed to place order:', {

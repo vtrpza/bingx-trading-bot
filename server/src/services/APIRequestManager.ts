@@ -50,8 +50,8 @@ export class APIRequestManager {
     depth: 8000           // 8 seconds - faster order book
   };
 
-  // Request spacing - BALANCED OPTIMIZED  
-  private readonly requestSpacing = 200; // 0.2 seconds between requests
+  // Request spacing - HIGH PERFORMANCE OPTIMIZED  
+  private readonly requestSpacing = 100; // 0.1 seconds between requests (10 req/s)
   private readonly queueTimeout = 15000; // 15 second queue timeout
   private lastRequestTime = 0;
 

@@ -82,7 +82,7 @@ export class RateLimiter {
  */
 export class GlobalRateLimiter {
   private requestLog: number[] = [];
-  private readonly maxRequests: number = 3; // Conservative: 3 requests per 1000ms (instead of 5/900ms)
+  private readonly maxRequests: number = 8; // Optimized: 8 requests per 1000ms (80% of BingX limit)
   private readonly windowMs: number = 1000; // 1 second window for better spacing
   private requestQueue: Array<{resolve: () => void, reject: (error: Error) => void}> = [];
   private isProcessingQueue: boolean = false;

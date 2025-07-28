@@ -2,11 +2,58 @@ import { ParallelBotConfig } from './ParallelTradingBot';
 
 /**
  * Optimized configurations for different trading scenarios
+ * 
+ * Performance Comparison:
+ * - Conservative: ~15 symbols every 10 minutes (1.5 symbols/min)
+ * - High-Frequency: ~40 symbols every 2 minutes (20 symbols/min) 
+ * - Ultra-Performance: ~100+ symbols every 1 minute (100+ symbols/min)
  */
+
+// Ultra High-Performance Configuration (Maximum Symbols)
+export const ultraPerformanceConfig: Partial<ParallelBotConfig> = {
+  scanInterval: 60000, // 1 minute - 5x faster scanning
+  maxConcurrentTrades: 15,
+  defaultPositionSize: 50, // Smaller positions for more trades
+  minSignalStrength: 35, // Lower threshold for more signals (more aggressive)
+  
+  signalWorkers: {
+    maxWorkers: 12, // Maximum workers for parallel processing
+    maxConcurrentTasks: 40, // Process many symbols simultaneously
+    taskTimeout: 8000, // Optimized timeout
+    retryAttempts: 2 // Quick retries
+  },
+  
+  signalQueue: {
+    maxSize: 300, // Large queue for many symbols
+    defaultTTL: 90000, // Longer TTL for more symbols
+    maxAttempts: 3,
+    deduplicationWindow: 60000,
+    priorityWeights: {
+      strength: 0.6, // Balance between strength and volume
+      recency: 0.2,
+      volume: 0.2
+    }
+  },
+  
+  tradeExecutors: {
+    maxExecutors: 8, // More executors for higher throughput
+    maxConcurrentTrades: 12,
+    executionTimeout: 12000,
+    retryAttempts: 2,
+    rateLimit: 1.5 // Aggressive but safe rate limit
+  },
+  
+  marketDataCache: {
+    tickerCacheTTL: 30000, // Balanced cache for performance
+    klineCacheTTL: 60000, // Longer cache for klines
+    maxCacheSize: 500, // Large cache for many symbols
+    priceChangeThreshold: 0.03 // More sensitive
+  }
+};
 
 // High-frequency trading configuration (aggressive)
 export const highFrequencyConfig: Partial<ParallelBotConfig> = {
-  scanInterval: 3000, // 5 minutes - reduced to minimize API calls
+  scanInterval: 120000, // 2 minutes - 2.5x faster scanning
   maxConcurrentTrades: 10,
   defaultPositionSize: 50, // Smaller positions for more trades
   minSignalStrength: 40, // Lower threshold for more signals

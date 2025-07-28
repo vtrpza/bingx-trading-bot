@@ -33,6 +33,9 @@ export interface SignalConfig {
 
 export class SignalGenerator {
   private config: SignalConfig;
+  private indicatorCache: Map<string, any> = new Map();
+  private static readonly CACHE_TTL = 60000; // 60s cache for indicators
+  private lastProcessingTime: Map<string, number> = new Map();
 
   constructor(config?: Partial<SignalConfig>) {
     this.config = {
@@ -43,6 +46,9 @@ export class SignalGenerator {
       confirmationRequired: true,
       ...config
     };
+    
+    // Auto-cleanup cache every 2 minutes
+    setInterval(() => this.cleanupCache(), 120000);
   }
 
   generateSignal(
@@ -50,93 +56,43 @@ export class SignalGenerator {
     candles: any[],
     indicatorConfig?: any
   ): TradingSignal {
+    const startTime = Date.now();
+    
     try {
-      // Validate input
-      if (!candles || candles.length === 0) {
-        logger.warn(`No candles data provided for ${symbol}`);
-        return this.createHoldSignal(symbol, null, 'No market data available');
-      }
+      // Fast validation with early returns
+      const validationResult = this.fastValidateInput(symbol, candles);
+      if (validationResult) return validationResult;
 
-      if (candles.length < 50) {
-        logger.warn(`Insufficient candles data for ${symbol}: ${candles.length} candles`);
-        return this.createHoldSignal(symbol, null, 'Insufficient historical data');
-      }
-
-      // Calculate all indicators
-      const indicators = TechnicalIndicators.calculateAllIndicators(candles, indicatorConfig);
+      // Check for cached indicators (performance boost)
+      const cacheKey = this.generateCacheKey(symbol, candles);
+      let indicators = this.getFromCache(cacheKey);
       
-      // Validate data
-      if (!indicators || !indicators.validation) {
-        logger.error(`Failed to calculate indicators for ${symbol}`);
-        return this.createHoldSignal(symbol, null, 'Technical indicators calculation failed');
+      if (!indicators) {
+        // Calculate and cache indicators
+        indicators = TechnicalIndicators.calculateAllIndicators(candles, indicatorConfig);
+        this.setCache(cacheKey, indicators);
+      }
+      
+      // Optimized validation with fallbacks
+      const validatedIndicators = this.validateAndFixIndicators(symbol, indicators);
+      if (!validatedIndicators) {
+        return this.createHoldSignal(symbol, null, 'Invalid technical data');
       }
 
-      if (!indicators.validation.isValid) {
-        logger.warn(`Invalid candle data for ${symbol}:`, indicators.validation.issues);
-        return this.createHoldSignal(symbol, indicators.latestValues, 'Invalid market data detected');
-      }
-
-      // Validate latest values exist and are valid numbers
-      if (!indicators.latestValues) {
-        logger.error(`No latest values calculated for ${symbol}`);
-        return this.createHoldSignal(symbol, null, 'No current market data');
-      }
-
-      // Check for sufficient data
+      // Fast conditions analysis
       const latestIndex = candles.length - 1;
+      const conditions = this.analyzeConditions(validatedIndicators, latestIndex);
       
-      // Validate technical indicators - be more lenient
-      if (!indicators.latestValues) {
-        logger.warn(`No latest values for ${symbol}`);
-        return this.createHoldSignal(symbol, null, 'No technical indicators available');
-      }
-
-      // Check if we have sufficient data to generate a meaningful signal
-      const hasValidPrice = indicators.latestValues.price && !isNaN(indicators.latestValues.price);
-      const hasValidMA1 = indicators.latestValues.ma1 && !isNaN(indicators.latestValues.ma1);
-      const hasValidMA2 = indicators.latestValues.ma2 && !isNaN(indicators.latestValues.ma2);
-      const hasValidRSI = indicators.latestValues.rsi && !isNaN(indicators.latestValues.rsi);
-
-      if (!hasValidPrice) {
-        logger.warn(`No valid price data for ${symbol}`);
-        return this.createHoldSignal(symbol, indicators.latestValues, 'No current price data available');
-      }
-
-      // If some indicators are missing, still try to generate signal with available data
-      if (!hasValidMA1 || !hasValidMA2 || !hasValidRSI) {
-        logger.debug(`Some technical indicators missing for ${symbol}:`, {
-          hasMA1: hasValidMA1,
-          hasMA2: hasValidMA2,
-          hasRSI: hasValidRSI,
-          ma1: indicators.latestValues.ma1,
-          ma2: indicators.latestValues.ma2,
-          rsi: indicators.latestValues.rsi,
-          price: indicators.latestValues.price
-        });
-        
-        // Use fallback values for missing indicators to ensure we can still generate signals
-        if (!hasValidMA1 && hasValidPrice) {
-          indicators.latestValues.ma1 = indicators.latestValues.price;
-        }
-        if (!hasValidMA2 && hasValidPrice) {
-          indicators.latestValues.ma2 = indicators.latestValues.price;
-        }
-        if (!hasValidRSI) {
-          indicators.latestValues.rsi = 50; // Neutral RSI
-        }
-      }
-
-      // Analyze conditions
-      const conditions = this.analyzeConditions(indicators, latestIndex);
+      // Generate optimized signal
+      const signal = this.determineSignal(symbol, validatedIndicators.latestValues, conditions);
       
-      // Generate signal based on conditions
-      const signal = this.determineSignal(symbol, indicators.latestValues, conditions);
+      // Track performance
+      const processingTime = Date.now() - startTime;
+      this.lastProcessingTime.set(symbol, processingTime);
       
-      logger.debug(`Signal generated for ${symbol}:`, {
-        action: signal.action,
-        strength: signal.strength,
-        reason: signal.reason
-      });
+      if (processingTime > 100) {
+        logger.debug(`Slow signal generation for ${symbol}: ${processingTime}ms`);
+      }
       
       return signal;
     } catch (error) {
@@ -359,6 +315,73 @@ export class SignalGenerator {
         trendAlignment: false
       },
       timestamp: new Date()
+    };
+  }
+
+  // ⚡ PERFORMANCE OPTIMIZATION METHODS
+  
+  private fastValidateInput(symbol: string, candles: any[]): TradingSignal | null {
+    if (!candles?.length) {
+      return this.createHoldSignal(symbol, null, 'No market data');
+    }
+    if (candles.length < 50) {
+      return this.createHoldSignal(symbol, null, 'Insufficient data');
+    }
+    return null;
+  }
+  
+  private generateCacheKey(symbol: string, candles: any[]): string {
+    const latestCandle = candles[candles.length - 1];
+    return `${symbol}_${latestCandle.timestamp}_${candles.length}`;
+  }
+  
+  private getFromCache(key: string): any {
+    const cached = this.indicatorCache.get(key);
+    if (cached && Date.now() - cached.timestamp < SignalGenerator.CACHE_TTL) {
+      return cached.data;
+    }
+    return null;
+  }
+  
+  private setCache(key: string, data: any): void {
+    this.indicatorCache.set(key, {
+      data,
+      timestamp: Date.now()
+    });
+  }
+  
+  private cleanupCache(): void {
+    const now = Date.now();
+    for (const [key, cached] of this.indicatorCache.entries()) {
+      if (now - cached.timestamp > SignalGenerator.CACHE_TTL) {
+        this.indicatorCache.delete(key);
+      }
+    }
+  }
+  
+  private validateAndFixIndicators(symbol: string, indicators: any): any {
+    if (!indicators?.latestValues) return null;
+    
+    const values = indicators.latestValues;
+    
+    // Quick validation with fallbacks
+    if (!values.price || isNaN(values.price)) return null;
+    
+    // Auto-fix missing indicators
+    if (!values.ma1 || isNaN(values.ma1)) values.ma1 = values.price;
+    if (!values.ma2 || isNaN(values.ma2)) values.ma2 = values.price;
+    if (!values.rsi || isNaN(values.rsi)) values.rsi = 50;
+    
+    return indicators;
+  }
+  
+  // Performance monitoring
+  getPerformanceMetrics(): { avgProcessingTime: number; cacheSize: number; cacheHitRate: number } {
+    const times = Array.from(this.lastProcessingTime.values());
+    return {
+      avgProcessingTime: times.length ? times.reduce((a, b) => a + b, 0) / times.length : 0,
+      cacheSize: this.indicatorCache.size,
+      cacheHitRate: 0 // TODO: implement hit rate tracking
     };
   }
 

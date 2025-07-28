@@ -378,27 +378,93 @@ class TradeExecutor extends EventEmitter {
 
     // Extract orderId from response - check multiple possible locations
     // BingX API typically returns orderId directly in the data field for successful orders
-    const orderId = orderResponse.data?.orderId || orderResponse.data?.orderID || orderResponse.data?.id;
+    // Handle both number and string orderId formats from BingX response
+    let orderId = orderResponse.data?.orderId || orderResponse.data?.orderID || orderResponse.data?.id;
+    
+    // Also check root level for orderId (sometimes BingX returns it there)
+    if (!orderId) {
+      orderId = orderResponse.orderId || orderResponse.orderID || orderResponse.id;
+    }
     
     if (!orderId) {
       logger.error('Order response missing orderId:', {
+        order: orderResponse.data,
         fullResponse: orderResponse,
         availableFields: orderResponse.data ? Object.keys(orderResponse.data) : 'No data field',
-        message: 'Could not find orderId in expected fields (data.orderId, data.orderID, data.id)'
+        rootFields: Object.keys(orderResponse),
+        message: 'Could not find orderId in expected fields'
       });
       throw new Error('Order response missing orderId');
     }
+
+    // Aguardar confirmação da execução da ordem
+    let finalOrderStatus = orderResponse.data?.status || 'NEW';
+    let executedQty = orderResponse.data?.executedQty || '0';
+    let avgPrice = orderResponse.data?.avgPrice || positionDetails.entryPrice;
+    
+    // Se a ordem não foi imediatamente executada, aguardar por um curto período
+    if (finalOrderStatus === 'NEW' || finalOrderStatus === 'PARTIALLY_FILLED') {
+      logger.info(`⏳ Order placed but not filled yet, waiting for execution: ${orderId}`);
+      
+      // Aguardar até 10 segundos para a execução (orders de mercado geralmente são rápidas)
+      for (let attempt = 0; attempt < 10; attempt++) {
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Aguardar 1 segundo
+        
+        try {
+          // Verificar status da ordem
+          const orderStatus = await bingxClient.getOpenOrders(task.symbol);
+          if (orderStatus.code === 0 && orderStatus.data) {
+            // Garantir que orderStatus.data é um array
+            const ordersArray = Array.isArray(orderStatus.data) ? orderStatus.data : [orderStatus.data];
+            
+            const currentOrder = ordersArray.find((order: any) => 
+              order.orderId === orderId || order.orderId?.toString() === orderId.toString()
+            );
+            
+            if (currentOrder) {
+              finalOrderStatus = currentOrder.status;
+              executedQty = currentOrder.executedQty || '0';
+              avgPrice = currentOrder.avgPrice || avgPrice;
+              
+              logger.info(`📊 Order status check: ${finalOrderStatus} for ${orderId}`);
+              
+              if (finalOrderStatus === 'FILLED') {
+                logger.info(`✅ Order confirmed as FILLED: ${orderId}`);
+                break;
+              }
+            } else {
+              // Ordem não encontrada nas ordens abertas - pode ter sido executada
+              logger.info(`🔍 Order not found in open orders, likely filled: ${orderId}`);
+              finalOrderStatus = 'FILLED';
+              break;
+            }
+          }
+        } catch (statusError) {
+          logger.warn(`⚠️ Failed to check order status: ${statusError}`);
+        }
+      }
+    }
+
+    logger.info('✅ Order processing completed:', {
+      orderId: orderId.toString(),
+      symbol: task.symbol,
+      side: task.action,
+      finalStatus: finalOrderStatus,
+      executedQty: executedQty,
+      avgPrice: avgPrice
+    });
 
     return {
       orderId: orderId.toString(), // Ensure it's a string
       symbol: task.symbol,
       side: task.action,
       quantity: positionDetails.quantity,
-      price: positionDetails.entryPrice,
+      price: avgPrice,
       stopLoss: positionDetails.stopLoss,
       takeProfit: positionDetails.takeProfit,
       timestamp: Date.now(),
-      orderStatus: orderResponse.data.status || 'NEW'
+      orderStatus: finalOrderStatus,
+      executedQty: executedQty
     };
   }
 

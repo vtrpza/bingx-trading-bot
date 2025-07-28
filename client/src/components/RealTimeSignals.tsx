@@ -56,14 +56,15 @@ const DIST_2H_THRESHOLD = 2
 const DIST_4H_THRESHOLD = 3
 const VOLUME_SPIKE_THRESHOLD = 2.0
 const CONFIDENCE_THRESHOLD = 70
-const BATCH_SIZE = 8 // Aumentado para melhor throughput
-const MAX_SYMBOLS = 20 // Aumentado com processamento otimizado
+const BATCH_SIZE = 12 // Otimizado para alta performance 
+const MAX_SYMBOLS = 50 // Máximo de símbolos com nova configuração otimizada
 const CACHE_TTL = 30000
 const TIMEFRAMES = ['5m', '2h', '4h'] as const
 
 export default function RealTimeSignals() {
   const [signals, setSignals] = useState<TradingSignal[]>([])
   const [maxOpenTrades] = useLocalStorage('maxOpenTrades', 10)
+  const [riskPercentage] = useLocalStorage('riskPercentage', 2) // 2% padrão
   const [loadingProgress, setLoadingProgress] = useState(0)
   const [loadingStage, setLoadingStage] = useState('Inicializando...')
   const queryClient = useQueryClient()
@@ -82,6 +83,23 @@ export default function RealTimeSignals() {
     'open-positions',
     () => fetch('/api/trading/positions').then(res => res.json()).then(data => data.data),
     { refetchInterval: 3000 }
+  )
+
+  // Buscar saldo da conta para cálculo de risco
+  const { data: accountBalance } = useQuery(
+    'account-balance',
+    async () => {
+      const response = await fetch('/api/trading/bot/status')
+      const data = await response.json()
+      if (data.success && data.data?.balance) {
+        // Buscar saldo USDT ou VST (demo mode)
+        const balanceData = Array.isArray(data.data.balance) ? data.data.balance : [data.data.balance]
+        const usdtBalance = balanceData.find((b: any) => b.asset === 'USDT' || b.asset === 'VST')
+        return parseFloat(usdtBalance?.availableMargin || usdtBalance?.balance || '1000')
+      }
+      return 1000 // Valor padrão se não conseguir buscar
+    },
+    { refetchInterval: 30000 } // Atualizar a cada 30 segundos
   )
 
   // Verificar status do bot para avisos visuais
@@ -104,13 +122,37 @@ export default function RealTimeSignals() {
       body: JSON.stringify(trade)
     }).then(res => res.json()),
     {
-      onSuccess: (_, variables) => {
-        toast.success(`Trade executado: ${variables.side} ${variables.symbol}`)
+      onSuccess: (response, variables) => {
+        console.log('Trade response:', response); // Debug log
+        
+        // Acessar o status corretamente da estrutura da resposta
+        const orderStatus = response.data?.data?.status;
+        const orderId = response.data?.data?.orderId;
+        
+        // Só mostrar sucesso se a ordem foi realmente executada (FILLED)
+        if (response.success && orderStatus === 'FILLED') {
+          toast.success(`✅ Trade executado: ${variables.side} ${variables.symbol}`)
+        } else if (response.success && orderId) {
+          // Ordem criada mas não necessariamente executada ainda
+          toast(`⏳ Ordem ${variables.side} criada para ${variables.symbol} - Aguardando execução...`, {
+            duration: 3000,
+            style: { background: '#3b82f6', color: '#ffffff' }
+          })
+        } else if (response.success) {
+          // Ordem enviada mas sem informações detalhadas
+          toast(`⚠️ Ordem ${variables.side} enviada para ${variables.symbol} - Status: ${orderStatus || 'processando'}`, {
+            duration: 4000,
+            style: { background: '#f59e0b', color: '#ffffff' }
+          })
+        } else {
+          // Erro na requisição
+          toast.error(`❌ Falha ao enviar ordem ${variables.side} para ${variables.symbol}`)
+        }
         queryClient.invalidateQueries('open-positions')
         queryClient.invalidateQueries('parallel-bot-status')
       },
       onError: (error: any) => {
-        toast.error(`Erro ao executar trade: ${error.message}`)
+        toast.error(`❌ Erro ao executar trade: ${error.message}`)
       }
     }
   )
@@ -233,11 +275,38 @@ export default function RealTimeSignals() {
     const stopLossPercent = signal.signal === 'BUY' ? -2 : 2 // -2% para BUY, +2% para SELL
     const stopLossPrice = currentPrice * (1 + stopLossPercent / 100)
 
+    // Calcular quantidade baseada no risco
+    const currentBalance = accountBalance || 1000 // Usar saldo real ou padrão
+    const riskAmount = (currentBalance * riskPercentage) / 100 // Valor em USDT para arriscar
+    
+    // Calcular quantidade baseada no risco e stop loss
+    const priceDistance = Math.abs(currentPrice - stopLossPrice) // Distância até o stop loss
+    const calculatedQuantity = priceDistance > 0 ? riskAmount / priceDistance : 0.001
+    
+    // Aplicar quantidade mínima baseada no símbolo
+    let finalQuantity = calculatedQuantity
+    if (signal.symbol.includes('SOL')) finalQuantity = Math.max(calculatedQuantity, 1)
+    else if (signal.symbol.includes('BTC')) finalQuantity = Math.max(calculatedQuantity, 0.001)
+    else if (signal.symbol.includes('ETH')) finalQuantity = Math.max(calculatedQuantity, 0.01)
+    else finalQuantity = Math.max(calculatedQuantity, 0.1) // Padrão para outros
+
+    // Log do cálculo de risco para debug
+    console.log(`Cálculo de risco para ${signal.symbol}:`, {
+      saldo: currentBalance,
+      riscoPercent: riskPercentage,
+      valorRisco: riskAmount,
+      precoAtual: currentPrice,
+      stopLoss: stopLossPrice,
+      distanciaPreco: priceDistance,
+      quantidadeCalculada: calculatedQuantity,
+      quantidadeFinal: finalQuantity
+    })
+
     const trade: TradeExecution = {
       symbol: signal.symbol,
       side: signal.signal,
       type: 'MARKET',
-      quantity: 0.001, // Quantidade mínima - deve ser configurável
+      quantity: parseFloat(finalQuantity.toFixed(6)),
       stopLoss: stopLossPrice
     }
 

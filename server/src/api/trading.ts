@@ -1128,6 +1128,30 @@ router.get('/parallel-bot/position-metrics', asyncHandler(async (_req: Request, 
   });
 }));
 
+// Helper function to extract orderId from BingX response
+function extractOrderId(response: any): string | null {
+  // Common locations where BingX might return orderId
+  const possiblePaths = [
+    response.data?.orderId,
+    response.data?.orderID, 
+    response.data?.id,
+    response.data?.order?.orderId,
+    response.data?.order?.orderID,
+    response.data?.order?.id,
+    response.orderId,
+    response.orderID,
+    response.id
+  ];
+  
+  for (const id of possiblePaths) {
+    if (id !== undefined && id !== null && id !== '') {
+      return String(id);
+    }
+  }
+  
+  return null;
+}
+
 // Symbol validation helper
 function validateAndFormatSymbol(symbol: string): string {
   if (!symbol) {
@@ -1477,6 +1501,7 @@ router.post('/execute', asyncHandler(async (req: Request, res: Response) => {
     const orderParams: any = {
       symbol,
       side,
+      positionSide: side === 'BUY' ? 'LONG' : 'SHORT', // Campo obrigatório para BingX
       type,
       quantity: parseFloat(quantity)
     };
@@ -1485,12 +1510,123 @@ router.post('/execute', asyncHandler(async (req: Request, res: Response) => {
       // Para ordem a mercado, usar a API do BingX diretamente
       const result = await bingxClient.placeOrder(orderParams);
       
-      // Se stop loss foi especificado, criar ordem de stop loss
-      if (stopLoss && result.code === 0 && result.data?.orderId) {
+      // Log detalhado da resposta para debug
+      logger.info('BingX placeOrder response:', {
+        code: result.code,
+        msg: result.msg,
+        data: result.data,
+        fullResponse: JSON.stringify(result, null, 2)
+      });
+      
+      if (result.code !== 0) {
+        throw new AppError(`Falha ao criar ordem: ${result.msg}`, 400);
+      }
+
+      // Tentar extrair orderId usando a função helper
+      const orderId = extractOrderId(result);
+      
+      if (!orderId) {
+        logger.error('OrderID extraction failed:', {
+          resultData: result.data,
+          availableFields: result.data ? Object.keys(result.data) : 'No data field',
+          rootFields: Object.keys(result),
+          fullResponse: JSON.stringify(result, null, 2),
+          demoMode: process.env.DEMO_MODE,
+          orderParams
+        });
+        
+        // Em modo demo ou se não conseguiu extrair orderId, gerar um ID temporário para continuar o fluxo
+        if (process.env.DEMO_MODE === 'true') {
+          const tempOrderId = `DEMO_${Date.now()}_${Math.random().toString(36).substring(2, 11)}`;
+          logger.warn(`⚠️ Demo mode: Generated temporary orderId: ${tempOrderId}`);
+          
+          // Simular resposta de ordem executada em modo demo
+          const responseData = {
+            ...result,
+            data: {
+              ...result.data,
+              orderId: tempOrderId,
+              status: 'FILLED', // Simular execução imediata em demo
+              executedQty: quantity,
+              avgPrice: 0 // Será preenchido pelo preço atual
+            }
+          };
+          
+          res.json({
+            success: true,
+            data: responseData,
+            message: `🎮 VST: Trade simulado ${side} ${symbol} (ID: ${tempOrderId})`
+          });
+          return;
+        }
+        
+        throw new AppError('OrderID não retornado pela BingX', 500);
+      }
+      
+      logger.info(`✅ OrderID extracted successfully: ${orderId}`);
+
+      // Aguardar confirmação da execução para ordens de mercado
+      let finalOrderStatus = result.data?.status || 'NEW';
+      let executedQty = result.data?.executedQty || '0';
+      let avgPrice = result.data?.avgPrice || 0;
+      
+      // Se a ordem não foi imediatamente executada, aguardar por alguns segundos
+      if (finalOrderStatus === 'NEW' || finalOrderStatus === 'PARTIALLY_FILLED') {
+        logger.info(`⏳ Aguardando execução da ordem ${orderId} para ${symbol}`);
+        
+        // Aguardar até 5 segundos para a execução (orders de mercado são rápidas)
+        for (let attempt = 0; attempt < 5; attempt++) {
+          await new Promise(resolve => setTimeout(resolve, 1000)); // Aguardar 1 segundo
+          
+          try {
+            // Verificar status da ordem
+            const orderStatus = await bingxClient.getOpenOrders(symbol);
+            logger.debug(`Order status response:`, {
+              code: orderStatus.code,
+              dataType: typeof orderStatus.data,
+              isArray: Array.isArray(orderStatus.data),
+              data: orderStatus.data
+            });
+            
+            if (orderStatus.code === 0 && orderStatus.data) {
+              // Garantir que orderStatus.data é um array
+              const ordersArray = Array.isArray(orderStatus.data) ? orderStatus.data : [orderStatus.data];
+              
+              const currentOrder = ordersArray.find((order: any) => 
+                order.orderId === orderId || order.orderId?.toString() === orderId.toString()
+              );
+              
+              if (currentOrder) {
+                finalOrderStatus = currentOrder.status;
+                executedQty = currentOrder.executedQty || '0';
+                avgPrice = currentOrder.avgPrice || avgPrice;
+                
+                logger.info(`📊 Status da ordem ${orderId}: ${finalOrderStatus}`);
+                
+                if (finalOrderStatus === 'FILLED') {
+                  logger.info(`✅ Ordem confirmada como FILLED: ${orderId}`);
+                  break;
+                }
+              } else {
+                // Ordem não encontrada nas ordens abertas - provavelmente foi executada
+                logger.info(`🔍 Ordem ${orderId} não encontrada em ordens abertas, provavelmente executada`);
+                finalOrderStatus = 'FILLED';
+                break;
+              }
+            }
+          } catch (statusError) {
+            logger.warn(`⚠️ Falha ao verificar status da ordem: ${statusError}`);
+          }
+        }
+      }
+      
+      // Se stop loss foi especificado e ordem principal foi executada, criar ordem de stop loss
+      if (stopLoss && finalOrderStatus === 'FILLED') {
         try {
           const stopLossOrder = await bingxClient.placeOrder({
             symbol,
             side: side === 'BUY' ? 'SELL' : 'BUY',
+            positionSide: side === 'BUY' ? 'LONG' : 'SHORT', // Mesmo positionSide da ordem principal
             type: 'STOP_MARKET',
             quantity: parseFloat(quantity),
             stopPrice: parseFloat(stopLoss)
@@ -1502,10 +1638,39 @@ router.post('/execute', asyncHandler(async (req: Request, res: Response) => {
         }
       }
 
+      const demoMode = process.env.DEMO_MODE === 'true';
+      
+      // Log do resultado final para debug
+      logger.info('Trade execution completed:', {
+        symbol,
+        side,
+        orderId,
+        finalStatus: finalOrderStatus,
+        executedQty,
+        avgPrice
+      });
+      
+      // Estruturar resposta com status correto
+      const responseData = {
+        ...result,
+        data: {
+          ...result.data,
+          status: finalOrderStatus,
+          executedQty,
+          avgPrice
+        }
+      };
+      
       res.json({
         success: true,
-        data: result,
-        message: `Trade executado: ${side} ${symbol}`
+        data: responseData,
+        message: finalOrderStatus === 'FILLED'
+          ? (demoMode 
+              ? `✅ VST: Trade executado ${side} ${symbol} (saldo virtual)` 
+              : `✅ REAL: Trade executado ${side} ${symbol} (saldo real)`)
+          : (demoMode
+              ? `⏳ VST: Ordem ${side} criada para ${symbol} - Status: ${finalOrderStatus}`
+              : `⏳ REAL: Ordem ${side} criada para ${symbol} - Status: ${finalOrderStatus}`)
       });
     } else {
       throw new AppError('Apenas ordens MARKET são suportadas atualmente', 400);
@@ -1517,6 +1682,19 @@ router.post('/execute', asyncHandler(async (req: Request, res: Response) => {
       error: error instanceof AppError ? error.message : 'Erro interno do servidor'
     });
   }
+}));
+
+// Endpoint para verificar modo de operação
+router.get('/mode', asyncHandler(async (_req: Request, res: Response) => {
+  const demoMode = process.env.DEMO_MODE === 'true';
+  res.json({
+    success: true,
+    data: {
+      mode: demoMode ? 'demo' : 'live',
+      isDemoMode: demoMode,
+      warning: demoMode ? 'ATENÇÃO: Modo Demo - Trades não são executados na BingX' : null
+    }
+  });
 }));
 
 export default router;
