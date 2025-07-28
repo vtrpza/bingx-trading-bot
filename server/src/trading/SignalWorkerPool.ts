@@ -243,9 +243,9 @@ export class SignalWorkerPool extends EventEmitter {
       // 🚀 Progressive Loading Defaults
       progressiveLoading: {
         enabled: true,
-        initialWaveSize: 15,        // Start with 20 symbols
+        initialWaveSize: 25,        // Start with 20 symbols
         waveIncrement: 25,          // Add 20 symbols each wave
-        waveInterval: 5000,       // 1 minutes between waves
+        waveInterval: 2500,       // 1 minutes between waves
         maxSymbols: 100,            // Max 100 symbols
         scalingThresholds: {
           successRate: 0.8,         // 80% success rate to scale
