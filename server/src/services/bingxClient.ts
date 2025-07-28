@@ -614,7 +614,15 @@ export class BingXClient {
       }
       
       if (allTickers.length === 0) {
-        throw new Error('No ticker endpoints returned valid market data');
+        logger.warn('⚠️  No ticker endpoints returned valid market data - returning empty tickers');
+        // Don't throw error, return empty data structure to allow contracts to still work
+        return {
+          code: 0,
+          data: [],
+          msg: 'No ticker data available',
+          endpoint: 'none',
+          count: 0
+        };
       }
       
       const response = {
