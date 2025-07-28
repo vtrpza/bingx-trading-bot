@@ -5,12 +5,8 @@ import { useLocalStorage } from '../hooks/useLocalStorage'
 import { toast } from 'react-hot-toast'
 import {
   formatPrice,
-  formatVolume,
   indicatorCache,
-  cleanupCaches,
-  VolumeSpikeDetector,
-  FastRSI,
-  FastSMA
+  cleanupCaches
 } from '../utils/trading-optimizations'
 
 interface CandleData {
@@ -68,8 +64,7 @@ export default function RealTimeSignals() {
   const [maxOpenTrades] = useLocalStorage('maxOpenTrades', 10)
   const queryClient = useQueryClient()
   
-  // Detectores de volume por símbolo (cache)
-  const volumeDetectors = useMemo(() => new Map<string, VolumeSpikeDetector>(), [])
+  // Cache removido - detecção de volume agora é feita inline para melhor performance
 
   // Buscar símbolos do bot paralelo
   const { data: botStatus } = useQuery(
@@ -448,7 +443,16 @@ export default function RealTimeSignals() {
                           <div>MM1: {formatPrice(tf5m?.ma1)}</div>
                           <div>Center: {formatPrice(tf5m?.center)}</div>
                           <div>RSI: {tf5m?.rsi?.toFixed(1) || 'N/A'}</div>
-                          <div>Vol: {formatVolume(tf5m?.volume)}</div>
+                          <div className={`font-medium ${
+                            tf5m?.ma1 && tf5m?.center 
+                              ? (tf5m.ma1 > tf5m.center ? 'text-green-600' : 'text-red-600')
+                              : 'text-gray-500'
+                          }`}>
+                            Dist: {tf5m?.ma1 && tf5m?.center 
+                              ? `${(((tf5m.ma1 - tf5m.center) / tf5m.center) * 100).toFixed(2)}%`
+                              : 'N/A'
+                            }
+                          </div>
                         </div>
                       </td>
                       
@@ -459,7 +463,16 @@ export default function RealTimeSignals() {
                           <div>MM1: {formatPrice(tf2h?.ma1)}</div>
                           <div>Center: {formatPrice(tf2h?.center)}</div>
                           <div>RSI: {tf2h?.rsi?.toFixed(1) || 'N/A'}</div>
-                          <div>Vol: {formatVolume(tf2h?.volume)}</div>
+                          <div className={`font-medium ${
+                            tf2h?.ma1 && tf2h?.center 
+                              ? (tf2h.ma1 > tf2h.center ? 'text-green-600' : 'text-red-600')
+                              : 'text-gray-500'
+                          }`}>
+                            Dist: {tf2h?.ma1 && tf2h?.center 
+                              ? `${(((tf2h.ma1 - tf2h.center) / tf2h.center) * 100).toFixed(2)}%`
+                              : 'N/A'
+                            }
+                          </div>
                         </div>
                       </td>
                       
@@ -470,7 +483,16 @@ export default function RealTimeSignals() {
                           <div>MM1: {formatPrice(tf4h?.ma1)}</div>
                           <div>Center: {formatPrice(tf4h?.center)}</div>
                           <div>RSI: {tf4h?.rsi?.toFixed(1) || 'N/A'}</div>
-                          <div>Vol: {formatVolume(tf4h?.volume)}</div>
+                          <div className={`font-medium ${
+                            tf4h?.ma1 && tf4h?.center 
+                              ? (tf4h.ma1 > tf4h.center ? 'text-green-600' : 'text-red-600')
+                              : 'text-gray-500'
+                          }`}>
+                            Dist: {tf4h?.ma1 && tf4h?.center 
+                              ? `${(((tf4h.ma1 - tf4h.center) / tf4h.center) * 100).toFixed(2)}%`
+                              : 'N/A'
+                            }
+                          </div>
                         </div>
                       </td>
                     </>
@@ -480,7 +502,20 @@ export default function RealTimeSignals() {
                 {/* Sinal */}
                 <td className="px-3 py-2">
                   <div className="space-y-1">
-                    {getSignalBadge(signal.signal, signal.confidence)}
+                    <div className="flex items-center space-x-1">
+                      {getSignalBadge(signal.signal, signal.confidence)}
+                      {/* Indicador de Volume Spike */}
+                      {signal.reason.includes('Volume súbito') && (
+                        <span className="text-xs bg-orange-100 text-orange-800 px-1 py-0.5 rounded font-bold animate-pulse">
+                          🚀 SPIKE
+                        </span>
+                      )}
+                      {signal.reason.includes('Volume elevado') && !signal.reason.includes('Volume súbito') && (
+                        <span className="text-xs bg-yellow-100 text-yellow-800 px-1 py-0.5 rounded font-medium">
+                          📈 VOL+
+                        </span>
+                      )}
+                    </div>
                     <div className="text-xs text-gray-600 max-w-32">
                       {signal.reason}
                     </div>
