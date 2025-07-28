@@ -20,7 +20,8 @@ export default function AssetsPage() {
     processed: 0, 
     total: 0, 
     executionTime: '', 
-    performance: '' 
+    performance: '',
+    current: ''
   })
   const [lastUpdateTime, setLastUpdateTime] = useState<string>('')
   const [statusBreakdown, setStatusBreakdown] = useState<any>(null)
@@ -71,7 +72,8 @@ export default function AssetsPage() {
       processed: 0, 
       total: 0,
       executionTime: '',
-      performance: ''
+      performance: '',
+      current: ''
     })
     
     toast.loading('Atualizando ativos da BingX...', { id: 'refresh-assets' })
@@ -155,7 +157,8 @@ export default function AssetsPage() {
         processed: 0, 
         total: 0, 
         executionTime: '', 
-        performance: '' 
+        performance: '',
+        current: ''
       })
       
       // Ensure cache invalidation happens even on error for consistency
