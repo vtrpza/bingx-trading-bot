@@ -9,7 +9,7 @@ import { logger } from '../utils/logger';
 import Asset from '../models/Asset';
 
 async function runRenderDeployMigration() {
-  let migrationSuccess = false;
+  // let migrationSuccess = false;
   
   try {
     logger.info('🚀 RENDER DEPLOY: Starting forced database migration...');
