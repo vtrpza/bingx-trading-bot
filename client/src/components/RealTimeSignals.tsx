@@ -65,6 +65,8 @@ const TIMEFRAMES = ['5m', '2h', '4h'] as const
 export default function RealTimeSignals() {
   const [signals, setSignals] = useState<TradingSignal[]>([])
   const [maxOpenTrades] = useLocalStorage('maxOpenTrades', 10)
+  const [loadingProgress, setLoadingProgress] = useState(0)
+  const [loadingStage, setLoadingStage] = useState('Inicializando...')
   const queryClient = useQueryClient()
   
   // Sistema de cache inteligente e processamento paralelo implementado
@@ -251,7 +253,7 @@ export default function RealTimeSignals() {
             }
 
             // Usar processador paralelo otimizado para múltiplos timeframes
-            const timeframeResults = await timeframeProcessor.processSymbol(symbol, TIMEFRAMES)
+            const timeframeResults = await timeframeProcessor.processSymbol(symbol, [...TIMEFRAMES])
             const [data5m, data2h, data4h] = timeframeResults
 
             if (data5m.success && data2h.success && data4h.success) {
@@ -335,8 +337,41 @@ export default function RealTimeSignals() {
   useEffect(() => {
     if (marketData) {
       setSignals(marketData)
+      setLoadingProgress(100)
+      setLoadingStage('Completo!')
     }
   }, [marketData])
+
+  // Simular progresso de loading baseado em dados reais
+  useEffect(() => {
+    if (signals.length === 0 && botStatus?.scannedSymbols) {
+      const symbolCount = botStatus.scannedSymbols.length
+      const stages = [
+        'Conectando aos mercados...',
+        'Carregando símbolos...',
+        'Analisando timeframes...',
+        'Calculando indicadores...',
+        'Processando sinais...',
+        'Finalizando análise...'
+      ]
+      
+      let currentStage = 0
+      let progress = 15
+      
+      const progressInterval = setInterval(() => {
+        if (currentStage < stages.length) {
+          setLoadingStage(stages[currentStage])
+          setLoadingProgress(Math.min(progress, 95))
+          progress += Math.random() * 15 + 10
+          currentStage++
+        } else {
+          clearInterval(progressInterval)
+        }
+      }, 800)
+      
+      return () => clearInterval(progressInterval)
+    }
+  }, [botStatus?.scannedSymbols, signals.length])
 
   // Sistema de monitoramento de performance e limpeza inteligente
   useEffect(() => {
@@ -585,9 +620,121 @@ export default function RealTimeSignals() {
         
         {signals.length === 0 && (
           <div className="p-8 text-center text-gray-500">
-            <div className="text-4xl mb-4">📊</div>
-            <div className="text-lg font-medium mb-2">Carregando sinais...</div>
-            <div className="text-sm">Aguarde enquanto os dados dos símbolos são processados</div>
+            {/* Loading com animação avançada */}
+            <div className="relative mb-6">
+              <div className="text-6xl mb-4 animate-pulse">🎯</div>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="w-20 h-20 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+              </div>
+            </div>
+            
+            {/* Título e descrição dinâmica */}
+            <div className="space-y-3 mb-6">
+              <div className="text-xl font-bold text-blue-900 animate-pulse">
+                🧠 Motor de Sinais Inicializando...
+              </div>
+              <div className="text-sm text-blue-700 font-medium">
+                {loadingStage}
+              </div>
+              <div className="text-xs text-blue-600">
+                {loadingProgress.toFixed(0)}% concluído
+              </div>
+            </div>
+
+            {/* Estatísticas de processamento em tempo real */}
+            <div className="grid grid-cols-2 gap-4 max-w-md mx-auto mb-6">
+              <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-3 border border-blue-200">
+                <div className="text-xs text-blue-600 font-semibold uppercase tracking-wide">Símbolos</div>
+                <div className="text-lg font-bold text-blue-900">
+                  {botStatus?.scannedSymbols?.length || 0}
+                </div>
+                <div className="text-xs text-blue-500">Detectados</div>
+              </div>
+              <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg p-3 border border-green-200">
+                <div className="text-xs text-green-600 font-semibold uppercase tracking-wide">Timeframes</div>
+                <div className="text-lg font-bold text-green-900">3</div>
+                <div className="text-xs text-green-500">5m • 2h • 4h</div>
+              </div>
+            </div>
+
+            {/* Barra de progresso animada */}
+            <div className="max-w-sm mx-auto mb-4">
+              <div className="flex justify-between text-xs text-blue-600 mb-1">
+                <span>{loadingStage}</span>
+                <span>⚡ {loadingProgress.toFixed(0)}%</span>
+              </div>
+              <div className="w-full bg-blue-100 rounded-full h-3 overflow-hidden">
+                <div 
+                  className="bg-gradient-to-r from-blue-500 to-purple-600 h-3 rounded-full transition-all duration-500 ease-out relative"
+                  style={{width: `${loadingProgress}%`}}
+                >
+                  <div className="absolute inset-0 bg-white opacity-30 animate-pulse"></div>
+                </div>
+              </div>
+            </div>
+
+            {/* Status de conexão e cache
+            <div className="flex justify-center space-x-6 text-xs">
+              <div className="flex items-center space-x-1">
+                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                <span className="text-green-600 font-medium">Cache Ativo</span>
+              </div>
+              <div className="flex items-center space-x-1">
+                <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                <span className="text-blue-600 font-medium">Processamento Paralelo</span>
+              </div>
+              <div className="flex items-center space-x-1">
+                <div className="w-2 h-2 bg-purple-500 rounded-full animate-pulse"></div>
+                <span className="text-purple-600 font-medium">IA Integrada</span>
+              </div>
+            </div> */}
+
+            {/* Mensagem contextual baseada no progresso */}
+            <div className="mt-6 text-sm text-gray-600 italic">
+              {(() => {
+                if (loadingProgress < 20) return "🔍 Estabelecendo conexões com a BingX..."
+                if (loadingProgress < 40) return "📊 Carregando dados de mercado..."
+                if (loadingProgress < 60) return "🧮 Calculando indicadores técnicos..."
+                if (loadingProgress < 80) return "🎯 Analisando sinais de trading..."
+                if (loadingProgress < 95) return "⚡ Otimizando performance..."
+                return "✅ Preparando interface..."
+              })()}
+            </div>
+
+            {/* Informações dinâmicas do sistema */}
+            <div className="mt-4 space-y-3">
+              <div className="p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-left max-w-md mx-auto">
+                <div className="flex items-start space-x-2">
+                  <div className="text-yellow-600 mt-0.5">💡</div>
+                  <div className="text-xs text-yellow-800">
+                    <div className="font-semibold">Performance:</div>
+                    <div>Processando {botStatus?.scannedSymbols?.length || 0} símbolos em {TIMEFRAMES.length} timeframes com cache inteligente e algoritmos otimizados.</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Estatísticas de cache */}
+              {loadingProgress > 30 && (
+                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-left max-w-md mx-auto">
+                  <div className="flex items-start space-x-2">
+                    <div className="text-blue-600 mt-0.5">⚡</div>
+                    <div className="text-xs text-blue-800">
+                      <div className="font-semibold">Sistema Avançado:</div>
+                      <div>Cache ativo, processamento paralelo e IA integrada para análise de sinais em tempo real.</div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* ETA estimado */}
+              {loadingProgress > 0 && loadingProgress < 95 && (
+                <div className="text-center">
+                  <div className="text-xs text-gray-500">
+                    ⏱️ Tempo estimado: {Math.max(1, Math.ceil((100 - loadingProgress) / 20))}s
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>
