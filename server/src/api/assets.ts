@@ -1245,9 +1245,10 @@ router.get('/debug/api-test', asyncHandler(async (req: Request, res: Response) =
   // Test 4: Network info
   debugInfo.network = {
     userAgent: req.headers['user-agent'],
-    clientIP: req.ip || req.connection?.remoteAddress,
+    clientIP: req.ip,
     forwardedFor: req.headers['x-forwarded-for'],
-    renderRegion: process.env.RENDER_REGION || 'unknown'
+    renderRegion: process.env.RENDER_REGION || 'unknown',
+    host: req.headers.host
   };
 
   res.json(debugInfo);

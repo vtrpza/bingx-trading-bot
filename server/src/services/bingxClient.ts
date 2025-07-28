@@ -1,6 +1,6 @@
 import axios, { AxiosInstance } from 'axios';
 import crypto from 'crypto';
-import { logger } from '../utils/logger';
+import { logger, logToExternal } from '../utils/logger';
 import { globalRateLimiter, RateLimiter, RequestCategory } from './rateLimiter';
 import dotenv from 'dotenv';
 import path from 'path';
@@ -609,6 +609,13 @@ export class BingXClient {
           
         } catch (error: any) {
           logger.debug(`❌ Failed to fetch from ${endpoint}: ${error.message}`);
+          // Log to external service for production debugging
+          await logToExternal('error', `BingX ticker endpoint failed: ${endpoint}`, {
+            error: error.message,
+            code: error.code,
+            status: error.response?.status,
+            timeout: error.code === 'ECONNABORTED'
+          });
           continue;
         }
       }
