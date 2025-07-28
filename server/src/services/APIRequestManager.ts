@@ -39,23 +39,23 @@ export class APIRequestManager {
   private requestQueue: RequestQueueItem[] = [];
   private isProcessingQueue = false;
   
-  // Cache durations - PERFORMANCE OPTIMIZED FOR SIGNALS
+  // Optimized Cache durations for stability
   private cacheDurations = {
     balance: 60000,       // 60 seconds - balance changes slowly
-    positions: 30000,     // 30 seconds - position updates
-    klines: 120000,       // 2 minutes - LONGER cache for signal processing
-    ticker: 10000,        // 10 seconds - faster price updates
-    symbols: 600000,      // 10 minutes - symbols rarely change
-    openOrders: 15000,    // 15 seconds - order tracking
-    depth: 5000           // 5 seconds - order book
+    positions: 15000,     // 15 seconds - position updates for risk monitoring
+    klines: 300000,       // 5 minutes - MUCH LONGER cache for signal processing
+    ticker: 60000,        // 60 seconds - longer for better performance
+    symbols: 21600000,    // 6 hours - symbols change very rarely
+    openOrders: 30000,    // 30 seconds - order tracking, extended
+    depth: 15000          // 15 seconds - order book, longer cache
   };
 
-  // Request spacing - SIGNAL ENGINE OPTIMIZED
-  private readonly requestSpacing = 80; // 0.08 seconds between requests (12.5 req/s)
-  private readonly queueTimeout = 20000; // 20 second queue timeout
+  // Conservative Request spacing for stability
+  private readonly requestSpacing = 100; // 0.1 seconds = 10 req/s (BingX safe limit)
+  private readonly queueTimeout = 60000; // 60 second queue timeout
   private lastRequestTime = 0;
   private requestCount = 0;
-  private readonly maxBurstRequests = 5; // Allow burst of 5 requests
+  private readonly maxBurstRequests = 8; // Conservative burst limit
 
   /**
    * Main method to make API requests with intelligent caching and queueing
@@ -252,34 +252,41 @@ export class APIRequestManager {
   }
 
   /**
-   * Convenience methods for common API calls
+   * 🚀 ULTRA-FAST Convenience methods with intelligent categorization
    */
   async getBalance() {
-    return this.makeRequest('getBalance', [], RequestPriority.HIGH);
+    // Account category - slower but reliable
+    return this.makeRequest('getBalance', [], RequestPriority.HIGH, `balance:${Date.now()}`);
   }
 
   async getPositions(symbol?: string) {
-    return this.makeRequest('getPositions', [symbol], RequestPriority.HIGH);
+    // Trading category - medium priority
+    return this.makeRequest('getPositions', [symbol], RequestPriority.HIGH, `positions:${symbol || 'all'}`);
   }
 
   async getKlines(symbol: string, interval: string, limit: number = 100) {
-    return this.makeRequest('getKlines', [symbol, interval, limit], RequestPriority.MEDIUM);
+    // Market data category - fastest limits
+    return this.makeRequest('getKlines', [symbol, interval, limit], RequestPriority.MEDIUM, `klines:${symbol}:${interval}:${limit}`);
   }
 
   async getTicker(symbol: string, priority: RequestPriority = RequestPriority.MEDIUM) {
-    return this.makeRequest('getTicker', [symbol], priority);
+    // Market data category - ultra fast
+    return this.makeRequest('getTicker', [symbol], priority, `ticker:${symbol}`);
   }
 
   async getSymbols() {
-    return this.makeRequest('getSymbols', [], RequestPriority.LOW);
+    // Symbols category - uses market data limits
+    return this.makeRequest('getSymbols', [], RequestPriority.LOW, 'symbols:all');
   }
 
   async getOpenOrders(symbol?: string) {
-    return this.makeRequest('getOpenOrders', [symbol], RequestPriority.MEDIUM);
+    // Trading category
+    return this.makeRequest('getOpenOrders', [symbol], RequestPriority.MEDIUM, `orders:${symbol || 'all'}`);
   }
 
   async getDepth(symbol: string, limit: number = 20) {
-    return this.makeRequest('getDepth', [symbol, limit], RequestPriority.LOW);
+    // Market data category - fast
+    return this.makeRequest('getDepth', [symbol, limit], RequestPriority.LOW, `depth:${symbol}:${limit}`);
   }
 
   /**

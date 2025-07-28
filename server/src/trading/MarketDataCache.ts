@@ -68,12 +68,12 @@ export class MarketDataCache extends EventEmitter {
     super();
     
     this.config = {
-      tickerCacheTTL: 5000, // 5 seconds
-      klineCacheTTL: 30000, // 30 seconds
-      maxCacheSize: 100,
-      websocketReconnectDelay: 5000,
-      batchUpdateInterval: 1000,
-      priceChangeThreshold: 0.1, // 0.1% change threshold
+      tickerCacheTTL: 60000, // 🚀 60 seconds (up from 5s) - aggressive caching
+      klineCacheTTL: 300000, // 🚀 5 minutes (up from 30s) - much longer cache
+      maxCacheSize: 200, // 🚀 200 symbols (up from 100) - larger cache
+      websocketReconnectDelay: 3000, // 🚀 3 seconds (down from 5s) - faster reconnects
+      batchUpdateInterval: 500, // 🚀 500ms (down from 1s) - faster updates
+      priceChangeThreshold: 0.1, // Keep same threshold
       ...config
     };
 
@@ -507,28 +507,41 @@ export class MarketDataCache extends EventEmitter {
     logger.info('MarketDataCache configuration updated');
   }
 
-  // Batch operations for efficiency
+  // 🚀 ULTRA-FAST Batch operations for maximum efficiency
   async preloadSymbols(symbols: string[]): Promise<void> {
-    const batchSize = 5;
+    const batchSize = 20; // 🚀 4x larger batches
+    const startTime = Date.now();
+    
+    logger.info(`🚀 ULTRA-FAST: Preloading ${symbols.length} symbols with ${batchSize} parallel requests...`);
     
     for (let i = 0; i < symbols.length; i += batchSize) {
       const batch = symbols.slice(i, i + batchSize);
       
       const promises = batch.map(symbol => 
         this.getTicker(symbol, false).catch(error => {
-          logger.warn(`Failed to preload ${symbol}:`, error.message);
+          // Silent fail for speed during preloading
+          if (!error.message?.includes('timeout')) {
+            logger.debug(`Preload failed for ${symbol}:`, error.message);
+          }
           return null;
         })
       );
       
+      // Execute all in parallel without delays
       await Promise.allSettled(promises);
       
-      // Small delay between batches
-      if (i + batchSize < symbols.length) {
-        await new Promise(resolve => setTimeout(resolve, 100));
+      // 🚀 NO DELAYS: Let the rate limiter handle spacing
+      // Progress logging every 100 symbols
+      if (i % 100 === 0 && i > 0) {
+        const progress = (i / symbols.length * 100).toFixed(1);
+        const elapsed = Date.now() - startTime;
+        const rate = i / (elapsed / 1000);
+        logger.info(`📊 Preload progress: ${progress}% at ${rate.toFixed(1)} symbols/sec`);
       }
     }
     
-    logger.info(`Preloaded market data for ${symbols.length} symbols`);
+    const totalTime = Date.now() - startTime;
+    const rate = symbols.length / (totalTime / 1000);
+    logger.info(`⚡ PRELOAD COMPLETE: ${symbols.length} symbols in ${totalTime}ms (${rate.toFixed(1)} symbols/sec)`);
   }
 }

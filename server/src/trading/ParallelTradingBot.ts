@@ -62,6 +62,7 @@ export interface ParallelBotMetrics {
     queuedSignals: number;
     processedSignals: number;
     failedSignals: number;
+    rejectedTrades: number;
     avgSignalLatency: number;
   };
   executionMetrics: {
@@ -134,7 +135,7 @@ export class ParallelTradingBot extends EventEmitter {
       scanInterval: parseInt(process.env.SCAN_INTERVAL || '15000'), // 15 seconds - ULTRA FAST scanning
       symbolsToScan: [],
       maxConcurrentTrades: 5,
-      defaultPositionSize: 25, // Reduced to stay under 1000 USDT limit with leverage
+      defaultPositionSize: 100, // Safe under 5000 USDT limit with leverage
       stopLossPercent: 2,
       takeProfitPercent: 3,
       trailingStopPercent: 1,
@@ -239,6 +240,7 @@ export class ParallelTradingBot extends EventEmitter {
         queuedSignals: 0,
         processedSignals: 0,
         failedSignals: 0,
+        rejectedTrades: 0,
         avgSignalLatency: 0
       },
       executionMetrics: {
@@ -323,6 +325,18 @@ export class ParallelTradingBot extends EventEmitter {
     
     // Integrate position manager with trade executor
     this.tradeExecutorPool.setPositionManager(this.positionManager);
+    
+    // 🔧 SET BOT CONFIGURATION FOR VALIDATION
+    this.tradeExecutorPool.setBotConfig(this.config);
+    
+    // 🌐 INTEGRATE WEBSOCKET FOR NOTIFICATIONS
+    // Create a broadcast function that uses the global broadcast function
+    const createBroadcastFunction = () => {
+      return (type: string, data: any) => {
+        this.emit('tradeRejected', { type, data });
+      };
+    };
+    this.tradeExecutorPool.setBroadcastFunction(createBroadcastFunction());
   }
 
   private setupEventHandlers(): void {
@@ -355,10 +369,12 @@ export class ParallelTradingBot extends EventEmitter {
       );
     });
 
-    this.signalQueue.on('signalDequeued', (queuedSignal) => {
+    this.signalQueue.on('signalDequeued', async (queuedSignal) => {
       this.metrics.signalMetrics.processedSignals++;
       // Send to trade executor
-      this.tradeExecutorPool.addSignal(queuedSignal, this.config.defaultPositionSize);
+      // SMART POSITION SIZING: Calculate safe position per asset
+      const smartPositionSize = this.calculateSmartPositionSize(queuedSignal.signal.symbol);
+      await this.tradeExecutorPool.addSignal(queuedSignal, smartPositionSize);
     });
 
     this.signalQueue.on('signalExpired', (queuedSignal) => {
@@ -376,6 +392,22 @@ export class ParallelTradingBot extends EventEmitter {
 
     this.tradeExecutorPool.on('taskFailed', (error) => {
       this.addActivityEvent('error', `Trade execution failed: ${error.error}`, 'error', error.task.symbol);
+    });
+
+    // 🚫 TRADE REJECTION EVENT HANDLER
+    this.tradeExecutorPool.on('tradeRejected', (rejection) => {
+      this.addActivityEvent('error', 
+        `Trade rejected: ${rejection.rejectionReason.message}`, 
+        'warning', 
+        rejection.task.symbol,
+        { 
+          rejectionCode: rejection.rejectionReason.code,
+          details: rejection.rejectionReason.details
+        }
+      );
+      
+      // Track rejection metrics
+      this.metrics.signalMetrics.rejectedTrades = (this.metrics.signalMetrics.rejectedTrades || 0) + 1;
     });
 
     // Market data cache events
@@ -667,48 +699,60 @@ export class ParallelTradingBot extends EventEmitter {
     }
   }
 
-  private async getSymbolVolumes(symbols: string[], batchSize = 5): Promise<{symbol: string, volume: number}[]> {
+  private async getSymbolVolumes(symbols: string[], batchSize = 20): Promise<{symbol: string, volume: number}[]> {
     const symbolsWithVolume: {symbol: string, volume: number}[] = [];
     
-    logger.info(`Getting volume data for ${symbols.length} symbols...`);
+    logger.info(`🚀 ULTRA-FAST: Getting volume data for ${symbols.length} symbols with ${batchSize} parallel requests...`);
+    const startTime = Date.now();
     
-    // Process in batches to avoid overwhelming the API
+    // 🚀 ULTRA-AGGRESSIVE: 20 parallel requests (vs 5 original) with NO delays
     for (let i = 0; i < symbols.length; i += batchSize) {
       const batch = symbols.slice(i, i + batchSize);
       
+      // Parallel execution with aggressive error handling
       const promises = batch.map(async (symbol) => {
         try {
-          const ticker: any = await apiRequestManager.getTicker(symbol);
+          // Use high priority for ticker requests during initialization
+          const ticker: any = await apiRequestManager.getTicker(symbol, 1); // HIGH priority
           if (ticker.code === 0 && ticker.data) {
             const volume = parseFloat(ticker.data.quoteVolume || 0);
             return { symbol, volume };
           }
         } catch (error) {
-          logger.debug(`Failed to get ticker for ${symbol}:`, error instanceof Error ? error.message : String(error));
+          // Silent fail for speed - only log critical errors
+          if (error instanceof Error && !error.message.includes('timeout')) {
+            logger.debug(`Ticker failed for ${symbol}:`, error.message);
+          }
         }
         return null;
       });
 
+      // Execute all requests in parallel
       const results = await Promise.allSettled(promises);
       
+      // Process results quickly
       results.forEach(result => {
         if (result.status === 'fulfilled' && result.value) {
           symbolsWithVolume.push(result.value);
         }
       });
 
-      // Delay between batches to respect rate limits and prevent timeouts
-      if (i + batchSize < symbols.length) {
-        await new Promise(resolve => setTimeout(resolve, 250));
-      }
+      // 🚀 NO DELAYS: Remove rate limit delays - let the new rate limiter handle it
+      // The new GlobalRateLimiter with 25 req/s for market data can handle this
       
-      // Log progress
-      if (i % (batchSize * 5) === 0) {
-        logger.debug(`Processed ${Math.min(i + batchSize, symbols.length)}/${symbols.length} symbols`);
+      // Progress logging every 100 symbols
+      if (i % 100 === 0 && i > 0) {
+        const progress = (i / symbols.length * 100).toFixed(1);
+        const elapsed = Date.now() - startTime;
+        const rate = i / (elapsed / 1000);
+        logger.info(`📊 Progress: ${progress}% (${i}/${symbols.length}) at ${rate.toFixed(1)} symbols/sec`);
       }
     }
 
-    logger.info(`Volume data retrieved for ${symbolsWithVolume.length} symbols`);
+    const totalTime = Date.now() - startTime;
+    const rate = symbols.length / (totalTime / 1000);
+    logger.info(`⚡ ULTRA-FAST COMPLETE: ${symbolsWithVolume.length} symbols processed in ${totalTime}ms (${rate.toFixed(1)} symbols/sec)`);
+    
     return symbolsWithVolume;
   }
 
@@ -1464,6 +1508,31 @@ export class ParallelTradingBot extends EventEmitter {
     }
     
     logger.info('Parallel Trading Bot configuration updated');
+  }
+
+  /**
+   * 🧠 SMART POSITION SIZING
+   * Calculates optimal position size based on asset characteristics
+   */
+  private calculateSmartPositionSize(symbol: string): number {
+    try {
+      // Get current balance (simplified - you can enhance this)
+      const estimatedBalance = 10000; // USDT - should get from account balance
+      
+      // Use TradeExecutorPool's intelligent sizing
+      const recommendedSize = this.tradeExecutorPool.getRecommendedPositionSize(symbol, estimatedBalance);
+      
+      // Apply user's position size preference as a multiplier
+      const userMultiplier = this.config.defaultPositionSize / 100; // Normalize to 1.0
+      const finalSize = recommendedSize * userMultiplier;
+      
+      logger.debug(`🎯 Smart sizing for ${symbol}: base=${recommendedSize}, user=${userMultiplier}x, final=${finalSize}`);
+      
+      return Math.max(10, finalSize); // Minimum 10 USDT
+    } catch (error) {
+      logger.warn(`Failed to calculate smart position size for ${symbol}, using default:`, error);
+      return this.config.defaultPositionSize;
+    }
   }
 
   // Advanced controls

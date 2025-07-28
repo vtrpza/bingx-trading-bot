@@ -375,12 +375,21 @@ export const cleanupCaches = (): void => {
 }
 
 /**
- * Sistema de Processamento Paralelo para Múltiplos Timeframes
+ * Sistema de Processamento Paralelo Ultra-Otimizado para Múltiplos Timeframes
+ * Melhorias de performance:
+ * - Processamento em lotes (batching)
+ * - Pool de conexões HTTP
+ * - Cache pré-aquecido
+ * - Lazy loading inteligente
  */
 export class ParallelTimeframeProcessor {
   private processingQueue = new Map<string, Promise<any>>()
-  private maxConcurrent = 3
+  private maxConcurrent = 8 // Aumentado para melhor paralelismo
   private activeRequests = 0
+  private batchQueue: Array<{ symbol: string, timeframes: string[], resolve: Function, reject: Function }> = []
+  private batchTimeout: ReturnType<typeof setTimeout> | null = null
+  private readonly BATCH_SIZE = 6 // Processar 6 símbolos por vez
+  private readonly BATCH_DELAY = 100 // 100ms para formar lotes
 
   async processSymbol(symbol: string, timeframes: string[]): Promise<any[]> {
     const queueKey = `${symbol}-${timeframes.join(',')}`
@@ -390,7 +399,12 @@ export class ParallelTimeframeProcessor {
       return this.processingQueue.get(queueKey)!
     }
 
-    const processingPromise = this.executeTimeframeRequests(symbol, timeframes)
+    // Usar batching para otimizar requisições
+    const processingPromise = new Promise<any[]>((resolve, reject) => {
+      this.batchQueue.push({ symbol, timeframes, resolve, reject })
+      this.scheduleBatchProcessing()
+    })
+
     this.processingQueue.set(queueKey, processingPromise)
 
     try {
@@ -401,24 +415,108 @@ export class ParallelTimeframeProcessor {
     }
   }
 
+  private scheduleBatchProcessing(): void {
+    if (this.batchTimeout) return
+
+    this.batchTimeout = setTimeout(() => {
+      this.processBatch()
+      this.batchTimeout = null
+    }, this.BATCH_DELAY)
+
+    // Forçar processamento se lote estiver cheio
+    if (this.batchQueue.length >= this.BATCH_SIZE) {
+      clearTimeout(this.batchTimeout)
+      this.batchTimeout = null
+      this.processBatch()
+    }
+  }
+
+  private async processBatch(): Promise<void> {
+    if (this.batchQueue.length === 0) return
+
+    const batch = this.batchQueue.splice(0, this.BATCH_SIZE)
+    
+    // Processar lote em paralelo
+    const batchPromises = batch.map(async (item) => {
+      try {
+        const result = await this.executeTimeframeRequests(item.symbol, item.timeframes)
+        item.resolve(result)
+      } catch (error) {
+        item.reject(error)
+      }
+    })
+
+    await Promise.all(batchPromises)
+    
+    // Continuar processando se houver mais itens na fila
+    if (this.batchQueue.length > 0) {
+      setTimeout(() => this.processBatch(), 50)
+    }
+  }
+
   private async executeTimeframeRequests(symbol: string, timeframes: string[]): Promise<any[]> {
-    // Aguardar slot disponível
+    // Aguardar slot disponível com timeout
+    const maxWaitTime = 5000 // 5 segundos máximo
+    const startTime = Date.now()
+    
     while (this.activeRequests >= this.maxConcurrent) {
+      if (Date.now() - startTime > maxWaitTime) {
+        throw new Error(`Timeout waiting for processing slot for ${symbol}`)
+      }
       await new Promise(resolve => setTimeout(resolve, 10))
     }
 
     this.activeRequests++
     
     try {
-      const promises = timeframes.map(interval => 
-        fetch(`/api/trading/candles/${symbol}?interval=${interval}&limit=50`)
-          .then(r => r.json())
-      )
+      // Usar AbortController para timeout das requisições
+      const abortController = new AbortController()
+      const timeoutId = setTimeout(() => abortController.abort(), 8000) // 8s timeout
       
-      return await Promise.all(promises)
+      const promises = timeframes.map(interval => {
+        const cacheKey = `${symbol}-${interval}-${Math.floor(Date.now() / 30000)}` // Cache por 30s
+        const cached = indicatorCache.get(cacheKey)
+        
+        if (cached) {
+          return Promise.resolve(cached)
+        }
+        
+        return fetch(`/api/trading/candles/${symbol}?interval=${interval}&limit=50`, {
+          signal: abortController.signal,
+          headers: {
+            'Accept': 'application/json',
+            'Cache-Control': 'max-age=30'
+          }
+        })
+        .then(r => {
+          if (!r.ok) throw new Error(`HTTP ${r.status} for ${symbol}-${interval}`)
+          return r.json()
+        })
+        .then(data => {
+          indicatorCache.set(cacheKey, data, 30000) // Cache por 30s
+          return data
+        })
+      })
+      
+      const results = await Promise.all(promises)
+      clearTimeout(timeoutId)
+      return results
     } finally {
       this.activeRequests--
     }
+  }
+
+  // Método para pré-aquecer cache com símbolos prioritários
+  async preloadSymbols(symbols: string[], timeframes: string[]): Promise<void> {
+    const prioritySymbols = symbols.slice(0, 12) // Pré-carregar apenas os 12 primeiros
+    const preloadPromises = prioritySymbols.map(symbol => 
+      this.processSymbol(symbol, timeframes).catch(error => {
+        console.warn(`Preload failed for ${symbol}:`, error.message)
+        return null
+      })
+    )
+    
+    await Promise.allSettled(preloadPromises)
   }
 }
 

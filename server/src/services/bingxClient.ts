@@ -1,7 +1,7 @@
 import axios, { AxiosInstance } from 'axios';
 import crypto from 'crypto';
 import { logger } from '../utils/logger';
-import { globalRateLimiter, RateLimiter } from './rateLimiter';
+import { globalRateLimiter, RateLimiter, RequestCategory } from './rateLimiter';
 import dotenv from 'dotenv';
 import path from 'path';
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
@@ -30,6 +30,50 @@ interface BingXConfig {
 export class BingXClient {
   private axios: AxiosInstance;
   private config: BingXConfig;
+
+  /**
+   * 🚀 ULTRA-FAST: Determine request category from URL for intelligent rate limiting
+   */
+  private getRequestCategory(url: string): RequestCategory {
+    if (!url) return RequestCategory.MARKET_DATA;
+    
+    // Market data endpoints (highest volume, fastest limits)
+    if (url.includes('/quote/') || 
+        url.includes('/klines') || 
+        url.includes('/depth') || 
+        url.includes('/ticker') ||
+        url.includes('/aggTrades') ||
+        url.includes('/24hr')) {
+      return RequestCategory.MARKET_DATA;
+    }
+    
+    // Symbol/contract information
+    if (url.includes('/symbols') || 
+        url.includes('/contracts') || 
+        url.includes('/exchangeInfo')) {
+      return RequestCategory.SYMBOLS;
+    }
+    
+    // Trading operations (orders, positions)
+    if (url.includes('/order') || 
+        url.includes('/position') || 
+        url.includes('/trade') ||
+        url.includes('/leverage') ||
+        url.includes('/marginType')) {
+      return RequestCategory.TRADING;
+    }
+    
+    // Account information (balance, etc)
+    if (url.includes('/account') || 
+        url.includes('/balance') || 
+        url.includes('/income') ||
+        url.includes('/commissionRate')) {
+      return RequestCategory.ACCOUNT;
+    }
+    
+    // Default to market data for unknown endpoints
+    return RequestCategory.MARKET_DATA;
+  }
 
   constructor() {
     const demoMode = process.env.DEMO_MODE === 'true';
@@ -65,8 +109,9 @@ export class BingXClient {
     // Add request interceptor for rate limiting and authentication
     this.axios.interceptors.request.use(
       async (config) => {
-        // Apply global rate limiting for all requests
-        await globalRateLimiter.waitForSlot();
+        // 🚀 ULTRA-FAST: Apply categorized rate limiting
+        const category = this.getRequestCategory(config.url || '');
+        await globalRateLimiter.waitForSlot(category);
         return this.addAuthentication(config);
       },
       (error) => Promise.reject(error)

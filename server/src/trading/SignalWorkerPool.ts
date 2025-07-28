@@ -201,14 +201,14 @@ export class SignalWorkerPool extends EventEmitter {
     super();
     
     this.config = {
-      maxWorkers: config.enableParallelProcessing ? 3 : 1, // 3 workers for parallel processing
-      maxConcurrentTasks: config.enableParallelProcessing ? 3 : 1,
-      taskTimeout: 30000, // Reduced to 30s (better cache utilization)
-      retryAttempts: 2,
-      taskDelay: config.enableParallelProcessing ? 500 : 1000, // Faster processing
+      maxWorkers: config.enableParallelProcessing ? 12 : 3, // 🚀 12 workers for ultra performance (4x increase)
+      maxConcurrentTasks: config.enableParallelProcessing ? 15 : 3, // 🚀 15 concurrent tasks
+      taskTimeout: 10000, // 🚀 AGGRESSIVE: 10s timeout (down from 30s)
+      retryAttempts: 1, // 🚀 FAST FAIL: Only 1 retry for speed
+      taskDelay: config.enableParallelProcessing ? 100 : 500, // 🚀 ULTRA FAST: 100ms delay
       signalConfig: {},
-      enableParallelProcessing: false,
-      batchSize: 10,
+      enableParallelProcessing: true, // 🚀 DEFAULT TO PARALLEL
+      batchSize: 25, // 🚀 Larger batches for efficiency
       ...config
     };
 
@@ -404,8 +404,8 @@ export class SignalWorkerPool extends EventEmitter {
   }
 
   private processNextTask() {
-    // Optimized delay based on processing mode
-    const delay = this.config.enableParallelProcessing ? 50 : 100;
+    // 🚀 ULTRA-FAST: Minimal delay for maximum throughput
+    const delay = this.config.enableParallelProcessing ? 10 : 50; // 10ms for parallel, 50ms for sequential
     setTimeout(() => this.processQueuedTasks(), delay);
   }
 

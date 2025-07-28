@@ -14,7 +14,7 @@ import { logger } from '../utils/logger';
 export const ultraPerformanceConfig: Partial<ParallelBotConfig> = {
   scanInterval: 15000, // 15 seconds - ULTRA FAST scanning
   maxConcurrentTrades: 25, // Increased concurrent trades
-  defaultPositionSize: 20, // SAFE: 20 USDT base position to avoid 1000 USDT limit
+  defaultPositionSize: 100, // DYNAMIC: Will be adjusted per asset automatically
   minSignalStrength: 35, // Lower threshold for more signals (more aggressive)
   
   signalWorkers: {
@@ -56,7 +56,7 @@ export const ultraPerformanceConfig: Partial<ParallelBotConfig> = {
 export const highFrequencyConfig: Partial<ParallelBotConfig> = {
   scanInterval: 20000, // 20 seconds - high frequency scanning
   maxConcurrentTrades: 15,
-  defaultPositionSize: 30, // SAFE: 30 USDT to avoid leverage limits
+  defaultPositionSize: 80, // DYNAMIC: Automatically adjusted per asset
   minSignalStrength: 40, // Lower threshold for more signals
   
   signalWorkers: {
@@ -98,7 +98,7 @@ export const highFrequencyConfig: Partial<ParallelBotConfig> = {
 export const conservativeConfig: Partial<ParallelBotConfig> = {
   scanInterval: 120000, // 2 minutes - still frequent but stable
   maxConcurrentTrades: 3,
-  defaultPositionSize: 50, // SAFE: Conservative but under limits
+  defaultPositionSize: 150, // DYNAMIC: Conservative with smart limits
   minSignalStrength: 55, // Balanced threshold for quality
   confirmationRequired: true,
   
@@ -141,7 +141,7 @@ export const conservativeConfig: Partial<ParallelBotConfig> = {
 export const balancedConfig: Partial<ParallelBotConfig> = {
   scanInterval: 30000, // 30 seconds - optimized balanced scanning
   maxConcurrentTrades: 8,
-  defaultPositionSize: 25, // SAFE: 25 USDT base position
+  defaultPositionSize: 100, // DYNAMIC: Balanced with asset-specific limits
   minSignalStrength: 50, // Balanced threshold
   confirmationRequired: false, // Allow more signals for testing
   

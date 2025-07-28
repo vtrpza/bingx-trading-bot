@@ -7,6 +7,43 @@ import { logger } from '../utils/logger';
 import { v4 as uuidv4 } from 'uuid';
 import Trade from '../models/Trade';
 
+// Import BotConfig interface for validation
+interface BotConfig {
+  enabled: boolean;
+  maxConcurrentTrades: number;
+  defaultPositionSize: number;
+  scanInterval: number;
+  symbolsToScan: string[];
+  stopLossPercent: number;
+  takeProfitPercent: number;
+  trailingStopPercent: number;
+  minVolumeUSDT: number;
+  rsiOversold: number;
+  rsiOverbought: number;
+  volumeSpikeThreshold: number;
+  minSignalStrength: number;
+  confirmationRequired: boolean;
+  ma1Period: number;
+  ma2Period: number;
+  riskRewardRatio: number;
+  maxDrawdownPercent: number;
+  maxDailyLossUSDT: number;
+  maxPositionSizePercent: number;
+}
+
+// Trade rejection reasons interface
+interface TradeRejectionReason {
+  code: string;
+  message: string;
+  details?: any;
+}
+
+// Validation result interface
+interface ValidationResult {
+  isValid: boolean;
+  rejectionReason?: TradeRejectionReason;
+}
+
 export interface TradeTask {
   id: string;
   queuedSignal: QueuedSignal;
@@ -49,6 +86,14 @@ export interface TradeExecutorConfig {
     takeProfitPercent: number;
     maxDrawdown: number;
     maxDailyLoss: number;
+  };
+  // Add validation config
+  validation?: {
+    enablePositionSizeValidation: boolean;
+    enableRiskRewardValidation: boolean;
+    enableBalanceValidation: boolean;
+    enableSignalStrengthValidation: boolean;
+    notifyRejections: boolean;
   };
 }
 
@@ -331,13 +376,8 @@ class TradeExecutor extends EventEmitter {
   private calculatePosition(task: TradeTask, currentPrice: number) {
     const { riskManagement } = this.config;
     
-    // SAFETY: Ensure position size never exceeds 800 USDT (buffer under 1000 USDT limit)
-    const maxPositionValue = 800; // USDT
-    const safePositionSize = Math.min(task.positionSize, maxPositionValue);
-    
-    if (task.positionSize > maxPositionValue) {
-      logger.warn(`⚠️  Position size ${task.positionSize} USDT reduced to ${safePositionSize} USDT for safety`);
-    }
+    // DYNAMIC POSITION SIZING: Adapt to symbol-specific limits  
+    const safePositionSize = task.positionSize; // Will be validated at queue level
     
     // Calculate quantity based on safe position size
     const quantity = parseFloat((safePositionSize / currentPrice).toFixed(6));
@@ -560,6 +600,11 @@ export class TradeExecutorPool extends EventEmitter {
   private activePositions: Set<string> = new Set();
   private rateLimit: { count: number; windowStart: number } = { count: 0, windowStart: Date.now() };
   private positionManager: PositionManager | null = null;
+  private botConfig: BotConfig | null = null;
+  private broadcastFunction: ((type: string, data: any) => void) | null = null;
+  private dailyLossTracker: { date: string; totalLoss: number } = { date: '', totalLoss: 0 };
+  private currentDrawdown: number = 0;
+  private peakBalance: number = 0;
 
   constructor(config: Partial<TradeExecutorConfig> = {}) {
     super();
@@ -581,6 +626,13 @@ export class TradeExecutorPool extends EventEmitter {
         takeProfitPercent: 3,
         maxDrawdown: 10,
         maxDailyLoss: 500
+      },
+      validation: {
+        enablePositionSizeValidation: true,
+        enableRiskRewardValidation: true,
+        enableBalanceValidation: true,
+        enableSignalStrengthValidation: true,
+        notifyRejections: true
       },
       ...config
     };
@@ -646,23 +698,10 @@ export class TradeExecutorPool extends EventEmitter {
     logger.info('TradeExecutorPool stopped');
   }
 
-  addSignal(queuedSignal: QueuedSignal, positionSize?: number): string | null {
+  async addSignal(queuedSignal: QueuedSignal, positionSize?: number): Promise<string | null> {
     try {
-      // Check rate limit
-      if (!this.checkRateLimit()) {
-        logger.warn('Rate limit exceeded, skipping trade execution');
-        return null;
-      }
-
-      // Check concurrent trades limit
-      if (this.activePositions.size >= this.config.maxConcurrentTrades) {
-        logger.warn('Max concurrent trades reached, skipping execution');
-        return null;
-      }
-
-      // Check if already have position for this symbol
-      if (this.activePositions.has(queuedSignal.signal.symbol)) {
-        logger.debug(`Position already exists for ${queuedSignal.signal.symbol}, skipping`);
+      // Skip HOLD signals early
+      if (queuedSignal.signal.action !== 'BUY' && queuedSignal.signal.action !== 'SELL') {
         return null;
       }
 
@@ -679,8 +718,10 @@ export class TradeExecutorPool extends EventEmitter {
         maxAttempts: this.config.retryAttempts
       };
 
-      // Skip HOLD signals
-      if (task.action !== 'BUY' && task.action !== 'SELL') {
+      // 🔍 COMPREHENSIVE TRADE VALIDATION
+      const validationResult = await this.validateTradeRequest(task);
+      if (!validationResult.isValid && validationResult.rejectionReason) {
+        this.handleTradeRejection(task, validationResult.rejectionReason);
         return null;
       }
 
@@ -828,9 +869,334 @@ export class TradeExecutorPool extends EventEmitter {
     };
   }
 
+  /**
+   * 🔍 COMPREHENSIVE TRADE VALIDATION
+   * Validates trade against all BotControls parameters
+   */
+  private async validateTradeRequest(task: TradeTask): Promise<ValidationResult> {
+    if (!this.botConfig || !this.config.validation?.enablePositionSizeValidation) {
+      return { isValid: true };
+    }
+
+    // 1. Rate limit validation
+    if (!this.checkRateLimit()) {
+      return {
+        isValid: false,
+        rejectionReason: {
+          code: 'RATE_LIMIT_EXCEEDED',
+          message: 'Rate limit exceeded. Maximum trades per second reached.',
+          details: { limit: this.config.rateLimit }
+        }
+      };
+    }
+
+    // 2. Concurrent trades validation
+    if (this.activePositions.size >= this.botConfig.maxConcurrentTrades) {
+      return {
+        isValid: false,
+        rejectionReason: {
+          code: 'MAX_CONCURRENT_TRADES',
+          message: `Maximum concurrent trades reached: ${this.activePositions.size}/${this.botConfig.maxConcurrentTrades}`,
+          details: { current: this.activePositions.size, max: this.botConfig.maxConcurrentTrades }
+        }
+      };
+    }
+
+    // 3. Existing position validation
+    if (this.activePositions.has(task.symbol)) {
+      return {
+        isValid: false,
+        rejectionReason: {
+          code: 'POSITION_EXISTS',
+          message: `Active position already exists for ${task.symbol}`,
+          details: { symbol: task.symbol }
+        }
+      };
+    }
+
+    // 4. Signal strength validation
+    if (this.config.validation?.enableSignalStrengthValidation && 
+        task.queuedSignal.signal.strength < this.botConfig.minSignalStrength) {
+      return {
+        isValid: false,
+        rejectionReason: {
+          code: 'SIGNAL_STRENGTH_LOW',
+          message: `Signal strength ${task.queuedSignal.signal.strength}% below minimum ${this.botConfig.minSignalStrength}%`,
+          details: { 
+            signalStrength: task.queuedSignal.signal.strength, 
+            minimumRequired: this.botConfig.minSignalStrength 
+          }
+        }
+      };
+    }
+
+    // 5. Position size validation against asset limits
+    const assetLimits = this.getAssetLimits(task.symbol);
+    if (task.positionSize > assetLimits.maxPositionUSDT) {
+      return {
+        isValid: false,
+        rejectionReason: {
+          code: 'POSITION_SIZE_EXCEEDED',
+          message: `Position size ${task.positionSize} USDT exceeds asset limit of ${assetLimits.maxPositionUSDT} USDT for ${task.symbol}`,
+          details: { 
+            requestedSize: task.positionSize, 
+            maxAllowed: assetLimits.maxPositionUSDT,
+            symbol: task.symbol
+          }
+        }
+      };
+    }
+
+    // 6. Account balance validation
+    if (this.config.validation?.enableBalanceValidation) {
+      try {
+        const balanceResponse = await apiRequestManager.getBalance() as any;
+        if (balanceResponse.code === 0 && balanceResponse.data) {
+          const baseCurrency = process.env.DEMO_MODE === 'true' ? 'VST' : 'USDT';
+          let availableBalance = 0;
+          
+          if (Array.isArray(balanceResponse.data)) {
+            const balance = balanceResponse.data.find((b: any) => b.asset === baseCurrency);
+            availableBalance = parseFloat(balance?.availableMargin || balance?.balance || '0');
+          } else if (balanceResponse.data.balance) {
+            availableBalance = parseFloat(balanceResponse.data.balance.availableMargin || 
+                                        balanceResponse.data.balance.balance || '0');
+          }
+
+          if (availableBalance < task.positionSize) {
+            return {
+              isValid: false,
+              rejectionReason: {
+                code: 'INSUFFICIENT_BALANCE',
+                message: `Insufficient balance: ${availableBalance.toFixed(2)} ${baseCurrency} < ${task.positionSize} ${baseCurrency}`,
+                details: { 
+                  availableBalance: availableBalance.toFixed(2), 
+                  requiredAmount: task.positionSize,
+                  currency: baseCurrency
+                }
+              }
+            };
+          }
+
+          // 7. Maximum position size percentage validation
+          const positionSizePercent = (task.positionSize / availableBalance) * 100;
+          if (positionSizePercent > this.botConfig.maxPositionSizePercent) {
+            return {
+              isValid: false,
+              rejectionReason: {
+                code: 'POSITION_SIZE_PERCENT_EXCEEDED',
+                message: `Position size ${positionSizePercent.toFixed(1)}% exceeds maximum ${this.botConfig.maxPositionSizePercent}% of account balance`,
+                details: { 
+                  positionPercent: positionSizePercent.toFixed(1), 
+                  maxAllowed: this.botConfig.maxPositionSizePercent,
+                  accountBalance: availableBalance.toFixed(2)
+                }
+              }
+            };
+          }
+        }
+      } catch (error) {
+        logger.warn('Failed to validate account balance:', error);
+      }
+    }
+
+    // 8. Risk/Reward ratio validation
+    if (this.config.validation?.enableRiskRewardValidation) {
+      const riskRewardRatio = this.botConfig.takeProfitPercent / this.botConfig.stopLossPercent;
+      if (riskRewardRatio < this.botConfig.riskRewardRatio) {
+        return {
+          isValid: false,
+          rejectionReason: {
+            code: 'RISK_REWARD_RATIO_LOW',
+            message: `Risk/reward ratio ${riskRewardRatio.toFixed(2)}:1 below minimum ${this.botConfig.riskRewardRatio}:1`,
+            details: { 
+              currentRatio: riskRewardRatio.toFixed(2), 
+              minimumRequired: this.botConfig.riskRewardRatio,
+              stopLoss: this.botConfig.stopLossPercent,
+              takeProfit: this.botConfig.takeProfitPercent
+            }
+          }
+        };
+      }
+    }
+
+    // 9. Daily loss limit validation
+    const today = new Date().toDateString();
+    if (this.dailyLossTracker.date !== today) {
+      this.dailyLossTracker = { date: today, totalLoss: 0 };
+    }
+    
+    const potentialLoss = task.positionSize * (this.botConfig.stopLossPercent / 100);
+    if (this.dailyLossTracker.totalLoss + potentialLoss > this.botConfig.maxDailyLossUSDT) {
+      return {
+        isValid: false,
+        rejectionReason: {
+          code: 'DAILY_LOSS_LIMIT_EXCEEDED',
+          message: `Daily loss limit would be exceeded: ${(this.dailyLossTracker.totalLoss + potentialLoss).toFixed(2)} > ${this.botConfig.maxDailyLossUSDT} USDT`,
+          details: { 
+            currentDailyLoss: this.dailyLossTracker.totalLoss.toFixed(2),
+            potentialAdditionalLoss: potentialLoss.toFixed(2),
+            dailyLimit: this.botConfig.maxDailyLossUSDT
+          }
+        }
+      };
+    }
+
+    return { isValid: true };
+  }
+
+  /**
+   * 📢 TRADE REJECTION NOTIFICATION SYSTEM
+   * Handles rejected trades with clear notifications
+   */
+  private handleTradeRejection(task: TradeTask, rejectionReason: TradeRejectionReason): void {
+    const message = `🚫 Trade Rejected: ${rejectionReason.message}`;
+    
+    logger.warn(message, {
+      symbol: task.symbol,
+      action: task.action,
+      positionSize: task.positionSize,
+      rejectionCode: rejectionReason.code,
+      details: rejectionReason.details
+    });
+
+    // Send notification via WebSocket if enabled
+    if (this.config.validation?.notifyRejections && this.broadcastFunction) {
+      this.broadcastFunction('tradeRejected', {
+        taskId: task.id,
+        symbol: task.symbol,
+        action: task.action,
+        positionSize: task.positionSize,
+        rejectionReason: {
+          code: rejectionReason.code,
+          message: rejectionReason.message,
+          details: rejectionReason.details
+        },
+        timestamp: Date.now()
+      });
+    }
+
+    // Emit rejection event
+    this.emit('tradeRejected', {
+      task,
+      rejectionReason,
+      timestamp: Date.now()
+    });
+  }
+
+  
+  /**
+   * 📊 Asset-specific limits based on market cap and liquidity
+   */
+  private getAssetLimits(symbol: string): { maxPositionUSDT: number; maxLeverage: number } {
+    const baseAsset = symbol.split('-')[0];
+    
+    // Tier 1: Major assets (BTC, ETH, BNB, etc.)
+    const tier1Assets = ['BTC', 'ETH', 'BNB', 'SOL', 'XRP', 'ADA', 'DOT', 'AVAX', 'MATIC', 'LINK'];
+    if (tier1Assets.includes(baseAsset)) {
+      return { maxPositionUSDT: 4000, maxLeverage: 20 }; // Higher limits for major assets
+    }
+    
+    // Tier 2: Mid-cap assets  
+    const tier2Assets = ['UNI', 'LTC', 'BCH', 'ATOM', 'NEAR', 'FTM', 'ALGO', 'VET', 'ICP', 'APT'];
+    if (tier2Assets.includes(baseAsset)) {
+      return { maxPositionUSDT: 2000, maxLeverage: 15 };
+    }
+    
+    // Tier 3: DeFi tokens
+    const tier3Assets = ['AAVE', 'CRV', 'MKR', 'COMP', 'SNX', 'SUSHI', 'YFI', '1INCH', 'BAL'];
+    if (tier3Assets.includes(baseAsset)) {
+      return { maxPositionUSDT: 1500, maxLeverage: 10 };
+    }
+    
+    // Tier 4: Meme/small cap (conservative)
+    const tier4Assets = ['PEPE', 'SHIB', 'DOGE', 'FLOKI', 'BONK'];
+    if (tier4Assets.includes(baseAsset)) {
+      return { maxPositionUSDT: 800, maxLeverage: 5 }; // Very conservative
+    }
+    
+    // Default: Unknown assets (very conservative)
+    return { maxPositionUSDT: 500, maxLeverage: 3 };
+  }
+  
+  /**
+   * 🔍 Get recommended position size for a symbol
+   */
+  getRecommendedPositionSize(symbol: string, accountBalance: number): number {
+    const limits = this.getAssetLimits(symbol);
+    const balancePercent = 0.02; // 2% of balance per trade
+    
+    const balanceBased = accountBalance * balancePercent;
+    const limitBased = limits.maxPositionUSDT * 0.6; // 60% of asset limit
+    
+    return Math.min(balanceBased, limitBased, 200); // Cap at 200 USDT for safety
+  }
+
   updateConfig(newConfig: Partial<TradeExecutorConfig>) {
     this.config = { ...this.config, ...newConfig };
     logger.info('TradeExecutorPool configuration updated');
+  }
+
+  /**
+   * 🔧 SET BOT CONFIGURATION
+   * Updates the bot configuration used for validation
+   */
+  setBotConfig(botConfig: BotConfig): void {
+    this.botConfig = botConfig;
+    logger.info('Bot configuration updated for trade validation', {
+      maxConcurrentTrades: botConfig.maxConcurrentTrades,
+      defaultPositionSize: botConfig.defaultPositionSize,
+      minSignalStrength: botConfig.minSignalStrength,
+      riskRewardRatio: botConfig.riskRewardRatio
+    });
+  }
+
+  /**
+   * 🌐 SET BROADCAST FUNCTION
+   * Sets the broadcast function for notifications
+   */
+  setBroadcastFunction(broadcastFn: (type: string, data: any) => void): void {
+    this.broadcastFunction = broadcastFn;
+    logger.info('Broadcast function integrated for trade notifications');
+  }
+
+  /**
+   * 📊 UPDATE DAILY LOSS TRACKER
+   * Updates the daily loss tracker when trades are closed
+   */
+  updateDailyLoss(lossAmount: number): void {
+    const today = new Date().toDateString();
+    if (this.dailyLossTracker.date !== today) {
+      this.dailyLossTracker = { date: today, totalLoss: 0 };
+    }
+    
+    this.dailyLossTracker.totalLoss += lossAmount;
+    
+    logger.debug('Daily loss tracker updated', {
+      date: today,
+      totalLoss: this.dailyLossTracker.totalLoss,
+      limit: this.botConfig?.maxDailyLossUSDT || 'Not set'
+    });
+  }
+
+  /**
+   * 📈 GET VALIDATION METRICS
+   * Returns validation statistics
+   */
+  getValidationMetrics(): any {
+    return {
+      dailyLoss: this.dailyLossTracker,
+      currentDrawdown: this.currentDrawdown,
+      peakBalance: this.peakBalance,
+      validationConfig: this.config.validation,
+      botConfig: this.botConfig ? {
+        maxConcurrentTrades: this.botConfig.maxConcurrentTrades,
+        maxPositionSizePercent: this.botConfig.maxPositionSizePercent,
+        minSignalStrength: this.botConfig.minSignalStrength,
+        riskRewardRatio: this.botConfig.riskRewardRatio,
+        maxDailyLossUSDT: this.botConfig.maxDailyLossUSDT
+      } : null
+    };
   }
 
   // PositionManager integration

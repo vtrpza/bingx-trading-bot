@@ -67,16 +67,41 @@ export default function RealTimeSignals() {
   const [riskPercentage] = useLocalStorage('riskPercentage', 2) // 2% padrão
   const [loadingProgress, setLoadingProgress] = useState(0)
   const [loadingStage, setLoadingStage] = useState('Inicializando...')
+  const [loadingSymbols, setLoadingSymbols] = useState<Set<string>>(new Set())
+  const [processedCount, setProcessedCount] = useState(0)
   const queryClient = useQueryClient()
   
-  // Sistema de cache inteligente e processamento paralelo implementado
-
   // Buscar símbolos do bot paralelo
   const { data: botStatus } = useQuery(
     'parallel-bot-status',
     () => fetch('/api/trading/parallel-bot/status').then(res => res.json()).then(data => data.data),
     { refetchInterval: 5000 }
   )
+
+  // Sistema de cache inteligente e processamento paralelo implementado
+
+  // Pré-aquecimento inteligente do cache
+  useEffect(() => {
+    if (botStatus?.scannedSymbols?.length > 0 && signals.length === 0) {
+      const preloadSymbols = async () => {
+        setLoadingStage('Pré-aquecendo cache...')
+        setLoadingProgress(10)
+        
+        try {
+          // Pré-carregar apenas símbolos prioritários
+          await timeframeProcessor.preloadSymbols(
+            botStatus.scannedSymbols.slice(0, 12), 
+            [...TIMEFRAMES]
+          )
+          setLoadingProgress(25)
+        } catch (error) {
+          console.warn('Preload parcialmente falhado:', error)
+        }
+      }
+      
+      preloadSymbols()
+    }
+  }, [botStatus?.scannedSymbols])
 
   // Buscar posições abertas para controle de trades
   const { data: openPositions } = useQuery(
@@ -428,35 +453,17 @@ export default function RealTimeSignals() {
     }
   }, [marketData])
 
-  // Simular progresso de loading baseado em dados reais
+  // Progresso baseado em processamento real
   useEffect(() => {
-    if (signals.length === 0 && botStatus?.scannedSymbols) {
-      const stages = [
-        'Conectando aos mercados...',
-        'Carregando símbolos...',
-        'Analisando timeframes...',
-        'Calculando indicadores...',
-        'Processando sinais...',
-        'Finalizando análise...'
-      ]
+    if (processedCount > 0 && botStatus?.scannedSymbols) {
+      const totalSymbols = Math.min(botStatus.scannedSymbols.length, MAX_SYMBOLS)
+      const realProgress = (processedCount / totalSymbols) * 85 // 85% máximo para o processamento
       
-      let currentStage = 0
-      let progress = 15
-      
-      const progressInterval = setInterval(() => {
-        if (currentStage < stages.length) {
-          setLoadingStage(stages[currentStage])
-          setLoadingProgress(Math.min(progress, 95))
-          progress += Math.random() * 15 + 10
-          currentStage++
-        } else {
-          clearInterval(progressInterval)
-        }
-      }, 800)
-      
-      return () => clearInterval(progressInterval)
+      if (realProgress > loadingProgress) {
+        setLoadingProgress(Math.min(realProgress + 15, 100)) // +15% para preparação inicial
+      }
     }
-  }, [botStatus?.scannedSymbols, signals.length])
+  }, [processedCount, botStatus?.scannedSymbols, loadingProgress])
 
   // Sistema de monitoramento de performance e limpeza inteligente
   useEffect(() => {
@@ -751,19 +758,26 @@ export default function RealTimeSignals() {
               </div>
             </div>
 
-            {/* Estatísticas de processamento em tempo real */}
-            <div className="grid grid-cols-2 gap-4 max-w-md mx-auto mb-6">
+            {/* Estatísticas em tempo real do processamento */}
+            <div className="grid grid-cols-3 gap-3 max-w-lg mx-auto mb-6">
               <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-3 border border-blue-200">
                 <div className="text-xs text-blue-600 font-semibold uppercase tracking-wide">Símbolos</div>
                 <div className="text-lg font-bold text-blue-900">
-                  {botStatus?.scannedSymbols?.length || 0}
+                  {processedCount}/{Math.min(botStatus?.scannedSymbols?.length || 0, MAX_SYMBOLS)}
                 </div>
-                <div className="text-xs text-blue-500">Detectados</div>
+                <div className="text-xs text-blue-500">Processados</div>
               </div>
               <div className="bg-gradient-to-r from-green-50 to-emerald-50 rounded-lg p-3 border border-green-200">
                 <div className="text-xs text-green-600 font-semibold uppercase tracking-wide">Timeframes</div>
                 <div className="text-lg font-bold text-green-900">3</div>
                 <div className="text-xs text-green-500">5m • 2h • 4h</div>
+              </div>
+              <div className="bg-gradient-to-r from-purple-50 to-pink-50 rounded-lg p-3 border border-purple-200">
+                <div className="text-xs text-purple-600 font-semibold uppercase tracking-wide">Ativos</div>
+                <div className="text-lg font-bold text-purple-900">
+                  {loadingSymbols.size}
+                </div>
+                <div className="text-xs text-purple-500">Em análise</div>
               </div>
             </div>
 
@@ -802,12 +816,11 @@ export default function RealTimeSignals() {
             {/* Mensagem contextual baseada no progresso */}
             <div className="mt-6 text-sm text-gray-600 italic">
               {(() => {
-                if (loadingProgress < 20) return "🔍 Estabelecendo conexões com a BingX..."
-                if (loadingProgress < 40) return "📊 Carregando dados de mercado..."
-                if (loadingProgress < 60) return "🧮 Calculando indicadores técnicos..."
-                if (loadingProgress < 80) return "🎯 Analisando sinais de trading..."
-                if (loadingProgress < 95) return "⚡ Otimizando performance..."
-                return "✅ Preparando interface..."
+                if (loadingProgress < 25) return "🔍 Pré-aquecendo cache inteligente..."
+                if (loadingProgress < 50) return "📊 Processando símbolos prioritários..."
+                if (loadingProgress < 75) return "🧮 Analisando sinais em paralelo..."
+                if (loadingProgress < 95) return "⚡ Finalizando otimizações..."
+                return "✅ Motor de sinais pronto!"
               })()}
             </div>
 
