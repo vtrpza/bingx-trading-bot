@@ -117,9 +117,9 @@ async function startServer() {
     await sequelize.authenticate();
     logger.info('Database connection established successfully');
     
-    // Sync database models
-    await sequelize.sync({ alter: true });
-    logger.info('Database models synchronized');
+    // Migration should be handled by separate migration script before server starts
+    // This avoids conflicts and ensures proper database setup
+    logger.info('Database models will be managed by migration scripts');
     
     // Start the server
     server.listen(PORT, () => {
