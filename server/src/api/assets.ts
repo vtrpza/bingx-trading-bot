@@ -658,7 +658,7 @@ router.get('/stats/overview', asyncHandler(async (_req: Request, res: Response) 
 }));
 
 // Clear all assets from database
-router.delete('/clear', asyncHandler(async (req: Request, res: Response) => {
+router.delete('/clear', asyncHandler(async (_req: Request, res: Response) => {
   logger.info('🗑️ CLEAR ENDPOINT HIT: Clearing all assets from database...');
   console.log('🗑️ CLEAR ENDPOINT: Request received');
   
