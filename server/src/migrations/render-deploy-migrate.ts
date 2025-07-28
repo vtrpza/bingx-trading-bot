@@ -85,7 +85,7 @@ async function runRenderDeployMigration() {
       throw new Error('Asset table is not operational after migration');
     }
     
-    migrationSuccess = true;
+    // migrationSuccess = true;
     
     logger.info('🎉 RENDER DEPLOY MIGRATION COMPLETED SUCCESSFULLY!');
     logger.info(`📊 Results: ${successCount} indexes processed, ${skipCount} skipped`);
