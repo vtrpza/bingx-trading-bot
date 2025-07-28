@@ -359,7 +359,7 @@ export class SignalGenerator {
     }
   }
   
-  private validateAndFixIndicators(symbol: string, indicators: any): any {
+  private validateAndFixIndicators(_symbol: string, indicators: any): any {
     if (!indicators?.latestValues) return null;
     
     const values = indicators.latestValues;

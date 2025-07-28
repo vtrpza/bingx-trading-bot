@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { getTradingBot } from '../trading/bot';
 import { getParallelTradingBot } from '../trading/ParallelTradingBot';
 import { PerformanceMonitor } from '../trading/PerformanceMonitor';
-import { balancedConfig, highFrequencyConfig, conservativeConfig, ConfigurationOptimizer } from '../trading/ParallelBotConfiguration';
+import { ultraPerformanceConfig, highFrequencyConfig, conservativeConfig, ConfigurationOptimizer } from '../trading/ParallelBotConfiguration';
 import { bingxClient } from '../services/bingxClient';
 import { apiRequestManager } from '../services/APIRequestManager';
 import { globalRateLimiter } from '../services/rateLimiter';
@@ -825,8 +825,17 @@ router.post('/parallel-bot/start', asyncHandler(async (_req: Request, res: Respo
     throw new AppError('Parallel bot is already running', 400);
   }
   
-  // Use balanced configuration with system optimization
-  const config = balancedConfig;
+  // FORCE ULTRA PERFORMANCE CONFIG
+  const config = {
+    ...ultraPerformanceConfig,
+    scanInterval: 15000, // FORCE 15 seconds
+    signalWorkers: {
+      ...ultraPerformanceConfig.signalWorkers,
+      enableParallelProcessing: true
+    }
+  };
+  
+  logger.info('🚀 FORCING ULTRA PERFORMANCE CONFIG: scanInterval=15000ms');
   const systemOptimized = ConfigurationOptimizer.optimizeForSystem();
   parallelBot.updateConfig({ ...config, ...systemOptimized });
   
@@ -992,7 +1001,7 @@ router.get('/parallel-bot/presets', asyncHandler(async (_req: Request, res: Resp
   res.json({
     success: true,
     data: {
-      balanced: { ...balancedConfig, ...systemOptimized },
+      ultra: { ...ultraPerformanceConfig, ...systemOptimized },
       aggressive: { ...highFrequencyConfig, ...systemOptimized },
       conservative: { ...conservativeConfig, ...systemOptimized },
       systemOptimized

@@ -131,7 +131,7 @@ export class ParallelTradingBot extends EventEmitter {
     
     this.config = {
       enabled: false,
-      scanInterval: parseInt(process.env.SCAN_INTERVAL || '60000'), // 1 minute - FASTER scanning
+      scanInterval: parseInt(process.env.SCAN_INTERVAL || '15000'), // 15 seconds - ULTRA FAST scanning
       symbolsToScan: [],
       maxConcurrentTrades: 5,
       defaultPositionSize: 100,
@@ -211,6 +211,14 @@ export class ParallelTradingBot extends EventEmitter {
       
       ...config
     };
+    
+    // FORCE ULTRA PERFORMANCE - Always override to 15s
+    if (this.config.scanInterval > 15000) {
+      this.config.scanInterval = 15000;
+      logger.info(`⚡ ULTRA PERFORMANCE: Forcing scan interval to ${this.config.scanInterval}ms`);
+    }
+    
+    logger.info(`🚀 ParallelTradingBot initialized with scanInterval: ${this.config.scanInterval}ms`);
 
     this.initializeMetrics();
     this.initializeComponents();
@@ -1428,6 +1436,13 @@ export class ParallelTradingBot extends EventEmitter {
       this.positionManager.updateConfig(config.positionManager);
     }
     
+    // Restart scanning if scanInterval was changed
+    if (config.scanInterval && this.isRunning && this.scanInterval) {
+      logger.info(`⚡ Restarting scanner with new interval: ${this.config.scanInterval}ms`);
+      clearInterval(this.scanInterval);
+      this.startScanning();
+    }
+    
     logger.info('Parallel Trading Bot configuration updated');
   }
 
@@ -1646,12 +1661,24 @@ let parallelBotInstance: ParallelTradingBot | null = null;
 
 export function getParallelTradingBot(): ParallelTradingBot {
   if (!parallelBotInstance) {
-    parallelBotInstance = new ParallelTradingBot();
+    // Force ultra performance configuration
+    const { ultraPerformanceConfig } = require('./ParallelBotConfiguration');
+    logger.info('🚀 Initializing ParallelTradingBot with ULTRA PERFORMANCE configuration');
+    parallelBotInstance = new ParallelTradingBot(ultraPerformanceConfig);
   }
   return parallelBotInstance;
 }
 
 export function startParallelTradingBot(): void {
   const bot = getParallelTradingBot();
+  
+  // FORCE ULTRA PERFORMANCE before starting
+  const { ultraPerformanceConfig } = require('./ParallelBotConfiguration');
+  bot.updateConfig({
+    ...ultraPerformanceConfig,
+    scanInterval: 15000 // FORCE 15 seconds always
+  });
+  
+  logger.info('🚀 STARTING BOT WITH GUARANTEED ULTRA PERFORMANCE: 15 second scan interval');
   bot.start();
 }

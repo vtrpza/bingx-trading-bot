@@ -1,4 +1,5 @@
 import { ParallelBotConfig } from './ParallelTradingBot';
+import { logger } from '../utils/logger';
 
 /**
  * Optimized configurations for different trading scenarios
@@ -340,8 +341,9 @@ export class AdaptiveConfigManager {
     performance: any;
   }> = [];
   
-  constructor(initialConfig: Partial<ParallelBotConfig> = balancedConfig) {
+  constructor(initialConfig: Partial<ParallelBotConfig> = ultraPerformanceConfig) {
     this.currentConfig = initialConfig;
+    logger.info('🚀 AdaptiveConfigManager initialized with ULTRA PERFORMANCE as default');
   }
   
   adaptConfiguration(performanceMetrics: any): Partial<ParallelBotConfig> {
