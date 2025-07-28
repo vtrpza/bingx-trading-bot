@@ -572,20 +572,24 @@ export class ParallelTradingBot extends EventEmitter {
   private async updateSymbolList(): Promise<void> {
     try {
       // Predefined popular symbols for immediate start
-      const baseSymbols = [
-        'BTC-USDT', 'ETH-USDT', 'BNB-USDT', 'SOL-USDT', 'XRP-USDT',
-        'ADA-USDT', 'DOGE-USDT', 'DOT-USDT', 'MATIC-USDT', 'AVAX-USDT',
-        'LINK-USDT', 'UNI-USDT', 'LTC-USDT', 'BCH-USDT', 'ATOM-USDT'
-      ];
-
-      // Start with base symbols immediately
-      this.config.symbolsToScan = baseSymbols;
-      logger.info(`Preloaded market data for ${baseSymbols.length} symbols`);
-
-      // Async fetch all available symbols from exchange
-      this.fetchAllAvailableSymbols().catch(error => {
-        logger.warn('Failed to fetch all symbols, continuing with base symbols:', error);
-      });
+      // Directly fetch symbols from API instead of using hard-coded list
+      logger.info('🔄 Fetching symbols dynamically from BingX API...');
+      
+      try {
+        await this.fetchAllAvailableSymbols();
+        
+        // Only use fallback if API call completely failed
+        if (this.config.symbolsToScan.length === 0) {
+          const fallbackSymbols = [
+            'BTC-USDT', 'ETH-USDT', 'BNB-USDT', 'SOL-USDT', 'XRP-USDT'
+          ];
+          this.config.symbolsToScan = fallbackSymbols;
+          logger.warn(`⚠️  Using fallback symbols: ${fallbackSymbols.length} symbols`);
+        }
+      } catch (error) {
+        logger.error('Failed to fetch symbols from API, using minimal fallback:', error);
+        this.config.symbolsToScan = ['BTC-USDT', 'ETH-USDT', 'BNB-USDT'];
+      }
 
     } catch (error) {
       logger.error('Failed to update symbol list:', error);
@@ -611,7 +615,7 @@ export class ParallelTradingBot extends EventEmitter {
           contract.symbol && 
           contract.symbol.endsWith('-USDT') // USDT pairs only
         )
-        .slice(0, 100) // Limit to first 100 symbols to prevent timeouts
+        .slice(0, 500) // Increased limit to 500 symbols for better coverage
         .map((contract: any) => contract.symbol);
 
       if (usdtSymbols.length === 0) {
@@ -622,11 +626,25 @@ export class ParallelTradingBot extends EventEmitter {
       // Get volume data for all symbols to filter by minimum volume
       const symbolsWithVolume = await this.getSymbolVolumes(usdtSymbols);
       
-      // Filter by minimum volume and sort by volume
-      const eligibleSymbols = symbolsWithVolume
+      // Sort by volume and take top symbols (ensure minimum 50 symbols)
+      const sortedSymbols = symbolsWithVolume
+        .sort((a, b) => b.volume - a.volume);
+      
+      // First try with volume filter
+      let eligibleSymbols = sortedSymbols
         .filter(item => item.volume >= this.config.minVolumeUSDT)
-        .sort((a, b) => b.volume - a.volume)
         .map(item => item.symbol);
+      
+      // If we don't have enough symbols, take top 50 by volume regardless of minimum
+      if (eligibleSymbols.length < 50) {
+        eligibleSymbols = sortedSymbols
+          .slice(0, 50) // Take top 50 by volume
+          .map(item => item.symbol);
+        logger.info(`⚡ Taking top 50 symbols by volume (relaxed volume filter)`);
+      } else {
+        // Limit to top 50 if we have too many
+        eligibleSymbols = eligibleSymbols.slice(0, 50);
+      }
 
       if (eligibleSymbols.length > 0) {
         this.config.symbolsToScan = eligibleSymbols;
@@ -634,9 +652,11 @@ export class ParallelTradingBot extends EventEmitter {
         // Preload market data for all symbols
         await this.marketDataCache.preloadSymbols(eligibleSymbols);
         
-        logger.info(`Symbol list updated with ${eligibleSymbols.length} symbols`, {
+        logger.info(`🚀 Symbol list updated with ${eligibleSymbols.length} symbols from API`, {
           demoMode: process.env.DEMO_MODE === 'true',
-          sampleSymbols: eligibleSymbols.slice(0, 3)
+          sampleSymbols: eligibleSymbols.slice(0, 5),
+          minVolume: this.config.minVolumeUSDT,
+          totalAvailable: symbolsWithVolume.length
         });
       } else {
         logger.warn('No symbols meet minimum volume criteria, keeping base symbols');
