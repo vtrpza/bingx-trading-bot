@@ -61,7 +61,102 @@ export default function AssetsPage() {
     setPage(1)
   }
 
-  // Handle refresh
+  // Smart refresh with delta updates
+  const handleSmartRefresh = async () => {
+    setIsRefreshing(true)
+    
+    // Loading inicial
+    setRefreshProgress({ 
+      progress: 0, 
+      message: 'Iniciando atualização inteligente...', 
+      processed: 0, 
+      total: 0,
+      executionTime: '',
+      performance: '',
+      current: ''
+    })
+    
+    toast.loading('🧠 Atualização inteligente em progresso...', { id: 'smart-refresh-assets' })
+    
+    try {
+      await api.refreshAssetsDelta((progressData) => {
+        console.log('📊 Smart refresh progress:', progressData)
+        
+        setRefreshProgress({
+          progress: progressData.progress || 0,
+          message: progressData.message || '',
+          processed: progressData.processed || 0,
+          total: progressData.total || 0,
+          executionTime: progressData.executionTime || '',
+          performance: progressData.performance || '',
+          current: progressData.current || ''
+        })
+        
+        if (progressData.type === 'progress') {
+          const emoji = progressData.progress < 30 ? '🧠' : 
+                        progressData.progress < 60 ? '⚡' : 
+                        progressData.progress < 90 ? '🚀' : '🏁'
+          
+          toast.loading(
+            `${emoji} ${progressData.message || 'Processando inteligente...'}\\n📊 Progresso: ${progressData.progress || 0}%`,
+            { id: 'smart-refresh-assets' }
+          )
+        } else if (progressData.type === 'completed') {
+          const deltaMode = progressData.deltaMode || 'FULL_REFRESH'
+          const modeText = deltaMode === 'MARKET_DATA_ONLY' ? 'Preços atualizados' : 'Refresh completo'
+          const performancePart = progressData.executionTime ? 
+            `\\n⚡ ${modeText} em ${progressData.executionTime}s` : ''
+          
+          toast.success(
+            `🎉 Atualização inteligente concluída!\\n${progressData.created || 0} criados, ${progressData.updated || 0} atualizados${performancePart}`,
+            { 
+              id: 'smart-refresh-assets',
+              duration: 8000 
+            }
+          )
+          
+          setLastUpdateTime(new Date().toLocaleString('pt-BR', {
+            timeZone: 'America/Sao_Paulo',
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+          }))
+          
+          queryClient.invalidateQueries(['assets'])
+          queryClient.invalidateQueries(['all-assets'])
+          queryClient.invalidateQueries('asset-stats')
+        } else if (progressData.type === 'error') {
+          toast.error(progressData.message || 'Erro durante a atualização inteligente', { id: 'smart-refresh-assets' })
+        }
+      })
+      
+      await refetch()
+      
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Falha na atualização inteligente'
+      toast.error(errorMessage, { id: 'smart-refresh-assets' })
+    } finally {
+      setIsRefreshing(false)
+      setRefreshProgress({ 
+        progress: 0, 
+        message: '', 
+        processed: 0, 
+        total: 0, 
+        executionTime: '', 
+        performance: '',
+        current: ''
+      })
+      
+      queryClient.invalidateQueries(['assets'])
+      queryClient.invalidateQueries(['all-assets'])
+      queryClient.invalidateQueries('asset-stats')
+    }
+  }
+
+  // Handle full refresh (legacy)
   const handleRefresh = async () => {
     setIsRefreshing(true)
     
@@ -324,9 +419,31 @@ export default function AssetsPage() {
           </button>
           
           <button
-            onClick={handleRefresh}
+            onClick={handleSmartRefresh}
             disabled={isRefreshing || isClearing}
             className={`btn flex items-center gap-2 px-6 py-3 rounded-lg font-medium transition-all ${
+              isRefreshing || isClearing
+                ? 'bg-green-100 text-green-700 border border-green-300 cursor-not-allowed' 
+                : 'bg-green-600 text-white hover:bg-green-700 border border-green-600'
+            }`}
+          >
+            {isRefreshing ? (
+              <>
+                <div className="w-4 h-4 border-2 border-green-300 border-t-green-600 rounded-full animate-spin"></div>
+                <span>🧠 Atualizando...</span>
+              </>
+            ) : (
+              <>
+                <span>🧠</span>
+                <span>Atualização Inteligente</span>
+              </>
+            )}
+          </button>
+          
+          <button
+            onClick={handleRefresh}
+            disabled={isRefreshing || isClearing}
+            className={`btn flex items-center gap-2 px-4 py-3 rounded-lg font-medium transition-all ${
               isRefreshing || isClearing
                 ? 'bg-blue-100 text-blue-700 border border-blue-300 cursor-not-allowed' 
                 : 'bg-blue-600 text-white hover:bg-blue-700 border border-blue-600'
@@ -335,12 +452,12 @@ export default function AssetsPage() {
             {isRefreshing ? (
               <>
                 <div className="w-4 h-4 border-2 border-blue-300 border-t-blue-600 rounded-full animate-spin"></div>
-                <span>🔄 Atualizando...</span>
+                <span>🔄 Completo...</span>
               </>
             ) : (
               <>
                 <span>🔄</span>
-                <span>Atualizar Dados</span>
+                <span>Refresh Completo</span>
               </>
             )}
           </button>

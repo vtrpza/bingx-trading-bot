@@ -6,9 +6,14 @@
 import { sequelize } from '../config/database';
 import { logger } from '../utils/logger';
 
-async function runProductionMigration() {
+async function runProductionMigration(forceMode = false) {
   try {
     logger.info('🚀 Starting production database migration...');
+    
+    // Check if force mode is enabled (for Render deployments)
+    if (forceMode) {
+      logger.info('⚡ FORCE MODE ENABLED - Running aggressive migration for Render deployment');
+    }
     
     // Test database connection first
     await sequelize.authenticate();
@@ -17,9 +22,17 @@ async function runProductionMigration() {
     const dialect = sequelize.getDialect();
     logger.info(`📊 Database dialect: ${dialect}`);
     
-    // Sync database schema (non-destructive)
-    await sequelize.sync({ alter: false });
-    logger.info('✅ Database schema synchronized');
+    // Enhanced sync with force mode support
+    if (forceMode && process.env.NODE_ENV === 'production') {
+      // For Render deployment: force schema sync to update outdated DB
+      logger.info('🔥 FORCE SYNC: Updating database schema for Render deployment...');
+      await sequelize.sync({ alter: true, force: false }); // alter but don't drop tables
+      logger.info('✅ Database schema forcefully synchronized');
+    } else {
+      // Standard sync (non-destructive)
+      await sequelize.sync({ alter: false });
+      logger.info('✅ Database schema synchronized');
+    }
     
     // Create indexes with proper error handling
     const indexes = getIndexDefinitions(dialect);
@@ -144,7 +157,10 @@ function getIndexDefinitions(dialect: string): Record<string, string> {
 
 // Only run if called directly (not when imported)
 if (require.main === module) {
-  runProductionMigration()
+  // Check for --force flag
+  const forceMode = process.argv.includes('--force');
+  
+  runProductionMigration(forceMode)
     .then(result => {
       logger.info('🎉 Migration script completed:', result);
       process.exit(result.success ? 0 : 1);

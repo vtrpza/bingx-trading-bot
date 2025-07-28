@@ -82,6 +82,67 @@ export const api = {
     return axiosInstance.get(`/assets/${symbol}`)
   },
 
+  async refreshAssetsDelta(onProgress?: (data: any) => void): Promise<{ message: string; created: number; updated: number; total: number; processed: number; skipped: number; sessionId: string; deltaMode?: string }> {
+    const sessionId = `delta_refresh_${Date.now()}`;
+    
+    return new Promise((resolve, reject) => {
+      let eventSource: EventSource | null = null;
+      
+      // Connect to SSE for progress updates
+      if (onProgress) {
+        const sseUrl = `/api/assets/refresh/progress/${sessionId}`;
+        console.log('🔌 Delta refresh SSE:', sseUrl);
+        eventSource = new EventSource(sseUrl);
+        
+        eventSource.onopen = () => {
+          console.log('✅ Delta SSE connected');
+        };
+
+        eventSource.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            console.log('📡 Delta SSE received:', data);
+            
+            if (data.type === 'heartbeat') {
+              console.log('💓 Delta heartbeat');
+              return;
+            }
+            
+            if (data.type !== 'connected') {
+              console.log('🔄 Delta progress to UI:', data);
+              onProgress(data);
+            }
+            
+            if (data.type === 'completed' || data.type === 'error') {
+              console.log('🔚 Delta SSE closing...');
+              eventSource?.close();
+            }
+          } catch (error) {
+            console.error('❌ Delta SSE parse error:', error, 'Raw data:', event.data);
+          }
+        };
+        
+        eventSource.onerror = (error) => {
+          console.error('❌ Delta SSE connection error:', error);
+        };
+      }
+      
+      // Start delta refresh
+      setTimeout(async () => {
+        try {
+          console.log('🚀 Starting delta refresh with sessionId:', sessionId);
+          const response = await axiosInstance.post('/assets/refresh/delta', { sessionId });
+          console.log('✅ Delta refresh response:', response.data);
+          resolve(response.data);
+        } catch (error) {
+          console.error('❌ Delta refresh error:', error);
+          eventSource?.close();
+          reject(error);
+        }
+      }, 500);
+    });
+  },
+
   async refreshAssets(onProgress?: (data: any) => void): Promise<{ message: string; created: number; updated: number; total: number; processed: number; skipped: number; sessionId: string }> {
     const sessionId = `refresh_${Date.now()}`;
     
@@ -156,6 +217,21 @@ export const api = {
     topVolume: Asset[]
   }> {
     return axiosInstance.get('/assets/stats/overview')
+  },
+
+  async invalidateCache(): Promise<{
+    message: string
+    timestamp: string
+  }> {
+    console.log('🔄 API: Invalidating server cache')
+    try {
+      const response = await axiosInstance.post('/assets/cache/invalidate')
+      console.log('✅ API: Cache invalidation response:', response.data)
+      return response.data
+    } catch (error: any) {
+      console.error('❌ API: Cache invalidation error:', error)
+      throw error
+    }
   },
 
   async clearAllAssets(): Promise<{

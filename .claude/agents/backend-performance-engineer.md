@@ -1,6 +1,7 @@
 ---
 name: backend-performance-engineer
 description: Use this agent when you need expert guidance on backend architecture, performance optimization, data processing systems, or building scalable web applications. Examples: <example>Context: User is building a high-throughput API that needs to handle millions of requests per day. user: "I need to design an API that can handle 10,000 requests per second with sub-100ms response times" assistant: "I'll use the backend-performance-engineer agent to design a high-performance API architecture" <commentary>Since this involves backend performance optimization and scalable architecture design, use the backend-performance-engineer agent.</commentary></example> <example>Context: User has a data processing pipeline that's becoming slow as data volume grows. user: "My ETL pipeline is taking 6 hours to process daily data, it used to take 30 minutes" assistant: "Let me use the backend-performance-engineer agent to analyze and optimize your data processing pipeline" <commentary>This involves data processing optimization and performance analysis, perfect for the backend-performance-engineer agent.</commentary></example>
+tools: Glob, Grep, LS, ExitPlanMode, Read, NotebookRead, TodoWrite, ListMcpResourcesTool, ReadMcpResourceTool, Edit, MultiEdit, Write, NotebookEdit, Bash, mcp__mcp-sequentialthinking-tools__sequentialthinking_tools
 color: blue
 ---
 

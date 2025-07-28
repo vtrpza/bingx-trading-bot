@@ -5,7 +5,7 @@ services:
     env: node
     rootDir: server
     buildCommand: npm install && npm run build
-    startCommand: npm run migrate && npm start
+    startCommand: npm run migrate:force && npm start
     healthCheckPath: /health
     envVars:
       - key: PORT

@@ -240,6 +240,49 @@ export class BingXClient {
     return config;
   }
 
+  // OPTIMIZED: Parallel API calls for maximum performance
+  async getSymbolsAndTickersParallel() {
+    const cacheKey = 'symbols_and_tickers_parallel';
+    const now = Date.now();
+    
+    // Check cache first
+    if (symbolCache.has(cacheKey)) {
+      const cached = symbolCache.get(cacheKey)!;
+      if (now - cached.timestamp < SYMBOL_CACHE_DURATION) {
+        logger.debug('Returning cached parallel symbols+tickers data');
+        return cached.data;
+      }
+    }
+    
+    logger.info('🚀 PARALLEL FETCH: Getting symbols and tickers simultaneously...');
+    
+    try {
+      // Execute both API calls in parallel for maximum speed
+      const [symbolsResult, tickersResult] = await Promise.all([
+        this.getSymbols(),
+        this.getAllTickers()
+      ]);
+      
+      const result = {
+        symbols: symbolsResult,
+        tickers: tickersResult,
+        timestamp: now,
+        source: 'parallel_fetch'
+      };
+      
+      // Cache the combined result
+      symbolCache.set(cacheKey, { timestamp: now, data: result });
+      
+      logger.info(`✅ PARALLEL FETCH COMPLETED: ${symbolsResult?.data?.length || 0} symbols + ${tickersResult?.data?.length || 0} tickers`);
+      
+      return result;
+      
+    } catch (error) {
+      logger.error('❌ PARALLEL FETCH FAILED:', error);
+      throw error;
+    }
+  }
+
   // Market Data Methods (Public)
   async getSymbols() {
     const cacheKey = 'symbols';

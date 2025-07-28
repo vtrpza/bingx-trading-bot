@@ -9,10 +9,12 @@
     "start": "node dist/index.js",
     "test": "jest",
     "migrate": "node dist/migrations/production-migrate.js",
+    "migrate:force": "node dist/migrations/production-migrate.js --force",
     "postbuild": "npm run migrate:build",
     "migrate:build": "node -e \"console.log('Migration will run on first server start')\"",
     "render-build": "npm install && npm run build",
-    "render-start": "npm run migrate && npm run start"
+    "render-start": "npm run migrate:force && npm run start",
+    "deploy:render": "npm run render-build && npm run render-start"
   },
   "dependencies": {
     "@types/compression": "^1.7.5",

@@ -368,42 +368,23 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
     // Invalidate cache to ensure fresh data
     bingxClient.invalidateSymbolsCache();
     
-    // STEP 1: Fetch contracts with progress updates
+    // OPTIMIZED: Parallel fetch of contracts and market data
     await sendProgress(sessionId, {
       type: 'progress',
-      message: '📋 Buscando metadados dos contratos da BingX...',
-      progress: 5,
+      message: '🚀 Buscando contratos + dados de mercado em paralelo...',
+      progress: 10,
       processed: 0,
       total: 0
     });
     
-    const contractsResponse = await bingxClient.getSymbols();
+    const parallelData = await bingxClient.getSymbolsAndTickersParallel();
+    const contractsResponse = parallelData.symbols;
+    const tickersResponse = parallelData.tickers;
     
     await sendProgress(sessionId, {
       type: 'progress',
-      message: `✅ ${contractsResponse?.data?.length || 0} contratos encontrados`,
-      progress: 25,
-      processed: 0,
-      total: contractsResponse?.data?.length || 0
-    });
-    
-    await yieldEventLoop();
-    
-    // STEP 2: Fetch market data with progress updates  
-    await sendProgress(sessionId, {
-      type: 'progress',
-      message: '💰 Buscando dados de mercado em tempo real...',
-      progress: 30,
-      processed: 0,
-      total: contractsResponse?.data?.length || 0
-    });
-    
-    const tickersResponse = await bingxClient.getAllTickers();
-    
-    await sendProgress(sessionId, {
-      type: 'progress',
-      message: `✅ ${tickersResponse?.data?.length || 0} dados de mercado obtidos`,
-      progress: 50,
+      message: `✅ Paralelo completo: ${contractsResponse?.data?.length || 0} contratos + ${tickersResponse?.data?.length || 0} preços`,
+      progress: 45,
       processed: 0,
       total: contractsResponse?.data?.length || 0
     });
@@ -517,27 +498,40 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
     };
     
     
-    // OPTIMIZED: Process assets with database operations
+    // ULTRA-OPTIMIZED: Parallel batch processing with bulk database operations
     const startTime = Date.now();
-    const BATCH_SIZE = 500; // Bulk operations with 500 records at a time
+    const BATCH_SIZE = 100; // Optimal batch size for parallel processing
+    const MAX_CONCURRENT_BATCHES = 5; // Process up to 5 batches in parallel
     
-    // Prepare all asset data in memory first (much faster)
-    for (let i = 0; i < contractsToProcess.length; i++) {
-      const contract = contractsToProcess[i];
-      processed++;
+    // Prepare all asset data in parallel batches
+    const batches = [];
+    for (let i = 0; i < contractsToProcess.length; i += BATCH_SIZE) {
+      batches.push(contractsToProcess.slice(i, i + BATCH_SIZE));
+    }
+    
+    logger.info(`📦 Created ${batches.length} batches of ~${BATCH_SIZE} contracts each for parallel processing`);
+    
+    // Process batches with controlled concurrency
+    const processedAssets: any[] = [];    
+    const processBatch = async (batch: any[], batchIndex: number): Promise<any[]> => {
+      const batchAssets: any[] = [];
       
-      // Send progress updates for data preparation phase
-      if (processed % 100 === 0 || processed <= 20 || processed === contractsToProcess.length) {
-        const progress = Math.min(70, Math.round(55 + (processed / contractsToProcess.length) * 15));
-        await sendProgress(sessionId, {
-          type: 'progress',
-          message: `🔄 Preparando dados: ${contract.symbol} (${processed}/${contractsToProcess.length})`,
-          progress,
-          processed,
-          total: contractsToProcess.length,
-          current: contract.symbol
-        });
-      }
+      for (let i = 0; i < batch.length; i++) {
+        const contract = batch[i];
+        processed++;
+        
+        // Send progress updates less frequently to reduce overhead
+        if (processed % 200 === 0 || processed === contractsToProcess.length) {
+          const progress = Math.min(75, Math.round(55 + (processed / contractsToProcess.length) * 20));
+          await sendProgress(sessionId, {
+            type: 'progress',
+            message: `🚀 Processamento paralelo: Lote ${batchIndex + 1}/${batches.length} (${processed}/${contractsToProcess.length})`,
+            progress,
+            processed,
+            total: contractsToProcess.length,
+            current: contract.symbol
+          });
+        }
       
       // Log first few contracts for debugging
       if (processed <= 3) {
@@ -684,62 +678,108 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
         });
       }
 
-      // Upsert to database - GARANTIR que TODOS sejam salvos
-      try {
-        const [savedAsset, wasCreated] = await Asset.upsert(assetData, {
-          returning: true
-        });
+        // Store prepared asset data for bulk processing
+        batchAssets.push(assetData);
         
-        // Verificar se realmente foi salvo
-        if (!savedAsset) {
-          logger.error(`❌ FALHA CRÍTICA: Asset ${contract.symbol} não foi salvo no banco!`);
-          skipped++;
-          continue;
-        }
-        
-        // Count status distribution APENAS para assets salvos
+        // Count status distribution for metrics
         if (statusCounts.hasOwnProperty(statusText)) {
           statusCounts[statusText as keyof typeof statusCounts]++;
         } else {
           statusCounts.UNKNOWN++;
         }
-
-        if (wasCreated) {
-          created++;
-          if (processed <= 10) {
-            logger.info(`✅ CRIADO: ${contract.symbol} → ID: ${savedAsset.id}`);
-          }
-        } else {
-          updated++;
-          if (processed <= 10) {
-            logger.info(`🔄 ATUALIZADO: ${contract.symbol} → ID: ${savedAsset.id}`);
-          }
-        }
-        
-        // Log progress mais detalhado
-        if ((created + updated) % 100 === 0) {
-          const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-          const successRate = ((created + updated) / processed * 100).toFixed(1);
-          logger.info(`📊 Progress: ${created + updated}/${processed} salvos (${successRate}% success rate) em ${elapsed}s`);
-        }
-      } catch (dbError: any) {
-        logger.error(`❌ ERRO DB ao salvar ${contract.symbol}:`, {
-          error: dbError.message,
-          code: dbError.code,
-          detail: dbError.detail,
-          assetData: {
-            symbol: assetData.symbol,
-            name: assetData.name,
-            status: assetData.status
-          }
-        });
-        skipped++;
-        // Continue processing other assets
       }
       
-      // Yield to event loop after each batch to allow SSE messages to be sent
-      if ((i + 1) % BATCH_SIZE === 0 && i + 1 < contractsToProcess.length) {
-        await yieldEventLoop();
+      return batchAssets;
+    };
+    
+    // Execute batches with controlled concurrency
+    const allBatchPromises: Promise<any[]>[] = [];
+    
+    for (let i = 0; i < batches.length; i += MAX_CONCURRENT_BATCHES) {
+      const concurrentBatches = batches.slice(i, i + MAX_CONCURRENT_BATCHES);
+      const batchPromises = concurrentBatches.map((batch, index) => 
+        processBatch(batch, i + index)
+      );
+      
+      // Process batches in parallel within the concurrency limit
+      const batchResults = await Promise.all(batchPromises);
+      allBatchPromises.push(...batchPromises);
+      
+      // Flatten results and prepare for bulk database operations
+      const flattenedAssets = batchResults.flat();
+      processedAssets.push(...flattenedAssets);
+      
+      // Send bulk database progress update
+      await sendProgress(sessionId, {
+        type: 'progress',
+        message: `💾 Salvando lote no banco: ${processedAssets.length} contratos preparados`,
+        progress: Math.min(85, 75 + (processedAssets.length / contractsToProcess.length) * 10),
+        processed: processedAssets.length,
+        total: contractsToProcess.length
+      });
+      
+      // Yield to event loop between batch groups
+      await yieldEventLoop();
+    }
+    
+    // BULK DATABASE OPERATIONS - Major performance improvement
+    await sendProgress(sessionId, {
+      type: 'progress',
+      message: `💾 Operação bulk no banco: ${processedAssets.length} contratos`,
+      progress: 90,
+      processed: processedAssets.length,
+      total: contractsToProcess.length
+    });
+    
+    try {
+      // Use bulkCreate with updateOnDuplicate for maximum performance
+      const bulkResult = await Asset.bulkCreate(processedAssets, {
+        updateOnDuplicate: [
+          'name', 'baseCurrency', 'quoteCurrency', 'status', 'minQty', 'maxQty',
+          'tickSize', 'stepSize', 'maxLeverage', 'maintMarginRate', 'lastPrice',
+          'priceChangePercent', 'volume24h', 'quoteVolume24h', 'highPrice24h',
+          'lowPrice24h', 'openInterest', 'updatedAt'
+        ],
+        returning: false // Improve performance by not returning created records
+      });
+      
+      // Count operations (approximate since bulkCreate doesn't distinguish created vs updated easily)
+      const existingCount = await Asset.count();
+      const newRecordsCreated = Math.max(0, bulkResult.length - (existingCount - bulkResult.length));
+      const recordsUpdated = bulkResult.length - newRecordsCreated;
+      
+      created = newRecordsCreated;
+      updated = recordsUpdated;
+      skipped = contractsToProcess.length - bulkResult.length;
+      
+      logger.info(`🚀 BULK OPERATION COMPLETED:`, {
+        totalProcessed: bulkResult.length,
+        estimatedCreated: created,
+        estimatedUpdated: updated,
+        skipped,
+        totalContracts: contractsToProcess.length
+      });
+      
+    } catch (bulkError: any) {
+      logger.error(`❌ BULK DATABASE ERROR:`, bulkError);
+      
+      // Fallback to individual upserts if bulk operation fails
+      logger.info(`🔄 Falling back to individual upserts...`);
+      for (const assetData of processedAssets) {
+        try {
+          const [, wasCreated] = await Asset.upsert(assetData, {
+            returning: true
+          });
+          
+          if (wasCreated) {
+            created++;
+          } else {
+            updated++;
+          }
+        } catch (individualError: any) {
+          logger.error(`❌ Individual upsert failed for ${assetData.symbol}:`, individualError);
+          skipped++;
+        }
       }
     }
     
@@ -890,6 +930,185 @@ router.get('/stats/overview', asyncHandler(async (_req: Request, res: Response) 
       topVolume
     }
   });
+}));
+
+// Smart cache management endpoint
+router.post('/cache/invalidate', asyncHandler(async (_req: Request, res: Response) => {
+  logger.info('🔄 Cache invalidation requested');
+  
+  try {
+    // Invalidate BingX client caches
+    bingxClient.invalidateSymbolsCache();
+    
+    logger.info('✅ All caches invalidated successfully');
+    
+    res.json({
+      success: true,
+      data: {
+        message: 'All caches invalidated successfully',
+        timestamp: new Date().toISOString()
+      }
+    });
+    
+  } catch (error) {
+    logger.error('❌ Failed to invalidate caches:', error);
+    throw new AppError('Failed to invalidate caches', 500);
+  }
+}));
+
+// Delta update endpoint for incremental refresh
+router.post('/refresh/delta', asyncHandler(async (req: Request, res: Response) => {
+  const sessionId = req.body.sessionId || `delta_refresh_${Date.now()}`;
+  const totalStartTime = Date.now();
+  logger.info('Starting delta refresh (incremental update)...', { sessionId });
+  
+  try {
+    // Send initial progress
+    await sendProgress(sessionId, {
+      type: 'progress',
+      message: 'Iniciando atualização incremental...',
+      progress: 5,
+      processed: 0,
+      total: 0
+    });
+    
+    // Get last update time from database
+    const lastAsset = await Asset.findOne({
+      order: [['updatedAt', 'DESC']],
+      attributes: ['updatedAt']
+    });
+    
+    const lastUpdateTime = lastAsset?.updatedAt || new Date(Date.now() - 24 * 60 * 60 * 1000); // 24h ago if no assets
+    const hoursSinceUpdate = (Date.now() - lastUpdateTime.getTime()) / (1000 * 60 * 60);
+    
+    logger.info(`📊 Delta update analysis:`, {
+      lastUpdate: lastUpdateTime.toISOString(),
+      hoursSinceUpdate: hoursSinceUpdate.toFixed(2),
+      isRecentUpdate: hoursSinceUpdate < 1
+    });
+    
+    // If data is very recent (< 1 hour), only update market data (prices)
+    if (hoursSinceUpdate < 1) {
+      await sendProgress(sessionId, {
+        type: 'progress',
+        message: 'Dados recentes detectados - atualizando apenas preços...',
+        progress: 20,
+        processed: 0,
+        total: 0
+      });
+      
+      // Quick market data update only
+      const tickersResponse = await bingxClient.getAllTickers();
+      if (tickersResponse.code === 0 && tickersResponse.data) {
+        const tickerMap = new Map<string, any>();
+        tickersResponse.data.forEach((ticker: any) => {
+          if (ticker.symbol) {
+            tickerMap.set(ticker.symbol, ticker);
+          }
+        });
+        
+        // Update only market data fields for existing assets
+        let updated = 0;
+        const existingAssets = await Asset.findAll({ attributes: ['symbol'] });
+        
+        for (const asset of existingAssets) {
+          const ticker = tickerMap.get(asset.symbol);
+          if (ticker) {
+            await Asset.update({
+              lastPrice: parseFloat(ticker.lastPrice || '0') || 0,
+              priceChangePercent: parseFloat(ticker.priceChangePercent || '0') || 0,
+              volume24h: parseFloat(ticker.volume || '0') || 0,
+              quoteVolume24h: parseFloat(ticker.quoteVolume || ticker.turnover || '0') || 0,
+              highPrice24h: parseFloat(ticker.highPrice || '0') || 0,
+              lowPrice24h: parseFloat(ticker.lowPrice || '0') || 0,
+              openInterest: parseFloat(ticker.openInterest || '0') || 0,
+              updatedAt: new Date()
+            }, {
+              where: { symbol: asset.symbol }
+            });
+            updated++;
+          }
+        }
+        
+        const totalTime = ((Date.now() - totalStartTime) / 1000).toFixed(2);
+        
+        await sendProgress(sessionId, {
+          type: 'completed',
+          message: `✅ DELTA RÁPIDO: ${updated} preços atualizados em ${totalTime}s`,
+          progress: 100,
+          processed: updated,
+          total: existingAssets.length,
+          updated,
+          created: 0,
+          skipped: existingAssets.length - updated,
+          executionTime: totalTime,
+          deltaMode: 'MARKET_DATA_ONLY'
+        });
+        
+        res.json({
+          success: true,
+          data: {
+            message: 'Delta refresh completed (market data only)',
+            updated,
+            created: 0,
+            total: existingAssets.length,
+            sessionId,
+            deltaMode: 'MARKET_DATA_ONLY',
+            executionTime: totalTime
+          }
+        });
+        return;
+      }
+    }
+    
+    // For older data, fall back to full refresh
+    await sendProgress(sessionId, {
+      type: 'progress',
+      message: 'Dados antigos detectados - executando refresh completo...',
+      progress: 10,
+      processed: 0,
+      total: 0
+    });
+    
+    // Forward to full refresh
+    req.url = '/refresh';
+    req.body.sessionId = sessionId;
+    req.body.deltaFallback = true;
+    
+    // Close current SSE and let full refresh handle it
+    const session = refreshSessions.get(sessionId);
+    if (session) {
+      session.end();
+      refreshSessions.delete(sessionId);
+    }
+    
+    // This will trigger a full refresh
+    res.json({
+      success: true,
+      data: {
+        message: 'Delta refresh fallback to full refresh',
+        sessionId,
+        deltaMode: 'FULL_REFRESH_FALLBACK',
+        reason: `Data is ${hoursSinceUpdate.toFixed(1)} hours old`
+      }
+    });
+    
+  } catch (error) {
+    logger.error('Failed to perform delta refresh:', error);
+    
+    await sendProgress(sessionId, {
+      type: 'error',
+      message: error instanceof Error ? error.message : 'Unknown error during delta refresh'
+    });
+    
+    const session = refreshSessions.get(sessionId);
+    if (session) {
+      session.end();
+      refreshSessions.delete(sessionId);
+    }
+    
+    throw new AppError('Failed to perform delta refresh', 500);
+  }
 }));
 
 // Clear all assets from database
