@@ -35,4 +35,15 @@ if (databaseUrl && databaseUrl.includes('postgresql')) {
   });
 }
 
+// 🔥 FORÇAR SINCRONIZAÇÃO DO MODELO PARA ACEITAR TODOS OS CONTRATOS
+sequelize.addHook('afterConnect', async () => {
+  try {
+    logger.info('🔄 Sincronizando modelo do banco para aceitar TODOS os contratos...');
+    await sequelize.sync({ alter: true }); // Altera a estrutura existente
+    logger.info('✅ Modelo sincronizado - agora aceita TODOS os contratos!');
+  } catch (error) {
+    logger.error('❌ Erro ao sincronizar modelo:', error);
+  }
+});
+
 export { sequelize };

@@ -18,7 +18,7 @@ const balanceCache = new Map<string, { timestamp: number; data: any }>();
 const BALANCE_CACHE_DURATION = 60000; // 60 seconds for balance data
 
 const symbolCache = new Map<string, { timestamp: number; data: any }>();
-const SYMBOL_CACHE_DURATION = 300000; // 5 minutes for symbols data
+const SYMBOL_CACHE_DURATION = 120000; // 2 minutes for symbols data (reduced for faster refresh)
 
 interface BingXConfig {
   apiKey: string;
@@ -255,19 +255,251 @@ export class BingXClient {
     }
     
     try {
-      const response = await this.axios.get('/openApi/swap/v2/quote/contracts');
+      logger.info('🔥 BUSCA EXAUSTIVA: Vasculhando TODOS os endpoints BingX...');
       
-      // Cache the response
-      symbolCache.set(cacheKey, {
-        timestamp: now,
-        data: response.data
+      const allFoundContracts = new Map<string, any>(); // Usar Map para evitar duplicatas
+      let totalEndpointsTested = 0;
+      let successfulEndpoints = 0;
+      
+      // TODOS OS ENDPOINTS POSSÍVEIS DA BINGX
+      const ALL_POSSIBLE_ENDPOINTS = [
+        // Contratos Perpétuos (Swap)
+        '/openApi/swap/v1/quote/contracts',
+        '/openApi/swap/v2/quote/contracts', 
+        '/openApi/swap/v3/quote/contracts',
+        '/openApi/swap/v1/market/contracts',
+        '/openApi/swap/v2/market/contracts',
+        '/openApi/swap/v3/market/contracts',
+        
+        // Tickers e Preços
+        '/openApi/swap/v1/quote/tickers',
+        '/openApi/swap/v2/quote/tickers',
+        '/openApi/swap/v3/quote/tickers',
+        '/openApi/swap/v1/ticker/price',
+        '/openApi/swap/v2/ticker/price',
+        '/openApi/swap/v1/ticker/24hr',
+        '/openApi/swap/v2/ticker/24hr',
+        
+        // Exchange Info
+        '/openApi/swap/v1/exchangeInfo',
+        '/openApi/swap/v2/exchangeInfo',
+        '/openApi/swap/v3/exchangeInfo',
+        
+        // Símbolos e Mercados
+        '/openApi/swap/v1/symbols',
+        '/openApi/swap/v2/symbols',
+        '/openApi/swap/v1/market/symbols',
+        '/openApi/swap/v2/market/symbols',
+        
+        // Informações de Trading
+        '/openApi/swap/v1/quote/bookTicker',
+        '/openApi/swap/v2/quote/bookTicker',
+        '/openApi/swap/v1/quote/ticker',
+        '/openApi/swap/v2/quote/ticker',
+        
+        // Spot (caso tenham contratos spot)
+        '/openApi/spot/v1/symbols',
+        '/openApi/spot/v2/symbols',
+        '/openApi/spot/v1/ticker/24hr',
+        '/openApi/spot/v2/ticker/24hr',
+        
+        // Futuros Delivery
+        '/openApi/future/v1/symbols',
+        '/openApi/future/v2/symbols',
+        '/openApi/future/v1/contracts',
+        '/openApi/future/v2/contracts',
+        
+        // API Pública Geral
+        '/api/v1/exchangeInfo',
+        '/api/v2/exchangeInfo', 
+        '/api/v3/exchangeInfo',
+        '/api/v1/ticker/24hr',
+        '/api/v2/ticker/24hr',
+        '/api/v3/ticker/24hr'
+      ];
+      
+      logger.info(`🎯 Testando ${ALL_POSSIBLE_ENDPOINTS.length} endpoints diferentes...`);
+      
+      // Testar TODOS os endpoints com TODAS as combinações de parâmetros
+      for (const endpoint of ALL_POSSIBLE_ENDPOINTS) {
+        totalEndpointsTested++;
+        
+        // Diferentes combinações de parâmetros para cada endpoint
+        const paramCombinations = [
+          {}, // Sem parâmetros
+          { limit: 1000 },
+          { limit: 5000 },
+          { size: 1000 },
+          { size: 5000 },
+          { page: 1, limit: 1000 },
+          { page: 1, size: 1000 },
+          { offset: 0, limit: 1000 },
+          { start: 0, limit: 1000 },
+          { from: 0, to: 1000 }
+        ];
+        
+        for (const params of paramCombinations) {
+          try {
+            logger.debug(`🔍 Testando: ${endpoint} com params:`, params);
+            
+            const response = await this.axios.get(endpoint, { params });
+            const contracts = this.extractContractsFromResponse(response.data);
+            
+            if (contracts.length > 0) {
+              successfulEndpoints++;
+              logger.info(`✅ SUCESSO: ${endpoint} retornou ${contracts.length} contratos`, {
+                params,
+                sampleContract: contracts[0]?.symbol || 'N/A',
+                responseStructure: Object.keys(response.data || {})
+              });
+              
+              // Adicionar todos os contratos únicos ao Map
+              contracts.forEach((contract: any) => {
+                if (contract.symbol && !allFoundContracts.has(contract.symbol)) {
+                  allFoundContracts.set(contract.symbol, {
+                    ...contract,
+                    _source_endpoint: endpoint,
+                    _source_params: params
+                  });
+                }
+              });
+              
+              break; // Se funcionou com estes params, não testar outros para este endpoint
+            }
+            
+          } catch (error: any) {
+            logger.debug(`❌ Falhou: ${endpoint} - ${error.message}`);
+          }
+        }
+      }
+      
+      const uniqueContracts = Array.from(allFoundContracts.values());
+      
+      logger.info(`🏆 RESULTADO FINAL DA BUSCA EXAUSTIVA:`, {
+        totalEndpointsTested,
+        successfulEndpoints,
+        totalUniqueContracts: uniqueContracts.length,
+        contractsBySource: this.groupContractsBySource(uniqueContracts)
       });
       
-      return response.data;
+      // Se ainda não encontramos muitos contratos, tentar paginação nos endpoints que funcionaram
+      if (uniqueContracts.length < 1000) {
+        logger.info('🔄 Tentando PAGINAÇÃO EXAUSTIVA nos endpoints que funcionaram...');
+        await this.tryExhaustivePagination(allFoundContracts);
+      }
+      
+      const finalContracts = Array.from(allFoundContracts.values());
+      
+      logger.info(`🎉 BUSCA COMPLETA FINALIZADA: ${finalContracts.length} contratos únicos encontrados`);
+      
+      const finalData = {
+        code: 0,
+        data: finalContracts,
+        msg: 'exhaustive_search_complete',
+        total: finalContracts.length,
+        metadata: {
+          endpointsTested: totalEndpointsTested,
+          successfulEndpoints,
+          searchType: 'exhaustive',
+          timestamp: now
+        }
+      };
+      
+      // Cache por mais tempo já que foi uma busca exaustiva
+      symbolCache.set(cacheKey, {
+        timestamp: now,
+        data: finalData
+      });
+      
+      return finalData;
+      
     } catch (error) {
-      logger.error('Failed to get symbols:', error);
+      logger.error('Failed exhaustive search:', error);
       throw error;
     }
+  }
+  
+  // Método auxiliar para extrair contratos de diferentes formatos de resposta
+  private extractContractsFromResponse(data: any): any[] {
+    if (!data) return [];
+    
+    // Tentar diferentes estruturas de resposta
+    const possiblePaths = [
+      data.data,           // { data: [...] }
+      data.symbols,        // { symbols: [...] }
+      data.result,         // { result: [...] }
+      data.contracts,      // { contracts: [...] }
+      data.tickers,        // { tickers: [...] }
+      data,                // Direto como array
+    ];
+    
+    for (const path of possiblePaths) {
+      if (Array.isArray(path) && path.length > 0) {
+        // Verificar se parece com contratos (tem símbolo)
+        if (path[0]?.symbol || path[0]?.contractName || path[0]?.pair) {
+          return path;
+        }
+      }
+    }
+    
+    return [];
+  }
+  
+  // Método auxiliar para agrupar contratos por fonte
+  private groupContractsBySource(contracts: any[]): Record<string, number> {
+    const groups: Record<string, number> = {};
+    contracts.forEach(contract => {
+      const source = contract._source_endpoint || 'unknown';
+      groups[source] = (groups[source] || 0) + 1;
+    });
+    return groups;
+  }
+  
+  // Método para tentar paginação exaustiva
+  private async tryExhaustivePagination(contractsMap: Map<string, any>): Promise<void> {
+    // Implementar paginação nos endpoints que mostraram ter mais dados
+    const paginationEndpoints = [
+      '/openApi/swap/v2/quote/contracts',
+      '/openApi/swap/v2/quote/tickers',
+      '/openApi/swap/v1/quote/contracts'
+    ];
+    
+    for (const endpoint of paginationEndpoints) {
+      for (let page = 1; page <= 50; page++) { // Até 50 páginas
+        try {
+          const params = { page, limit: 1000 };
+          const response = await this.axios.get(endpoint, { params });
+          const contracts = this.extractContractsFromResponse(response.data);
+          
+          if (contracts.length === 0) break; // Não há mais páginas
+          
+          let newContracts = 0;
+          contracts.forEach((contract: any) => {
+            if (contract.symbol && !contractsMap.has(contract.symbol)) {
+              contractsMap.set(contract.symbol, {
+                ...contract,
+                _source_endpoint: endpoint,
+                _source_params: params
+              });
+              newContracts++;
+            }
+          });
+          
+          logger.info(`📄 ${endpoint} página ${page}: +${newContracts} novos contratos`);
+          
+          if (newContracts === 0) break; // Todos já eram conhecidos
+          
+        } catch (error) {
+          break; // Erro na paginação, tentar próximo endpoint
+        }
+      }
+    }
+  }
+
+  // Method to invalidate symbols cache for forced refresh
+  invalidateSymbolsCache() {
+    symbolCache.clear();
+    logger.debug('Symbols cache invalidated');
   }
 
   async getTicker(symbol: string) {

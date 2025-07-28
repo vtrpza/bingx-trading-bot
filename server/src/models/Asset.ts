@@ -68,75 +68,82 @@ Asset.init({
   },
   baseCurrency: {
     type: DataTypes.STRING,
-    allowNull: false
+    allowNull: true, // PERMITIR NULL para aceitar TODOS os contratos
+    defaultValue: 'UNKNOWN'
   },
   quoteCurrency: {
     type: DataTypes.STRING,
-    allowNull: false
+    allowNull: true, // PERMITIR NULL para aceitar TODOS os contratos
+    defaultValue: 'USDT'
   },
   status: {
     type: DataTypes.STRING,
-    allowNull: false,
-    defaultValue: 'TRADING'
+    allowNull: true, // PERMITIR NULL para aceitar TODOS os contratos
+    defaultValue: 'UNKNOWN'
   },
   minQty: {
     type: DataTypes.DECIMAL(20, 8),
-    allowNull: false
+    allowNull: true, // PERMITIR NULL para aceitar TODOS os contratos
+    defaultValue: 0
   },
   maxQty: {
     type: DataTypes.DECIMAL(20, 8),
-    allowNull: false
+    allowNull: true, // PERMITIR NULL para aceitar TODOS os contratos
+    defaultValue: 999999999
   },
   tickSize: {
     type: DataTypes.DECIMAL(20, 8),
-    allowNull: false
+    allowNull: true, // PERMITIR NULL para aceitar TODOS os contratos
+    defaultValue: 0.0001
   },
   stepSize: {
     type: DataTypes.DECIMAL(20, 8),
-    allowNull: false
+    allowNull: true, // PERMITIR NULL para aceitar TODOS os contratos
+    defaultValue: 0.001
   },
   maxLeverage: {
     type: DataTypes.INTEGER,
-    allowNull: false,
-    defaultValue: 1
+    allowNull: true, // PERMITIR NULL para aceitar TODOS os contratos
+    defaultValue: 100
   },
   maintMarginRate: {
     type: DataTypes.DECIMAL(10, 4),
-    allowNull: false
+    allowNull: true, // PERMITIR NULL para aceitar TODOS os contratos
+    defaultValue: 0
   },
   volume24h: {
     type: DataTypes.DECIMAL(20, 8),
-    allowNull: false,
+    allowNull: true, // PERMITIR NULL para aceitar TODOS os contratos
     defaultValue: 0
   },
   quoteVolume24h: {
     type: DataTypes.DECIMAL(20, 8),
-    allowNull: false,
+    allowNull: true, // PERMITIR NULL para aceitar TODOS os contratos
     defaultValue: 0
   },
   openInterest: {
     type: DataTypes.DECIMAL(20, 8),
-    allowNull: false,
+    allowNull: true, // PERMITIR NULL para aceitar TODOS os contratos
     defaultValue: 0
   },
   lastPrice: {
     type: DataTypes.DECIMAL(20, 8),
-    allowNull: false,
+    allowNull: true, // PERMITIR NULL para aceitar TODOS os contratos
     defaultValue: 0
   },
   priceChangePercent: {
     type: DataTypes.DECIMAL(10, 2),
-    allowNull: false,
+    allowNull: true, // PERMITIR NULL para aceitar TODOS os contratos
     defaultValue: 0
   },
   highPrice24h: {
     type: DataTypes.DECIMAL(20, 8),
-    allowNull: false,
+    allowNull: true, // PERMITIR NULL para aceitar TODOS os contratos
     defaultValue: 0
   },
   lowPrice24h: {
     type: DataTypes.DECIMAL(20, 8),
-    allowNull: false,
+    allowNull: true, // PERMITIR NULL para aceitar TODOS os contratos
     defaultValue: 0
   },
   createdAt: {

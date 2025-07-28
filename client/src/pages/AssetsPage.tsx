@@ -13,11 +13,21 @@ export default function AssetsPage() {
   const [search, setSearch] = useState('')
   const [status, setStatus] = useState('TRADING')
   const [isRefreshing, setIsRefreshing] = useState(false)
-  const [refreshProgress, setRefreshProgress] = useState({ progress: 0, message: '', processed: 0, total: 0 })
+  const [isClearing, setIsClearing] = useState(false)
+  const [refreshProgress, setRefreshProgress] = useState({ 
+    progress: 0, 
+    message: '', 
+    processed: 0, 
+    total: 0, 
+    executionTime: '', 
+    performance: '' 
+  })
+  const [lastUpdateTime, setLastUpdateTime] = useState<string>('')
+  const [statusBreakdown, setStatusBreakdown] = useState<any>(null)
   const { t } = useTranslation()
   const queryClient = useQueryClient()
 
-  // Get assets data
+  // Get assets data with pagination
   const { data: assetsData, isLoading, refetch } = useQuery<PaginatedResponse<Asset>>(
     ['assets', page, limit, sortBy, sortOrder, search, status],
     () => api.getAssets({ page, limit, sortBy, sortOrder, search, status }),
@@ -53,36 +63,78 @@ export default function AssetsPage() {
   // Handle refresh
   const handleRefresh = async () => {
     setIsRefreshing(true)
-    setRefreshProgress({ progress: 0, message: 'Starting refresh...', processed: 0, total: 0 })
-    toast.loading('Refreshing assets from BingX...', { id: 'refresh-assets' })
+    
+    // Loading inicial simples
+    setRefreshProgress({ 
+      progress: 0, 
+      message: 'Iniciando atualização...', 
+      processed: 0, 
+      total: 0,
+      executionTime: '',
+      performance: ''
+    })
+    
+    toast.loading('Atualizando ativos da BingX...', { id: 'refresh-assets' })
     
     try {
       await api.refreshAssets((progressData) => {
-        // Update progress state
+        console.log('📊 Progress recebido:', progressData)
+        
+        // Update progress state com animação suave
         setRefreshProgress({
           progress: progressData.progress || 0,
           message: progressData.message || '',
           processed: progressData.processed || 0,
-          total: progressData.total || 0
+          total: progressData.total || 0,
+          executionTime: progressData.executionTime || '',
+          performance: progressData.performance || '',
+          current: progressData.current || ''
         })
         
         // Update toast with progress
         if (progressData.type === 'progress') {
+          const emoji = progressData.progress < 30 ? '🔄' : 
+                        progressData.progress < 60 ? '⚡' : 
+                        progressData.progress < 90 ? '🚀' : '🏁'
+          
           toast.loading(
-            `${progressData.message || 'Processando...'}\nProgresso: ${progressData.progress || 0}%`,
+            `${emoji} ${progressData.message || 'Processando...'}\n📊 Progresso: ${progressData.progress || 0}%`,
             { id: 'refresh-assets' }
           )
         } else if (progressData.type === 'completed') {
+          const performancePart = progressData.executionTime ? 
+            `\nConcluído em ${progressData.executionTime} (${progressData.performance || ''})` : '';
+          
+          const statusPart = progressData.statusDistribution ? 
+            `\n📊 Status: ${progressData.statusDistribution.TRADING || 0} ativos, ${progressData.statusDistribution.SUSPENDED || 0} suspensos, ${progressData.statusDistribution.DELISTED || 0} removidos` : '';
+          
           toast.success(
-            `Ativos atualizados com sucesso!\n${progressData.created || 0} criados, ${progressData.updated || 0} atualizados\n${progressData.processed || 0} processados, ${progressData.skipped || 0} ignorados de ${progressData.total || 0} contratos totais`,
+            `Todos os contratos sincronizados!\n${progressData.created || 0} criados, ${progressData.updated || 0} atualizados\n${progressData.processed || 0} contratos processados de ${progressData.total || 0} totais${statusPart}${performancePart}`,
             { 
               id: 'refresh-assets',
-              duration: 5000 
+              duration: 10000 
             }
           )
           
+          // Update last update time and status breakdown
+          setLastUpdateTime(new Date().toLocaleString('pt-BR', {
+            timeZone: 'America/Sao_Paulo',
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+          }))
+          
+          // Store status breakdown for display
+          if (progressData.statusDistribution) {
+            setStatusBreakdown(progressData.statusDistribution)
+          }
+          
           // Invalidate and refetch all related queries after completion
           queryClient.invalidateQueries(['assets'])
+          queryClient.invalidateQueries(['all-assets'])
           queryClient.invalidateQueries('asset-stats')
         } else if (progressData.type === 'error') {
           toast.error(progressData.message || 'Erro durante a atualização', { id: 'refresh-assets' })
@@ -97,11 +149,103 @@ export default function AssetsPage() {
       toast.error(errorMessage, { id: 'refresh-assets' })
     } finally {
       setIsRefreshing(false)
-      setRefreshProgress({ progress: 0, message: '', processed: 0, total: 0 })
+      setRefreshProgress({ 
+        progress: 0, 
+        message: '', 
+        processed: 0, 
+        total: 0, 
+        executionTime: '', 
+        performance: '' 
+      })
       
       // Ensure cache invalidation happens even on error for consistency
       queryClient.invalidateQueries(['assets'])
+      queryClient.invalidateQueries(['all-assets'])
       queryClient.invalidateQueries('asset-stats')
+    }
+  }
+
+  // Handle clear database
+  const handleClearDatabase = async () => {
+    console.log('🎯 CLICK: Botão limpar banco clicado')
+    
+    const confirmed = window.confirm(
+      '⚠️ ATENÇÃO!\n\nEsta ação irá REMOVER TODOS OS ATIVOS do banco de dados.\n\nVocê tem certeza que deseja continuar?\n\nClique OK para confirmar ou Cancelar para abortar.'
+    )
+    
+    console.log('🎯 CONFIRMAÇÃO 1:', confirmed)
+    if (!confirmed) {
+      console.log('❌ Usuário cancelou na primeira confirmação')
+      return
+    }
+    
+    const doubleConfirm = window.confirm(
+      '🚨 CONFIRMAÇÃO FINAL\n\nEsta é sua última chance!\n\nTodos os dados de ativos serão PERMANENTEMENTE REMOVIDOS.\n\nTem ABSOLUTA CERTEZA?'
+    )
+    
+    console.log('🎯 CONFIRMAÇÃO 2:', doubleConfirm)
+    if (!doubleConfirm) {
+      console.log('❌ Usuário cancelou na segunda confirmação')
+      return
+    }
+
+    console.log('✅ Usuário confirmou ambas as confirmações, prosseguindo...')
+    
+    setIsClearing(true)
+    console.log('🔄 Estado isClearing definido como true')
+    
+    toast.loading('🗑️ Removendo todos os ativos do banco de dados...', { id: 'clear-assets' })
+    console.log('📱 Toast de loading mostrado')
+    
+    try {
+      console.log('🔄 Iniciando chamada para api.clearAllAssets()...')
+      const result = await api.clearAllAssets()
+      console.log('✅ Resultado da API clearAllAssets:', result)
+      
+      const deletedCount = result?.deletedCount || 0
+      console.log('📊 Quantidade de ativos removidos:', deletedCount)
+      
+      toast.success(
+        `🎉 Banco de dados limpo com sucesso!\n${deletedCount} ativos removidos`,
+        { 
+          id: 'clear-assets',
+          duration: 5000 
+        }
+      )
+      console.log('📱 Toast de sucesso mostrado')
+      
+      // Update UI state to reflect empty database
+      console.log('🔄 Atualizando estado da UI...')
+      setLastUpdateTime('')
+      setStatusBreakdown(null)
+      
+      // Invalidate and refetch all queries to show empty state
+      console.log('🔄 Invalidando cache do React Query...')
+      await queryClient.invalidateQueries(['assets'])
+      await queryClient.invalidateQueries(['all-assets'])
+      await queryClient.invalidateQueries('asset-stats')
+      
+      // Force a refetch to show empty data immediately
+      console.log('🔄 Forçando refetch dos dados...')
+      await refetch()
+      console.log('✅ Refetch completo')
+      
+    } catch (error: any) {
+      console.error('❌ ERRO COMPLETO na limpeza do banco:', {
+        error,
+        message: error?.message,
+        response: error?.response,
+        responseData: error?.response?.data,
+        stack: error?.stack
+      })
+      
+      const errorMessage = error?.message || error?.response?.data?.message || 'Falha ao limpar banco de dados'
+      console.error('📱 Mostrando toast de erro:', errorMessage)
+      
+      toast.error(`❌ ${errorMessage}`, { id: 'clear-assets', duration: 8000 })
+    } finally {
+      console.log('🔄 Definindo isClearing como false no finally')
+      setIsClearing(false)
     }
   }
 
@@ -140,44 +284,140 @@ export default function AssetsPage() {
     <div className="space-y-6">
       {/* Header */}
       <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-gray-900">Asset Analysis</h1>
-        <button
-          onClick={handleRefresh}
-          disabled={isRefreshing}
-          className={`btn flex items-center gap-2 px-6 py-3 rounded-lg font-medium transition-all ${
-            isRefreshing 
-              ? 'bg-blue-100 text-blue-700 border border-blue-300 cursor-not-allowed' 
-              : 'bg-blue-600 text-white hover:bg-blue-700 border border-blue-600'
-          }`}
-        >
-          {isRefreshing ? (
-            <>
-              <div className="w-4 h-4 border-2 border-blue-300 border-t-blue-600 rounded-full animate-spin"></div>
-              <span>🔄 Atualizando...</span>
-            </>
-          ) : (
-            <>
-              <span>🔄</span>
-              <span>Atualizar Dados</span>
-            </>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Asset Analysis</h1>
+          {lastUpdateTime && (
+            <p className="text-sm text-gray-600 mt-1">
+              🕒 Última atualização: <span className="font-medium text-blue-600">{lastUpdateTime}</span> (UTC-3)
+            </p>
           )}
-        </button>
+        </div>
+        <div className="flex gap-3">
+          <button
+            onClick={(e) => {
+              console.log('🎯 EVENTO CLICK CAPTURADO:', e)
+              console.log('🎯 isClearing:', isClearing)
+              console.log('🎯 isRefreshing:', isRefreshing)
+              handleClearDatabase()
+            }}
+            disabled={isClearing || isRefreshing}
+            className={`btn flex items-center gap-2 px-4 py-3 rounded-lg font-medium transition-all ${
+              isClearing || isRefreshing
+                ? 'bg-red-100 text-red-700 border border-red-300 cursor-not-allowed' 
+                : 'bg-red-600 text-white hover:bg-red-700 border border-red-600'
+            }`}
+          >
+            {isClearing ? (
+              <>
+                <div className="w-4 h-4 border-2 border-red-300 border-t-red-600 rounded-full animate-spin"></div>
+                <span>🗑️ Limpando...</span>
+              </>
+            ) : (
+              <>
+                <span>🗑️</span>
+                <span>Limpar DB</span>
+              </>
+            )}
+          </button>
+          
+          <button
+            onClick={handleRefresh}
+            disabled={isRefreshing || isClearing}
+            className={`btn flex items-center gap-2 px-6 py-3 rounded-lg font-medium transition-all ${
+              isRefreshing || isClearing
+                ? 'bg-blue-100 text-blue-700 border border-blue-300 cursor-not-allowed' 
+                : 'bg-blue-600 text-white hover:bg-blue-700 border border-blue-600'
+            }`}
+          >
+            {isRefreshing ? (
+              <>
+                <div className="w-4 h-4 border-2 border-blue-300 border-t-blue-600 rounded-full animate-spin"></div>
+                <span>🔄 Atualizando...</span>
+              </>
+            ) : (
+              <>
+                <span>🔄</span>
+                <span>Atualizar Dados</span>
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
       {/* Scan Status */}
       {isRefreshing && (
         <div className="bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200 rounded-lg p-6">
-          <div className="flex items-center justify-center space-x-3">
-            <div className="relative">
-              <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
-              <div className="absolute inset-0 w-8 h-8 border-4 border-transparent border-t-blue-400 rounded-full animate-spin" style={{ animationDirection: 'reverse', animationDuration: '1.5s' }}></div>
+          <div className="space-y-4">
+            <div className="flex items-center justify-center space-x-3">
+              <div className="relative">
+                <div className="w-8 h-8 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+                <div className="absolute inset-0 w-8 h-8 border-4 border-transparent border-t-blue-400 rounded-full animate-spin" style={{ animationDirection: 'reverse', animationDuration: '1.5s' }}></div>
+              </div>
+              <div className="text-center">
+                <div className="text-lg font-semibold text-blue-900">🚀 Buscando TODOS os Contratos da BingX</div>
+                <div className="text-sm text-blue-700">
+                  {refreshProgress.total > 0 
+                    ? `Processando ${refreshProgress.total} contratos encontrados...`
+                    : 'Descobrindo todos os contratos disponíveis na BingX...'
+                  }
+                </div>
+              </div>
             </div>
-            <div className="text-center">
-              <div className="text-lg font-semibold text-blue-900">🔄 Atualizando Ativos</div>
-              <div className="text-sm text-blue-700">Sincronizando dados do BingX...</div>
-              {refreshProgress.processed > 0 && refreshProgress.total > 0 && (
-                <div className="text-xs text-blue-600 mt-1">
-                  {refreshProgress.processed}/{refreshProgress.total} contratos processados
+            
+            {/* Enhanced Progress Bar */}
+            <div className="w-full">
+              <div className="flex justify-between text-sm text-blue-700 mb-2">
+                <span className="font-medium">
+                  {refreshProgress.message || 'Inicializando busca...'}
+                </span>
+                <span className="font-bold">
+                  {refreshProgress.progress || 0}%
+                </span>
+              </div>
+              
+              <div className="w-full bg-blue-200 rounded-full h-4 relative overflow-hidden">
+                <div 
+                  className="bg-gradient-to-r from-blue-500 to-blue-600 h-4 rounded-full transition-all duration-500 ease-out relative"
+                  style={{ width: `${refreshProgress.progress || 0}%` }}
+                >
+                  {/* Animated shine effect */}
+                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white to-transparent opacity-20 animate-pulse"></div>
+                </div>
+              </div>
+              
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs text-blue-600 mt-3">
+                <div className="text-center">
+                  <div className="font-semibold text-blue-800">📊 Progresso</div>
+                  <div className="font-mono">
+                    {refreshProgress.processed || 0}/{refreshProgress.total || '?'} contratos
+                  </div>
+                </div>
+                
+                {refreshProgress.performance && (
+                  <div className="text-center">
+                    <div className="font-semibold text-green-700">⚡ Performance</div>
+                    <div className="font-mono text-green-600">
+                      {refreshProgress.performance} contratos/seg
+                    </div>
+                  </div>
+                )}
+                
+                {refreshProgress.executionTime && (
+                  <div className="text-center">
+                    <div className="font-semibold text-purple-700">⏱️ Tempo</div>
+                    <div className="font-mono text-purple-600">
+                      {refreshProgress.executionTime}s
+                    </div>
+                  </div>
+                )}
+              </div>
+              
+              {/* Current contract being processed */}
+              {refreshProgress.current && (
+                <div className="mt-2 text-center">
+                  <div className="text-xs text-blue-500">
+                    Processando: <span className="font-mono font-medium text-blue-700">{refreshProgress.current}</span>
+                  </div>
                 </div>
               )}
             </div>
@@ -185,6 +425,50 @@ export default function AssetsPage() {
         </div>
       )}
 
+
+      {/* Contract Status Breakdown */}
+      {statusBreakdown && (
+        <div className="card p-6">
+          <h3 className="text-lg font-medium text-gray-900 mb-4">📊 Distribuição de Status dos Contratos</h3>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            <div className="text-center">
+              <div className="text-2xl font-bold text-green-600">{statusBreakdown.TRADING || 0}</div>
+              <div className="text-xs text-gray-500 flex items-center justify-center gap-1">
+                <span>🟢</span>
+                <span>Trading</span>
+              </div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-yellow-600">{statusBreakdown.SUSPENDED || 0}</div>
+              <div className="text-xs text-gray-500 flex items-center justify-center gap-1">
+                <span>🟡</span>
+                <span>Suspended</span>
+              </div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-red-600">{statusBreakdown.DELISTED || 0}</div>
+              <div className="text-xs text-gray-500 flex items-center justify-center gap-1">
+                <span>🔴</span>
+                <span>Delisted</span>
+              </div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-blue-600">{statusBreakdown.MAINTENANCE || 0}</div>
+              <div className="text-xs text-gray-500 flex items-center justify-center gap-1">
+                <span>🔵</span>
+                <span>Maintenance</span>
+              </div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-gray-600">{statusBreakdown.UNKNOWN || 0}</div>
+              <div className="text-xs text-gray-500 flex items-center justify-center gap-1">
+                <span>⚪</span>
+                <span>Unknown</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Statistics Cards */}
       {stats && (
@@ -256,9 +540,11 @@ export default function AssetsPage() {
               }}
               className="input"
             >
-              <option value="">All</option>
-              <option value="TRADING">Trading</option>
-              <option value="SUSPEND">Suspended</option>
+              <option value="">🔍 Todos os Status</option>
+              <option value="TRADING">🟢 Trading (Ativos)</option>
+              <option value="SUSPENDED">🟡 Suspended (Suspensos)</option>
+              <option value="DELISTED">🔴 Delisted (Removidos)</option>
+              <option value="MAINTENANCE">🔵 Maintenance (Manutenção)</option>
             </select>
           </div>
           
@@ -273,10 +559,17 @@ export default function AssetsPage() {
       {/* Assets Table */}
       <div className={`card overflow-hidden ${isRefreshing ? 'ring-2 ring-blue-200 bg-blue-50/30' : ''}`}>
         {isRefreshing && (
-          <div className="bg-blue-100 border-b border-blue-200 px-6 py-2">
-            <div className="flex items-center space-x-2 text-blue-800">
-              <div className="w-3 h-3 border border-blue-400 border-t-blue-600 rounded-full animate-spin"></div>
-              <span className="text-sm font-medium">Dados sendo atualizados em tempo real...</span>
+          <div className="bg-gradient-to-r from-blue-100 to-blue-50 border-b border-blue-200 px-6 py-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2 text-blue-800">
+                <div className="w-3 h-3 border border-blue-400 border-t-blue-600 rounded-full animate-spin"></div>
+                <span className="text-sm font-medium">Base de dados sendo sincronizada...</span>
+              </div>
+              {refreshProgress.total > 0 && (
+                <div className="text-xs text-blue-700">
+                  {refreshProgress.processed}/{refreshProgress.total} ({refreshProgress.progress || 0}%)
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -315,6 +608,24 @@ export default function AssetsPage() {
                   Volume (24h) {sortBy === 'quoteVolume24h' && (sortOrder === 'ASC' ? '↑' : '↓')}
                 </th>
                 <th 
+                  onClick={() => handleSort('highPrice24h')}
+                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                >
+                  High 24h {sortBy === 'highPrice24h' && (sortOrder === 'ASC' ? '↑' : '↓')}
+                </th>
+                <th 
+                  onClick={() => handleSort('lowPrice24h')}
+                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                >
+                  Low 24h {sortBy === 'lowPrice24h' && (sortOrder === 'ASC' ? '↑' : '↓')}
+                </th>
+                <th 
+                  onClick={() => handleSort('openInterest')}
+                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                >
+                  Open Interest {sortBy === 'openInterest' && (sortOrder === 'ASC' ? '↑' : '↓')}
+                </th>
+                <th 
                   onClick={() => handleSort('maxLeverage')}
                   className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
                 >
@@ -334,13 +645,13 @@ export default function AssetsPage() {
             <tbody className="bg-white divide-y divide-gray-200">
               {isLoading ? (
                 <tr>
-                  <td colSpan={8} className="px-6 py-4 text-center text-gray-500">
+                  <td colSpan={11} className="px-6 py-4 text-center text-gray-500">
                     Loading assets...
                   </td>
                 </tr>
               ) : assets.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="px-6 py-4 text-center text-gray-500">
+                  <td colSpan={11} className="px-6 py-4 text-center text-gray-500">
                     No assets found
                   </td>
                 </tr>
@@ -368,15 +679,34 @@ export default function AssetsPage() {
                       ${formatNumber(asset.quoteVolume24h)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      ${Number(asset.highPrice24h).toFixed(4)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      ${Number(asset.lowPrice24h).toFixed(4)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {formatNumber(asset.openInterest)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {asset.maxLeverage}x
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`inline-flex px-2 py-1 text-xs font-semibold rounded-full ${
+                      <span className={`inline-flex items-center px-2 py-1 text-xs font-semibold rounded-full ${
                         asset.status === 'TRADING' 
                           ? 'bg-green-100 text-green-800' 
-                          : 'bg-red-100 text-red-800'
+                          : asset.status === 'SUSPENDED'
+                          ? 'bg-yellow-100 text-yellow-800'
+                          : asset.status === 'DELISTED'
+                          ? 'bg-red-100 text-red-800'
+                          : asset.status === 'MAINTENANCE'
+                          ? 'bg-blue-100 text-blue-800'
+                          : 'bg-gray-100 text-gray-800'
                       }`}>
-                        {asset.status}
+                        {asset.status === 'TRADING' ? '🟢' : 
+                         asset.status === 'SUSPENDED' ? '🟡' : 
+                         asset.status === 'DELISTED' ? '🔴' : 
+                         asset.status === 'MAINTENANCE' ? '🔵' : 
+                         '⚪'} {asset.status}
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">

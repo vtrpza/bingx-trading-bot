@@ -64,6 +64,20 @@ export const api = {
     return axiosInstance.get('/assets', { params })
   },
 
+  async getAllAssets(params?: {
+    sortBy?: string
+    sortOrder?: 'ASC' | 'DESC'
+    search?: string
+    status?: string
+  }): Promise<{
+    assets: Asset[]
+    count: number
+    executionTime: string
+    lastUpdated: string
+  }> {
+    return axiosInstance.get('/assets/all', { params })
+  },
+
   async getAsset(symbol: string): Promise<Asset> {
     return axiosInstance.get(`/assets/${symbol}`)
   },
@@ -76,44 +90,56 @@ export const api = {
       
       // Connect to SSE for progress updates
       if (onProgress) {
-        const baseURL = window.location.protocol === 'https:' ? 'https://localhost:3001' : 'http://localhost:3001'
-        eventSource = new EventSource(`${baseURL}/api/assets/refresh/progress/${sessionId}`);
+        // Usar URL relativa para evitar problemas de CORS
+        const sseUrl = `/api/assets/refresh/progress/${sessionId}`;
+        console.log('🔌 Conectando SSE:', sseUrl);
+        eventSource = new EventSource(sseUrl);
         
+        eventSource.onopen = () => {
+          console.log('✅ SSE conectado com sucesso!');
+        };
+
         eventSource.onmessage = (event) => {
           try {
             const data = JSON.parse(event.data);
-            console.log('SSE received:', data);
+            console.log('📡 SSE recebido:', data);
             
             // Skip the initial connection message
             if (data.type !== 'connected') {
+              console.log('🔄 Enviando progresso para UI:', data);
               onProgress(data);
             }
             
             // Close connection when completed
             if (data.type === 'completed' || data.type === 'error') {
+              console.log('🔚 SSE finalizando...');
               eventSource?.close();
             }
           } catch (error) {
-            console.error('Failed to parse SSE data:', error);
+            console.error('❌ Erro ao parsear SSE:', error, 'Raw data:', event.data);
           }
         };
         
         eventSource.onerror = (error) => {
-          console.error('SSE connection error:', error);
-          eventSource?.close();
+          console.error('❌ SSE erro de conexão:', error);
+          console.log('📊 SSE readyState:', eventSource?.readyState);
+          // Não fechar automaticamente para permitir reconexão
         };
       }
       
       // Wait a bit for SSE connection to establish, then start refresh
       setTimeout(async () => {
         try {
+          console.log('🚀 Iniciando refresh com sessionId:', sessionId);
           const response = await axiosInstance.post('/assets/refresh', { sessionId });
+          console.log('✅ Refresh response:', response.data);
           resolve(response.data);
         } catch (error) {
+          console.error('❌ Erro no refresh:', error);
           eventSource?.close();
           reject(error);
         }
-      }, 100); // 100ms delay
+      }, 500); // 500ms delay para garantir conexão SSE
     });
   },
 
@@ -125,6 +151,29 @@ export const api = {
     topVolume: Asset[]
   }> {
     return axiosInstance.get('/assets/stats/overview')
+  },
+
+  async clearAllAssets(): Promise<{
+    message: string
+    deletedCount: number
+  }> {
+    console.log('🔄 API: Chamando DELETE /assets/clear')
+    try {
+      const response = await axiosInstance.delete('/assets/clear')
+      console.log('✅ API: Resposta completa recebida:', response)
+      console.log('✅ API: response.data:', response.data)
+      console.log('✅ API: response.status:', response.status)
+      
+      // O response interceptor já extraiu response.data.data, então response.data contém { message, deletedCount }
+      const result = response.data
+      console.log('✅ API: Resultado final:', result)
+      return result
+    } catch (error: any) {
+      console.error('❌ API: Erro ao limpar banco:', error)
+      console.error('❌ API: error.response:', error.response)
+      console.error('❌ API: error.message:', error.message)
+      throw error
+    }
   },
 
   // Trading Bot

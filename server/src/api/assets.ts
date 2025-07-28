@@ -19,6 +19,7 @@ const refreshSessions = new Map<string, Response>();
 // SSE endpoint for refresh progress
 router.get('/refresh/progress/:sessionId', (req: Request, res: Response) => {
   const sessionId = req.params.sessionId;
+  console.log(`🔌 Nova conexão SSE: ${sessionId}`);
   
   // Set up SSE headers
   res.writeHead(200, {
@@ -31,12 +32,16 @@ router.get('/refresh/progress/:sessionId', (req: Request, res: Response) => {
   
   // Store session
   refreshSessions.set(sessionId, res);
+  console.log(`📊 SSE sessions ativas: ${refreshSessions.size}`);
   
   // Send initial connection message
-  res.write(`data: ${JSON.stringify({ type: 'connected', sessionId })}\n\n`);
+  const initialMessage = { type: 'connected', sessionId, timestamp: Date.now() };
+  res.write(`data: ${JSON.stringify(initialMessage)}\n\n`);
+  console.log(`✅ Mensagem inicial SSE enviada para ${sessionId}`);
   
   // Clean up on client disconnect
   req.on('close', () => {
+    console.log(`🔚 Cliente SSE desconectado: ${sessionId}`);
     refreshSessions.delete(sessionId);
   });
 });
@@ -45,7 +50,11 @@ router.get('/refresh/progress/:sessionId', (req: Request, res: Response) => {
 function sendProgress(sessionId: string, data: any) {
   const session = refreshSessions.get(sessionId);
   if (session) {
-    session.write(`data: ${JSON.stringify(data)}\n\n`);
+    const message = `data: ${JSON.stringify(data)}\n\n`;
+    console.log(`📡 Enviando SSE para ${sessionId}:`, data.type, data.message);
+    session.write(message);
+  } else {
+    console.log(`⚠️ Sessão SSE ${sessionId} não encontrada nas ${refreshSessions.size} sessões ativas`);
   }
 }
 
@@ -97,6 +106,51 @@ router.get('/', asyncHandler(async (req: Request, res: Response) => {
         total: count,
         totalPages: Math.ceil(count / limitNum)
       }
+    }
+  });
+}));
+
+// Get all assets without pagination (for full data loading)
+router.get('/all', asyncHandler(async (req: Request, res: Response) => {
+  const { 
+    sortBy = 'quoteVolume24h', 
+    sortOrder = 'DESC',
+    search = '',
+    status = 'TRADING'
+  } = req.query;
+
+  // Build where clause
+  const where: any = {};
+  
+  if (status) {
+    where.status = status;
+  }
+  
+  if (search) {
+    const likeOp = getLikeOperator();
+    where[Op.or] = [
+      { symbol: { [likeOp]: `%${search}%` } },
+      { name: { [likeOp]: `%${search}%` } }
+    ];
+  }
+
+  const startTime = Date.now();
+  
+  // Get all assets from database without pagination
+  const assets = await Asset.findAll({
+    where,
+    order: [[sortBy as string, sortOrder as string]]
+  });
+
+  const executionTime = ((Date.now() - startTime) / 1000).toFixed(3);
+
+  res.json({
+    success: true,
+    data: {
+      assets,
+      count: assets.length,
+      executionTime: `${executionTime}s`,
+      lastUpdated: new Date().toISOString()
     }
   });
 }));
@@ -171,22 +225,38 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
   logger.info('Refreshing assets from BingX API...', { sessionId });
   
   try {
-    // Send initial progress
+    // Send initial progress IMEDIATAMENTE
     sendProgress(sessionId, {
       type: 'progress',
-      message: 'Fetching contracts from BingX API...',
-      progress: 0,
+      message: 'Conectando com BingX API...',
+      progress: 5,
       processed: 0,
       total: 0
     });
+    
+    // Enviar mais um update rápido para testar
+    setTimeout(() => {
+      sendProgress(sessionId, {
+        type: 'progress',
+        message: 'Buscando contratos disponíveis...',
+        progress: 10,
+        processed: 0,
+        total: 0
+      });
+    }, 100);
 
+    // Invalidate cache to ensure fresh data
+    bingxClient.invalidateSymbolsCache();
+    
     // Get all contracts from BingX
     const response = await bingxClient.getSymbols();
     
     logger.info('BingX getSymbols response:', {
       code: response?.code,
       dataLength: response?.data?.length,
-      sampleData: response?.data?.slice(0, 2) // Show first 2 items for debugging
+      sampleData: response?.data?.slice(0, 2), // Show first 2 items for debugging
+      lastFewData: response?.data?.slice(-2), // Show last 2 items for debugging
+      totalContracts: response?.data?.length || 0
     });
     
     if (response.code !== 0 || !response.data) {
@@ -205,39 +275,77 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
    
     const contractsToProcess = response.data;
     
+    // 🔍 INVESTIGAR: Verificar se há contratos duplicados
+    const symbolCounts = new Map<string, number>();
+    const duplicateSymbols: string[] = [];
+    
+    contractsToProcess.forEach((contract: any) => {
+      if (contract.symbol) {
+        const count = symbolCounts.get(contract.symbol) || 0;
+        symbolCounts.set(contract.symbol, count + 1);
+        if (count === 1) { // Segunda ocorrência
+          duplicateSymbols.push(contract.symbol);
+        }
+      }
+    });
+    
+    const uniqueSymbols = symbolCounts.size;
+    const totalDuplicates = contractsToProcess.length - uniqueSymbols;
+    
+    logger.info(`🔍 ANÁLISE DE DUPLICATAS:`, {
+      totalContratos: contractsToProcess.length,
+      simbolosUnicos: uniqueSymbols,
+      duplicatas: totalDuplicates,
+      exemplosDuplicatas: duplicateSymbols.slice(0, 5)
+    });
+    
+    if (totalDuplicates > 0) {
+      logger.warn(`⚠️ ENCONTRADAS ${totalDuplicates} DUPLICATAS! Isso pode explicar a diferença.`);
+    }
+    
     // Send progress with total count
     sendProgress(sessionId, {
       type: 'progress',
-      message: `Processing ${contractsToProcess.length} contracts...`,
+      message: `🔍 Analisando ${contractsToProcess.length} contratos (${uniqueSymbols} únicos, ${totalDuplicates} duplicatas)...`,
       progress: 5,
       processed: 0,
-      total: contractsToProcess.length
+      total: contractsToProcess.length,
+      uniqueSymbols,
+      duplicates: totalDuplicates
     });
     
     let created = 0;
     let updated = 0;
     let processed = 0;
-    let skipped = 0;
+    let skipped = 0; // Contratos que não foram processados (duplicados, inválidos, etc)
+    let dbOperations = 0; // Operações reais no banco
+    const statusCounts = {
+      TRADING: 0,
+      SUSPENDED: 0,
+      DELISTED: 0,
+      MAINTENANCE: 0,
+      UNKNOWN: 0
+    };
     
     
-    // Process each contract with rate limiting (100 requests/10 seconds = 10 requests/second max)
-    let tickerRequests = 0;
-    const maxRequestsPerSecond = 8; // Conservative limit below 10/sec
-    let lastRequestTime = Date.now();
+    // Process contracts in batches for optimal performance
+    const startTime = Date.now();
     
     for (const contract of contractsToProcess) {
       processed++;
       
-      // Send progress updates every 10 items or for first few
-      if (processed % 10 === 0 || processed <= 5) {
+      // Send progress updates mais frequentes para mostrar progresso em tempo real
+      if (processed % 25 === 0 || processed <= 10 || processed === contractsToProcess.length) {
         const progress = Math.min(95, Math.round(10 + (processed / contractsToProcess.length) * 85));
         sendProgress(sessionId, {
           type: 'progress',
-          message: `Processing ${contract.symbol}... (${processed}/${contractsToProcess.length})`,
+          message: `🔄 ${contract.symbol} (${processed}/${contractsToProcess.length}) | ✅ ${created + updated} salvos`,
           progress,
           processed,
           total: contractsToProcess.length,
-          current: contract.symbol
+          current: contract.symbol,
+          dbOperations: created + updated,
+          skipped: processed - (created + updated)
         });
       }
       
@@ -250,137 +358,229 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
         });
       }
       
-      // Log contract structure for debugging
+      // Process ALL contracts regardless of status (active, inactive, suspended)
+      // We want to show everything in the interface
       if (processed <= 5) {
-        logger.debug(`Contract ${processed} structure:`, {
+        logger.debug(`Processing contract ${processed}:`, {
           symbol: contract.symbol,
           status: contract.status,
-          contractType: contract.contractType,
-          contractId: contract.contractId,
-          asset: contract.asset,
-          currency: contract.currency,
-          hasContractType: 'contractType' in contract
+          statusText: contract.status === 1 ? 'TRADING' : 'INACTIVE/SUSPENDED'
         });
       }
       
-      // BingX futures contracts don't have contractType field
-      // Instead they have status=1 (active) and are all perpetual futures
-      // Skip if not active trading status
-      if (contract.status !== 1) {
-        skipped++;
-        if (processed <= 5) {
-          logger.debug(`Skipping inactive contract: ${contract.symbol} (status: ${contract.status})`);
-        }
-        continue;
+      // Map BingX status codes to descriptive text - CORRIGIDO
+      let statusText = 'UNKNOWN';
+      
+      // Log para debug dos primeiros contratos
+      if (processed <= 5) {
+        logger.info(`🔍 Status debug para ${contract.symbol}:`, {
+          status: contract.status,
+          statusType: typeof contract.status,
+          statusString: String(contract.status)
+        });
       }
       
+      // Converter para número se for string
+      const statusCode = typeof contract.status === 'string' ? parseInt(contract.status) : contract.status;
+      
+      switch (statusCode) {
+        case 1:
+          statusText = 'TRADING';
+          break;
+        case 0:
+          statusText = 'SUSPENDED';
+          break;
+        case 2:
+          statusText = 'DELISTED';
+          break;
+        case 3:
+          statusText = 'MAINTENANCE';
+          break;
+        default:
+          // Se status for undefined, null ou inválido, usar UNKNOWN
+          if (contract.status === undefined || contract.status === null) {
+            statusText = 'UNKNOWN';
+            if (processed <= 10) {
+              logger.warn(`⚠️ Status undefined para ${contract.symbol}, usando UNKNOWN`);
+            }
+          } else {
+            statusText = 'UNKNOWN'; // Não mais STATUS_undefined
+            if (processed <= 10) {
+              logger.warn(`⚠️ Status desconhecido '${contract.status}' para ${contract.symbol}, usando UNKNOWN`);
+            }
+          }
+      }
+
       const assetData: any = {
         symbol: contract.symbol,
         name: contract.displayName || contract.symbol,
-        baseCurrency: contract.asset,           // BTC, ETH, etc.
-        quoteCurrency: contract.currency,       // USDT
-        status: contract.status === 1 ? 'TRADING' : 'SUSPEND',
-        minQty: parseFloat(contract.tradeMinQuantity || contract.size || 0),
-        maxQty: parseFloat(contract.maxQty || 999999999),
-        tickSize: Math.pow(10, -contract.pricePrecision),     // Convert precision to tick size
-        stepSize: Math.pow(10, -contract.quantityPrecision),  // Convert precision to step size
-        maxLeverage: parseInt(contract.maxLeverage || 100),   // Default max leverage
-        maintMarginRate: parseFloat(contract.feeRate || 0),
-        // Initialize missing required fields
-        lastPrice: 0,
-        priceChangePercent: 0,
-        volume24h: 0,
-        quoteVolume24h: 0,
-        highPrice24h: 0,
-        lowPrice24h: 0,
-        openInterest: 0
+        baseCurrency: contract.asset || 'UNKNOWN',           // BTC, ETH, etc.
+        quoteCurrency: contract.currency || 'USDT',          // USDT
+        status: statusText, // Já corrigido acima
+        minQty: parseFloat(contract.tradeMinQuantity || contract.size || '0') || 0,
+        maxQty: parseFloat(contract.maxQty || '999999999') || 999999999,
+        tickSize: contract.pricePrecision ? Math.pow(10, -contract.pricePrecision) : 0.0001,
+        stepSize: contract.quantityPrecision ? Math.pow(10, -contract.quantityPrecision) : 0.001,
+        maxLeverage: parseInt(contract.maxLeverage || '100') || 100,
+        maintMarginRate: parseFloat(contract.feeRate || '0') || 0,
+        // Use contract data directly instead of individual ticker calls
+        lastPrice: parseFloat(contract.lastPrice || '0') || 0,
+        priceChangePercent: parseFloat(contract.priceChangePercent || '0') || 0,
+        volume24h: parseFloat(contract.volume || '0') || 0,
+        quoteVolume24h: parseFloat(contract.turnover || '0') || 0,
+        highPrice24h: parseFloat(contract.highPrice || '0') || 0,
+        lowPrice24h: parseFloat(contract.lowPrice || '0') || 0,
+        openInterest: parseFloat(contract.openInterest || '0') || 0
       };
+      
+      // FORÇAR SALVAMENTO DE TODOS - garantir que não haja valores que quebrem o banco
+      assetData.symbol = assetData.symbol || `UNKNOWN_${processed}`;
+      assetData.name = assetData.name || assetData.symbol;
+      assetData.baseCurrency = assetData.baseCurrency || 'UNKNOWN';
+      assetData.quoteCurrency = assetData.quoteCurrency || 'USDT';
+      assetData.status = assetData.status || 'UNKNOWN';
+      
+      // Garantir que números sejam válidos
+      Object.keys(assetData).forEach(key => {
+        if (typeof assetData[key] === 'number' && isNaN(assetData[key])) {
+          assetData[key] = 0;
+        }
+      });
       
       // Log first few asset data for debugging
       if (processed <= 3) {
         logger.debug(`Asset data ${processed}:`, assetData);
       }
       
-      // Get ticker data for volume and price info with rate limiting
-      try {
-        // Rate limiting: max 8 requests per second
-        tickerRequests++;
-        if (tickerRequests >= maxRequestsPerSecond) {
-          const timeElapsed = Date.now() - lastRequestTime;
-          if (timeElapsed < 1000) {
-            const delay = 1000 - timeElapsed;
-            logger.debug(`Rate limiting: waiting ${delay}ms before next batch`);
-            await new Promise(resolve => setTimeout(resolve, delay));
-          }
-          tickerRequests = 0;
-          lastRequestTime = Date.now();
-        }
-        
-        const ticker = await bingxClient.getTicker(contract.symbol);
-        if (ticker.code === 0 && ticker.data) {
-          assetData.lastPrice = parseFloat(ticker.data.lastPrice);
-          assetData.priceChangePercent = parseFloat(ticker.data.priceChangePercent);
-          assetData.volume24h = parseFloat(ticker.data.volume);
-          assetData.quoteVolume24h = parseFloat(ticker.data.quoteVolume);
-          assetData.highPrice24h = parseFloat(ticker.data.highPrice);
-          assetData.lowPrice24h = parseFloat(ticker.data.lowPrice);
-          assetData.openInterest = parseFloat(ticker.data.openInterest || 0);
-        }
-      } catch (error) {
-        // Check if it's a rate limit error
-        if (error instanceof Error && (error.message.includes('1015') || error.message.includes('rate limit'))) {
-          logger.warn(`Rate limit hit for ${contract.symbol}, waiting 2 seconds...`);
-          await new Promise(resolve => setTimeout(resolve, 2000));
-          tickerRequests = 0;
-          lastRequestTime = Date.now();
-        } else {
-          logger.warn(`Failed to get ticker for ${contract.symbol}:`, error);
-        }
-        // Continue processing other contracts even if ticker fails
+      // ACEITAR TODOS OS CONTRATOS - apenas validar se tem símbolo mínimo
+      if (!contract.symbol || contract.symbol.trim() === '') {
+        // Criar símbolo temporário se não existir
+        const tempSymbol = `UNKNOWN_${processed}_${Date.now()}`;
+        logger.warn(`⚠️ Contrato sem símbolo, criando temporário: ${tempSymbol}`);
+        contract.symbol = tempSymbol;
       }
-      
-      // Upsert to database
+
+      // Log detalhado dos primeiros contratos para debug
+      if (processed <= 5) {
+        logger.info(`📝 SALVANDO TODOS - Preparando asset ${processed}:`, {
+          symbol: contract.symbol,
+          originalStatus: contract.status,
+          processedStatus: statusText,
+          hasBaseCurrency: !!contract.asset,
+          hasQuoteCurrency: !!contract.currency
+        });
+      }
+
+      // Upsert to database - GARANTIR que TODOS sejam salvos
       try {
-        const [_asset, wasCreated] = await Asset.upsert(assetData, {
+        const [savedAsset, wasCreated] = await Asset.upsert(assetData, {
           returning: true
         });
         
-        if (wasCreated) {
-          created++;
-        } else {
-          updated++;
+        // Verificar se realmente foi salvo
+        if (!savedAsset) {
+          logger.error(`❌ FALHA CRÍTICA: Asset ${contract.symbol} não foi salvo no banco!`);
+          skipped++;
+          continue;
         }
         
-        // Log progress every 50 assets
-        if ((created + updated) % 50 === 0) {
-          logger.info(`Progress: ${created + updated} assets processed (${created} created, ${updated} updated)`);
+        // Count status distribution APENAS para assets salvos
+        if (statusCounts.hasOwnProperty(statusText)) {
+          statusCounts[statusText as keyof typeof statusCounts]++;
+        } else {
+          statusCounts.UNKNOWN++;
         }
-      } catch (dbError) {
-        logger.error(`Failed to upsert asset ${contract.symbol}:`, dbError);
+
+        if (wasCreated) {
+          created++;
+          if (processed <= 10) {
+            logger.info(`✅ CRIADO: ${contract.symbol} → ID: ${savedAsset.id}`);
+          }
+        } else {
+          updated++;
+          if (processed <= 10) {
+            logger.info(`🔄 ATUALIZADO: ${contract.symbol} → ID: ${savedAsset.id}`);
+          }
+        }
+        
+        // Log progress mais detalhado
+        if ((created + updated) % 100 === 0) {
+          const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+          const successRate = ((created + updated) / processed * 100).toFixed(1);
+          logger.info(`📊 Progress: ${created + updated}/${processed} salvos (${successRate}% success rate) em ${elapsed}s`);
+        }
+      } catch (dbError: any) {
+        logger.error(`❌ ERRO DB ao salvar ${contract.symbol}:`, {
+          error: dbError.message,
+          code: dbError.code,
+          detail: dbError.detail,
+          assetData: {
+            symbol: assetData.symbol,
+            name: assetData.name,
+            status: assetData.status
+          }
+        });
+        skipped++;
         // Continue processing other assets
       }
     }
     
+    const totalTime = ((Date.now() - startTime) / 1000).toFixed(2);
+    const assetsPerSecond = ((created + updated) / parseFloat(totalTime)).toFixed(1);
+    const totalSaved = created + updated;
+    const successRate = ((totalSaved / processed) * 100).toFixed(1);
+    
+    // ANÁLISE CRÍTICA: Por que contratos foram perdidos?
+    const contractsLost = processed - totalSaved;
+    if (contractsLost > 0) {
+      logger.error(`🚨 PROBLEMA CRÍTICO: ${contractsLost} contratos foram perdidos!`, {
+        contratosTotais: contractsToProcess.length,
+        processados: processed,
+        salvosNoBanco: totalSaved,
+        perdidos: contractsLost,
+        taxaSucesso: `${successRate}%`,
+        created,
+        updated,
+        skipped
+      });
+    }
+    
     logger.info(`Assets refresh completed:`, {
-      totalContracts: contractsToProcess.length,
-      processedContracts: contractsToProcess.length,
-      processed,
-      skipped,
-      created,
-      updated,
-      perpetualContracts: processed - skipped
+      discovery: {
+        totalContracts: contractsToProcess.length,
+        processedContracts: processed,
+        savedToDatabase: totalSaved,
+        lostContracts: contractsLost,
+        successRate: `${successRate}%`
+      },
+      database: {
+        created,
+        updated,
+        skipped
+      },
+      statusDistribution: statusCounts,
+      performance: {
+        executionTime: `${totalTime}s`,
+        assetsPerSecond: `${assetsPerSecond} assets/second`
+      }
     });
     
-    // Send final progress
+    // Send final progress with CORRECT metrics
     sendProgress(sessionId, {
       type: 'completed',
-      message: 'Assets refresh completed successfully!',
+      message: `BUSCA EXAUSTIVA: ${totalSaved} contratos salvos de ${processed} encontrados (${successRate}% success rate) em ${totalTime}s`,
       progress: 100,
       processed,
       total: contractsToProcess.length,
       created,
       updated,
-      skipped: processed - skipped
+      skipped: contractsLost,
+      savedToDatabase: totalSaved,
+      statusDistribution: statusCounts,
+      executionTime: totalTime,
+      performance: assetsPerSecond,
+      successRate: `${successRate}%`,
+      contractsLost
     });
     
     // Close SSE connection
@@ -397,8 +597,8 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
         created,
         updated,
         total: contractsToProcess.length,
-        processed: processed - skipped,
-        skipped,
+        processed,
+        statusDistribution: statusCounts,
         sessionId
       }
     });
@@ -456,6 +656,43 @@ router.get('/stats/overview', asyncHandler(async (_req: Request, res: Response) 
       topVolume
     }
   });
+}));
+
+// Clear all assets from database
+router.delete('/clear', asyncHandler(async (req: Request, res: Response) => {
+  logger.info('🗑️ CLEAR ENDPOINT HIT: Clearing all assets from database...');
+  console.log('🗑️ CLEAR ENDPOINT: Request received');
+  
+  try {
+    logger.info('🔄 Contando assets antes da limpeza...');
+    const countBefore = await Asset.count();
+    logger.info(`📊 Assets no banco antes da limpeza: ${countBefore}`);
+    
+    logger.info('🗑️ Executando Asset.destroy...');
+    const deletedCount = await Asset.destroy({
+      where: {},
+      truncate: true // More efficient for clearing all records
+    });
+    
+    logger.info(`✅ Successfully cleared ${deletedCount} assets from database`);
+    console.log(`✅ CLEAR ENDPOINT: ${deletedCount} assets removidos`);
+    
+    const response = {
+      success: true,
+      data: {
+        message: 'All assets cleared from database',
+        deletedCount: deletedCount || countBefore // Fallback para truncate
+      }
+    };
+    
+    logger.info('📤 Enviando resposta:', response);
+    res.json(response);
+    
+  } catch (error) {
+    logger.error('❌ Failed to clear assets:', error);
+    console.error('❌ CLEAR ENDPOINT ERROR:', error);
+    throw new AppError('Failed to clear assets from database', 500);
+  }
 }));
 
 export default router;
