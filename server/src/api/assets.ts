@@ -16,51 +16,55 @@ const getLikeOperator = () => {
 // Store active refresh sessions for progress tracking
 const refreshSessions = new Map<string, Response>();
 
-// SSE endpoint for refresh progress
+// SSE endpoint for refresh progress - RENDER.COM OPTIMIZED
 router.get('/refresh/progress/:sessionId', (req: Request, res: Response) => {
   const sessionId = req.params.sessionId;
   console.log(`🔌 Nova conexão SSE: ${sessionId}`);
   
-  // Set up SSE headers - CRITICAL: Disable compression for real-time streaming
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache, no-transform', // no-transform disables compression
-    'Connection': 'keep-alive',
-    'Content-Encoding': 'none', // Explicitly disable compression
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Headers': 'Cache-Control',
-    'X-Accel-Buffering': 'no' // Disable proxy buffering for real-time updates
-  });
+  // RENDER-SPECIFIC SSE HEADERS - Critical for production deployment
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no'); // CRITICAL: Prevents nginx buffering on Render
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'Cache-Control');
+  
+  // Immediately flush headers to establish connection
+  res.flushHeaders();
   
   // Store session
   refreshSessions.set(sessionId, res);
   console.log(`📊 SSE sessions ativas: ${refreshSessions.size}`);
   
-  // Send initial connection message with flush
+  // Send initial connection message with immediate flush
   const initialMessage = { type: 'connected', sessionId, timestamp: Date.now() };
   res.write(`data: ${JSON.stringify(initialMessage)}\n\n`);
-  if (typeof res.flush === 'function') {
-    res.flush();
-  }
+  res.flush();
   console.log(`✅ Mensagem inicial SSE enviada para ${sessionId}`);
   
-  // Keep-alive heartbeat to maintain connection and test real-time delivery
+  // RENDER FIX: 30-second keep-alive to prevent 60-second timeout
   const heartbeat = setInterval(() => {
     if (refreshSessions.has(sessionId)) {
-      const pingMessage = { 
-        type: 'heartbeat', 
-        sessionId, 
-        timestamp: Date.now(),
-        message: '💓 Conexão ativa' 
-      };
-      res.write(`data: ${JSON.stringify(pingMessage)}\n\n`);
-      if (typeof res.flush === 'function') {
+      // Send invisible comment line to maintain connection (Render best practice)
+      res.write(':\n\n'); // SSE comment - invisible to client but keeps connection alive
+      res.flush();
+      
+      // Every 6th heartbeat (3 minutes), send visible heartbeat
+      const now = Date.now();
+      if (now % 180000 < 30000) { // Roughly every 3 minutes
+        const pingMessage = { 
+          type: 'heartbeat', 
+          sessionId, 
+          timestamp: now,
+          message: '💓 Conexão ativa - Render optimized' 
+        };
+        res.write(`data: ${JSON.stringify(pingMessage)}\n\n`);
         res.flush();
       }
     } else {
       clearInterval(heartbeat);
     }
-  }, 2000); // Heartbeat every 2 seconds
+  }, 30000); // 30 seconds - CRITICAL for Render's 60-second timeout
   
   // Clean up on client disconnect
   req.on('close', () => {
@@ -76,7 +80,7 @@ router.get('/refresh/progress/:sessionId', (req: Request, res: Response) => {
   });
 });
 
-// Helper function to send progress updates - CRITICAL: Added flush() for real-time delivery
+// Helper function to send progress updates - RENDER.COM OPTIMIZED
 function sendProgress(sessionId: string, data: any): Promise<void> {
   return new Promise((resolve) => {
     const session = refreshSessions.get(sessionId);
@@ -85,16 +89,15 @@ function sendProgress(sessionId: string, data: any): Promise<void> {
       console.log(`📡 Enviando SSE para ${sessionId}:`, data.type, data.message);
       session.write(message);
       
-      // CRITICAL: Force immediate flush to bypass compression buffering
-      if (typeof session.flush === 'function') {
-        session.flush();
-      }
-      // Force socket to send data immediately by disabling Nagle's algorithm temporarily
+      // RENDER CRITICAL: Always flush immediately for real-time delivery
+      session.flush(); // Remove conditional - always flush on Render
+      
+      // Additional Render optimizations
       if (session.socket) {
-        session.socket.setNoDelay(true);
+        session.socket.setNoDelay(true); // Disable Nagle's algorithm for immediate send
       }
       
-      // Yield to event loop to ensure message is sent
+      // Yield to event loop to ensure message is sent before continuing
       setImmediate(resolve);
     } else {
       console.log(`⚠️ Sessão SSE ${sessionId} não encontrada nas ${refreshSessions.size} sessões ativas`);
