@@ -5,6 +5,7 @@
 
 import { sequelize } from '../config/database';
 import { logger } from '../utils/logger';
+import { QueryTypes } from 'sequelize';
 import Asset from '../models/Asset';
 
 async function verifyDeployment() {
@@ -60,7 +61,7 @@ async function verifyDeployment() {
         `;
         
         const indexes = await sequelize.query(indexQuery, { 
-          type: sequelize.QueryTypes.SELECT 
+          type: QueryTypes.SELECT 
         }) as any[];
         
         logger.info(`✅ Database indexes: ${indexes.length} custom indexes found`);
@@ -79,7 +80,7 @@ async function verifyDeployment() {
       // Try to create and delete a test record
       const testSymbol = `TEST_VERIFY_${Date.now()}`;
       
-      const testAsset = await Asset.create({
+      await Asset.create({
         symbol: testSymbol,
         name: 'Test Asset',
         baseCurrency: 'TEST',
