@@ -214,7 +214,7 @@ export default function TradingPage() {
   return (
     <div className="flex flex-col bg-gray-50">
       {/* Barra de Métricas Superior */}
-      <BarraMetricasTrading />
+      {/* <BarraMetricasTrading /> */}
 
       {/* Dashboard Principal */}
       <div className="flex-1 flex flex-col overflow-hidden">
