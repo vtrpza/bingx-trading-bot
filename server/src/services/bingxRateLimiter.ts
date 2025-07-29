@@ -13,13 +13,14 @@ export class BingXRateLimiter {
 
   constructor() {
     // Market Data Limiter: 100 requests/10 seconds per IP (BingX official limit)
+    // OPTIMIZED: Allow 3 concurrent requests with faster timing for batch processing
     this.marketDataLimiter = new Bottleneck({
-      maxConcurrent: 1,
-      minTime: 120, // 120ms between requests = ~8.3 requests/second (buffer for safety)
+      maxConcurrent: 3, // Allow 3 parallel requests
+      minTime: 80, // 80ms between requests = ~12.5 requests/second total
       reservoir: 90, // Start with 90 tokens (buffer from 100 limit)
       reservoirRefreshAmount: 90,
       reservoirRefreshInterval: 10 * 1000, // Refresh every 10 seconds
-      id: 'bingx-market-data'
+      id: 'bingx-market-data-optimized'
     });
 
     // Trading Operations Limiter: 5 requests/second for orders
@@ -86,6 +87,46 @@ export class BingXRateLimiter {
         this.setCache(key, result);
         return result;
       });
+    });
+  }
+
+  /**
+   * Execute batch of market data requests with controlled parallelism
+   */
+  async executeBatchMarketDataRequests<T>(
+    requests: Array<{ key: string; requestFn: () => Promise<T>; cacheSeconds?: number }>
+  ): Promise<T[]> {
+    // Check cache for all requests first
+    const results: (T | null)[] = requests.map(req => {
+      const cached = this.getFromCache(req.key, (req.cacheSeconds || 5) * 1000);
+      return cached as T | null;
+    });
+    
+    // Find which requests need to be made
+    const uncachedRequests = requests.filter((_, index) => results[index] === null);
+    
+    if (uncachedRequests.length === 0) {
+      logger.debug(`📋 All ${requests.length} requests served from cache`);
+      return results as T[];
+    }
+    
+    logger.debug(`🚀 Executing ${uncachedRequests.length}/${requests.length} requests in parallel`);
+    
+    // Execute uncached requests with controlled parallelism
+    const promises = uncachedRequests.map(req => 
+      this.executeMarketDataRequest(req.key, req.requestFn, req.cacheSeconds)
+    );
+    
+    const uncachedResults = await Promise.all(promises);
+    
+    // Merge cached and uncached results
+    let uncachedIndex = 0;
+    return results.map(cached => {
+      if (cached !== null) {
+        return cached;
+      } else {
+        return uncachedResults[uncachedIndex++];
+      }
     });
   }
 

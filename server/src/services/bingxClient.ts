@@ -45,7 +45,7 @@ export class BingXClient {
 
     this.axios = axios.create({
       baseURL: this.config.baseURL,
-      timeout: 15000, // Increased from 10s to 15s to handle rate limiting delays
+      timeout: 30000, // Increased to 30s for batch operations and slower responses
       headers: {
         'Content-Type': 'application/json'
       }
@@ -170,32 +170,34 @@ export class BingXClient {
   }
 
 
-  // RATE-LIMITED: Sequential API calls to prevent 429 errors
-  async getSymbolsAndTickersSequential() {
-    const cacheKey = 'symbols_and_tickers_sequential';
+  // OPTIMIZED: Controlled parallel API calls with rate limiting
+  async getSymbolsAndTickersOptimized() {
     
-    // Use rate limiter's caching mechanism for better cache management
-    return bingxRateLimiter.executeMarketDataRequest(
-      cacheKey,
-      async () => {
-        logger.info('📊 SEQUENTIAL FETCH: Getting symbols and tickers with rate limiting...');
-        
-        // Execute sequentially to avoid rate limits
-        const symbolsResult = await this.getSymbols();
-        const tickersResult = await this.getAllTickers();
-        
-        const result = {
-          symbols: symbolsResult,
-          tickers: tickersResult,
-          timestamp: Date.now(),
-          source: 'sequential_fetch_rate_limited'
-        };
-        
-        logger.info(`✅ SEQUENTIAL FETCH COMPLETED: ${symbolsResult?.data?.length || 0} symbols + ${tickersResult?.data?.length || 0} tickers`);
-        return result;
+    // Use rate limiter's batch execution for controlled parallelism
+    const results = await bingxRateLimiter.executeBatchMarketDataRequests([
+      {
+        key: 'symbols',
+        requestFn: () => this.fetchSymbolsFromAPI() as Promise<any>,
+        cacheSeconds: 60
       },
-      120 // Cache for 2 minutes
-    );
+      {
+        key: 'all_tickers', 
+        requestFn: () => this.fetchTickersFromAPI() as Promise<any>,
+        cacheSeconds: 30
+      }
+    ]);
+    
+    const [symbolsResult, tickersResult] = results as [any, any];
+    
+    const result = {
+      symbols: symbolsResult,
+      tickers: tickersResult,
+      timestamp: Date.now(),
+      source: 'optimized_parallel_rate_limited'
+    };
+    
+    logger.info(`🚀 OPTIMIZED PARALLEL COMPLETED: ${symbolsResult?.data?.length || 0} symbols + ${tickersResult?.data?.length || 0} tickers`);
+    return result;
   }
 
   // Market Data Methods (Public)
@@ -205,7 +207,7 @@ export class BingXClient {
     return bingxRateLimiter.executeMarketDataRequest(
       cacheKey,
       async () => this.fetchSymbolsFromAPI(),
-      120 // Cache for 2 minutes
+      60 // Cache for 1 minute (faster refresh)
     );
   }
   
@@ -576,7 +578,7 @@ export class BingXClient {
         });
         return response.data;
       },
-      90 // Cache for 90 seconds
+      30 // Cache for 30 seconds (faster updates)
     );
   }
 
@@ -698,7 +700,7 @@ export class BingXClient {
         const response = await this.axios.get('/openApi/swap/v2/user/balance');
         return response.data;
       },
-      60 // Cache for 60 seconds
+      30 // Cache for 30 seconds (faster balance updates)
     );
   }
 

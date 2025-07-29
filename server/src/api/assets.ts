@@ -377,6 +377,10 @@ router.get('/:symbol', asyncHandler(async (req: Request, res: Response) => {
 
 // Refresh assets from BingX API
 router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
+  // Increase timeout for this heavy operation
+  req.setTimeout(600000); // 10 minutes
+  res.setTimeout(600000);
+  
   const sessionId = req.body.sessionId || `refresh_${Date.now()}`;
   const totalStartTime = Date.now(); // Real total time measurement
   logger.info('Refreshing assets from BingX API...', { sessionId });
@@ -397,10 +401,10 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
     // Invalidate cache to ensure fresh data
     bingxClient.clearCache();
     
-    // RATE-LIMITED: Sequential fetch of contracts and market data
+    // OPTIMIZED: Controlled parallel fetch with rate limiting
     await sendProgress(sessionId, {
       type: 'progress',
-      message: '🚀 Buscando contratos + dados de mercado sequencialmente...',
+      message: '🚀 Buscando contratos + dados de mercado (paralelo controlado)...',
       progress: 10,
       processed: 0,
       total: 0
@@ -411,13 +415,13 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
     let tickersResponse;
     
     try {
-      parallelData = await bingxClient.getSymbolsAndTickersSequential();
+      parallelData = await bingxClient.getSymbolsAndTickersOptimized();
       contractsResponse = parallelData.symbols;
       tickersResponse = parallelData.tickers;
-    } catch (sequentialError: any) {
-      logger.warn('⚠️  Sequential fetch failed, trying individual calls:', sequentialError.message);
+    } catch (optimizedError: any) {
+      logger.warn('⚠️  Optimized fetch failed, trying individual calls:', optimizedError.message);
       
-      // Fallback to individual calls if sequential fails
+      // Fallback to individual calls if optimized fetch fails
       try {
         contractsResponse = await bingxClient.getSymbols();
         
@@ -463,7 +467,7 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
         code: tickersResponse?.code,
         dataLength: tickersResponse?.data?.length,
         totalTickers: tickersResponse?.data?.length || 0,
-        endpoint: tickersResponse?.endpoint
+        endpoint: (tickersResponse as any)?.endpoint || 'unknown'
       }
     });
     
