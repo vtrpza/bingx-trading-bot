@@ -350,7 +350,11 @@ export default function AssetsPage() {
           processed: progressData.processed || 0,
           total: progressData.total || 0,
           executionTime: progressData.executionTime || '',
-          performance: progressData.performance || '',
+          performance: typeof progressData.performance === 'string' 
+            ? progressData.performance 
+            : typeof progressData.performance === 'object' && (progressData.performance as any).assetsPerSecond
+              ? (progressData.performance as any).assetsPerSecond
+              : '',
           current: progressData.current || ''
         })
         
@@ -366,7 +370,13 @@ export default function AssetsPage() {
           )
         } else if (progressData.type === 'completed') {
           const performancePart = progressData.executionTime ? 
-            `\nConcluído em ${progressData.executionTime} (${progressData.performance || ''})` : '';
+            `\nConcluído em ${progressData.executionTime} (${
+              typeof progressData.performance === 'string' 
+                ? progressData.performance 
+                : typeof progressData.performance === 'object' && (progressData.performance as any).assetsPerSecond
+                  ? (progressData.performance as any).assetsPerSecond
+                  : ''
+            })` : '';
           
           const statusPart = progressData.statusDistribution ? 
             `\n📊 Status: ${progressData.statusDistribution.TRADING || 0} ativos, ${progressData.statusDistribution.SUSPENDED || 0} suspensos, ${progressData.statusDistribution.DELISTED || 0} removidos` : '';
@@ -530,7 +540,12 @@ export default function AssetsPage() {
                 <div className="text-center">
                   <div className="font-semibold text-green-700">⚡ Performance</div>
                   <div className="font-mono text-green-600">
-                    {refreshProgress.performance} contratos/seg
+                    {typeof refreshProgress.performance === 'string' 
+                      ? refreshProgress.performance 
+                      : typeof refreshProgress.performance === 'object' && (refreshProgress.performance as any).assetsPerSecond
+                        ? (refreshProgress.performance as any).assetsPerSecond
+                        : 'Calculando...'
+                    }
                   </div>
                 </div>
               )}
