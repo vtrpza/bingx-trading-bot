@@ -23,11 +23,7 @@ const PORT = process.env.PORT || 3001;
 
 // Validate environment on startup
 const envCheck = validateEnvironment();
-if (!envCheck.valid) {
-  logger.error('❌ Environment validation failed - some features may not work');
-} else {
-  logger.info('✅ Environment validation passed');
-}
+// Environment validation now logs its own status messages
 
 // Middleware - Configure helmet with relaxed CSP
 app.use(helmet({
