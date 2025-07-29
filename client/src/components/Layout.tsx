@@ -14,15 +14,53 @@ export default function Layout({ children }: LayoutProps) {
   const location = useLocation()
   const [currentTab, setCurrentTab] = useState<'assets' | 'trading'>('assets')
 
-  // Get bot status for the header
-  const { data: botStatus } = useQuery<BotStatus>(
-    'bot-status',
-    () => api.getBotStatus(),
-    {
-      refetchInterval: 5000,
-      retry: false,
+  // Get bot status for the header with safe error handling
+  const { data: botStatus } = useQuery<BotStatus>({
+    queryKey: ['bot-status'],
+    queryFn: async () => {
+      try {
+        const response = await fetch('/api/trading/parallel-bot/status')
+        const result = await response.json()
+        
+        // Always return in the expected format with data object
+        if (result.success) {
+          return result // Already has {success: true, data: {...}} format
+        } else {
+          // If direct data, wrap it in the expected format
+          return {
+            success: true,
+            data: result
+          }
+        }
+      } catch (error) {
+        console.error('Bot status error in Layout:', error)
+        // Return safe default in expected format
+        return {
+          success: true,
+          data: {
+            isRunning: false,
+            demoMode: true,
+            activePositions: [],
+            architecture: 'parallel',
+            balance: { balance: '0' }
+          }
+        }
+      }
+    },
+    refetchInterval: 5000,
+    retry: false,
+    // Provide initial data in expected format
+    initialData: {
+      success: true,
+      data: {
+        isRunning: false,
+        demoMode: true,
+        activePositions: [],
+        architecture: 'parallel',
+        balance: { balance: '0' }
+      }
     }
-  )
+  })
 
   useEffect(() => {
     if (location.pathname.includes('/trading')) {
@@ -42,12 +80,12 @@ export default function Layout({ children }: LayoutProps) {
               <h1 className="text-2xl font-bold text-gray-900">
                 BingX Trading Bot
               </h1>
-              {botStatus?.data.demoMode && (
+              {botStatus?.data?.demoMode && (
                 <span className="ml-3 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
                   {t('dashboard.demoMode')}
                 </span>
               )}
-              {botStatus?.data.architecture && (
+              {botStatus?.data?.architecture && (
                 <span className="ml-3 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                   {botStatus.data.architecture === 'parallel' ? 'Parallel Bot' : 'Legacy Bot'}
                 </span>
@@ -78,7 +116,7 @@ export default function Layout({ children }: LayoutProps) {
               {botStatus && (
                 <div className="flex items-center space-x-2">
                   <span className="text-sm text-gray-600">
-                    Saldo: {parseFloat(botStatus?.data?.balance?.balance || '0').toFixed(2)} {botStatus.data.demoMode ? 'VST' : 'USDT'}
+                    Saldo: {parseFloat(botStatus?.data?.balance?.balance || '0').toFixed(2)} {botStatus?.data?.demoMode ? 'VST' : 'USDT'}
                   </span>
                 </div>
               )} 

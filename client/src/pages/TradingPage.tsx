@@ -32,18 +32,56 @@ export default function TradingPage() {
   const queryClient = useQueryClient()
 
   // Optimized queries with consistent keys and better performance settings
-  const { data: botStatus, isLoading } = useQuery<BotStatus2>({
+  const { data: botStatusResponse, isLoading } = useQuery<{success: boolean, data: BotStatus2}>({
     queryKey: QUERY_KEYS.BOT_STATUS,
     queryFn: async () => {
-      const response = await fetch('/api/trading/parallel-bot/status')
-      const result = await response.json()
-      // Handle both old format {success: true, data: {...}} and direct data
-      return result.success ? result.data : result
+      try {
+        const response = await fetch('/api/trading/parallel-bot/status')
+        const result = await response.json()
+        
+        // Always return in the expected format with data object
+        if (result.success) {
+          return result // Already has {success: true, data: {...}} format
+        } else {
+          // If direct data, wrap it in the expected format
+          return {
+            success: true,
+            data: result
+          }
+        }
+      } catch (error) {
+        console.error('Bot status error in TradingPage:', error)
+        // Return safe default in expected format
+        return {
+          success: true,
+          data: {
+            isRunning: false,
+            demoMode: true,
+            activePositions: [],
+            config: {},
+            architecture: 'parallel'
+          }
+        }
+      }
     },
     refetchInterval: 5000, // Increased from 3s to 5s to reduce API load
     staleTime: 2000, // Consider data fresh for 2 seconds
     cacheTime: 10000, // Keep in cache for 10 seconds
+    // Provide initial data in expected format
+    initialData: {
+      success: true,
+      data: {
+        isRunning: false,
+        demoMode: true,
+        activePositions: [],
+        config: {},
+        architecture: 'parallel'
+      }
+    }
   })
+
+  // Extract botStatus from response for component use
+  const botStatus = botStatusResponse?.data
 
   // Get trading statistics - Optimized with conditional fetching
   const { data: tradingStats } = useQuery({
@@ -173,11 +211,34 @@ export default function TradingPage() {
 
   // Memoized derived data to prevent unnecessary calculations with safe defaults
   const activePositions = useMemo(() => {
-    return Array.isArray(botStatus?.activePositions) ? botStatus.activePositions : []
+    try {
+      console.log('TradingPage - activePositions calc, botStatusResponse:', botStatusResponse, 'botStatus:', botStatus)
+      return Array.isArray(botStatus?.activePositions) ? botStatus.activePositions : []
+    } catch (error) {
+      console.error('Error in activePositions calculation:', error)
+      return []
+    }
   }, [botStatus?.activePositions])
   
-  const isConnected = useMemo(() => Boolean(botStatus && typeof botStatus === 'object'), [botStatus])
-  const isDemoMode = useMemo(() => Boolean(botStatus?.demoMode), [botStatus?.demoMode])
+  const isConnected = useMemo(() => {
+    try {
+      console.log('TradingPage - isConnected calc, botStatusResponse:', botStatusResponse, 'botStatus:', botStatus)
+      return Boolean(botStatus && typeof botStatus === 'object')
+    } catch (error) {
+      console.error('Error in isConnected calculation:', error)
+      return false
+    }
+  }, [botStatus])
+  
+  const isDemoMode = useMemo(() => {
+    try {
+      console.log('TradingPage - isDemoMode calc, botStatusResponse:', botStatusResponse, 'botStatus:', botStatus, 'demoMode:', botStatus?.demoMode)
+      return Boolean(botStatus?.demoMode)
+    } catch (error) {
+      console.error('Error in isDemoMode calculation:', error, 'botStatusResponse:', botStatusResponse, 'botStatus:', botStatus)
+      return true // Default to demo mode for safety
+    }
+  }, [botStatus?.demoMode])
   
   // Memoized blacklist data with slice optimization
   const displayedBlacklistedSymbols = useMemo(() => 
@@ -203,7 +264,7 @@ export default function TradingPage() {
   }
 
   // Safety check for botStatus
-  if (!botStatus || typeof botStatus !== 'object') {
+  if (!botStatusResponse?.data || typeof botStatusResponse.data !== 'object') {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-lg text-red-600">
