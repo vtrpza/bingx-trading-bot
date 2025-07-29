@@ -1,5 +1,8 @@
-import { Router, Request, Response } from 'express';
-import { bingxClient } from '../services/bingxClient';
+import { Router, Request, Response, NextFunction } from 'express';
+// RENDER CRITICAL FIX: Use ProductionOptimizedBingXClient for better reliability
+// This client has: intelligent endpoint selection, better caching, faster failover,
+// and improved rate limiting - essential for Render's production constraints
+import { productionOptimizedBingXClient as bingxClient } from '../services/ProductionOptimizedBingXClient';
 import Asset from '../models/Asset';
 import { AppError, asyncHandler } from '../utils/errorHandler';
 import { logger } from '../utils/logger';
@@ -8,6 +11,23 @@ import { sequelize } from '../config/database';
 import CoinInfoService from '../services/coinInfoService';
 
 const router = Router();
+
+// RENDER SPECIFIC: Add memory monitoring middleware for all routes
+router.use((req: Request, res: Response, next: NextFunction) => {
+  const memory = process.memoryUsage();
+  const memoryMB = Math.round(memory.heapUsed / 1024 / 1024);
+  
+  // Log high memory usage
+  if (memoryMB > 400) {
+    logger.warn(`⚠️ RENDER: High memory usage (${memoryMB}MB) for ${req.method} ${req.path}`);
+  }
+  
+  // Add memory info to response headers for monitoring
+  res.setHeader('X-Memory-Usage', `${memoryMB}MB`);
+  res.setHeader('X-Platform', 'render');
+  
+  next();
+});
 
 // Helper function to get the correct like operator based on database dialect
 const getLikeOperator = () => {
@@ -172,22 +192,33 @@ function sendProgress(sessionId: string, data: any): Promise<void> {
   return new Promise((resolve) => {
     const session = refreshSessions.get(sessionId);
     if (session) {
-      const message = `data: ${JSON.stringify(data)}\n\n`;
-      console.log(`📡 Enviando SSE para ${sessionId}:`, data.type, data.message);
-      session.write(message);
-      
-      // RENDER CRITICAL: Always flush immediately for real-time delivery
-      session.flush(); // Remove conditional - always flush on Render
-      
-      // Additional Render optimizations
-      if (session.socket) {
-        session.socket.setNoDelay(true); // Disable Nagle's algorithm for immediate send
+      try {
+        const message = `data: ${JSON.stringify(data)}\n\n`;
+        console.log(`📡 RENDER SSE para ${sessionId}:`, data.type, data.message?.substring(0, 50) + '...');
+        
+        // RENDER CRITICAL: Safe write with error handling
+        session.write(message, (error) => {
+          if (error) {
+            logger.warn(`⚠️ RENDER SSE write error for ${sessionId}:`, error.message);
+          }
+        });
+        
+        // RENDER CRITICAL: Always flush immediately for real-time delivery
+        session.flush();
+        
+        // Additional Render optimizations
+        if (session.socket && !session.socket.destroyed) {
+          session.socket.setNoDelay(true); // Disable Nagle's algorithm
+        }
+        
+        // Yield to event loop to ensure message is sent before continuing
+        setImmediate(resolve);
+      } catch (sseError) {
+        logger.warn(`⚠️ RENDER SSE error for ${sessionId}:`, sseError);
+        resolve(); // Don't fail the operation due to SSE issues
       }
-      
-      // Yield to event loop to ensure message is sent before continuing
-      setImmediate(resolve);
     } else {
-      console.log(`⚠️ Sessão SSE ${sessionId} não encontrada nas ${refreshSessions.size} sessões ativas`);
+      console.log(`⚠️ RENDER: SSE sessão ${sessionId} não encontrada (${refreshSessions.size} ativas)`);
       resolve();
     }
   });
@@ -197,6 +228,39 @@ function sendProgress(sessionId: string, data: any): Promise<void> {
 function yieldEventLoop(): Promise<void> {
   return new Promise(resolve => setImmediate(resolve));
 }
+
+// RENDER MONITORING: Add health check endpoint
+router.get('/health/render', asyncHandler(async (_req: Request, res: Response) => {
+  const memory = process.memoryUsage();
+  const memoryMB = Math.round(memory.heapUsed / 1024 / 1024);
+  const uptime = process.uptime();
+  
+  // Quick database connectivity test
+  let dbHealth = 'unknown';
+  try {
+    const assetCount = await Asset.count();
+    dbHealth = assetCount >= 0 ? 'healthy' : 'empty';
+  } catch (dbError) {
+    dbHealth = 'error';
+  }
+  
+  const health = {
+    status: 'healthy',
+    platform: 'render',
+    memory: {
+      used: `${memoryMB}MB`,
+      limit: '512MB',
+      usage: `${((memoryMB / 512) * 100).toFixed(1)}%`,
+      healthy: memoryMB < 400
+    },
+    database: dbHealth,
+    uptime: `${Math.floor(uptime / 60)}min ${Math.floor(uptime % 60)}s`,
+    timestamp: new Date().toISOString(),
+    activeSessions: refreshSessions.size
+  };
+  
+  res.json(health);
+}));
 
 // Get all assets with pagination, sorting, and filtering
 router.get('/', asyncHandler(async (req: Request, res: Response) => {
@@ -250,8 +314,13 @@ router.get('/', asyncHandler(async (req: Request, res: Response) => {
   });
 }));
 
-// Get all assets without pagination (for full data loading)
+// Get all assets without pagination (for full data loading) - RENDER OPTIMIZED
 router.get('/all', asyncHandler(async (req: Request, res: Response): Promise<void> => {
+  // RENDER: Monitor memory before large data operations
+  const startMem = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
+  if (startMem > 400) {
+    logger.warn(`⚠️ RENDER: High memory usage (${startMem}MB) before assets/all request`);
+  }
   const { 
     sortBy = 'quoteVolume24h', 
     sortOrder = 'DESC',
@@ -376,24 +445,50 @@ router.get('/:symbol', asyncHandler(async (req: Request, res: Response) => {
   });
 }));
 
-// Refresh assets from BingX API
+// Refresh assets from BingX API - RENDER PRODUCTION OPTIMIZED
 router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
-  // Increase timeout for this heavy operation
-  req.setTimeout(600000); // 10 minutes
-  res.setTimeout(600000);
+  // RENDER CRITICAL: Set appropriate timeouts for platform constraints
+  req.setTimeout(540000); // 9 minutes (under Render's 10-minute limit)
+  res.setTimeout(540000);
+  
+  // RENDER MEMORY OPTIMIZATION: Monitor memory usage
+  const startMemory = process.memoryUsage();
+  logger.info('🚀 RENDER REFRESH START - Memory baseline:', {
+    heapUsed: `${Math.round(startMemory.heapUsed / 1024 / 1024)}MB`,
+    heapTotal: `${Math.round(startMemory.heapTotal / 1024 / 1024)}MB`,
+    rss: `${Math.round(startMemory.rss / 1024 / 1024)}MB`
+  });
   
   const sessionId = req.body.sessionId || `refresh_${Date.now()}`;
   const totalStartTime = Date.now(); // Real total time measurement
-  logger.info('Refreshing assets from BingX API...', { sessionId });
+  logger.info('🚀 RENDER: Refreshing assets with ProductionOptimizedBingXClient...', { 
+    sessionId,
+    client: 'production-optimized',
+    platform: 'render'
+  });
   
   try {
-    // Send initial progress IMEDIATAMENTE
+    // RENDER HEALTH CHECK: Verify system resources before starting
+    const memCheck = process.memoryUsage();
+    const memUsageMB = Math.round(memCheck.heapUsed / 1024 / 1024);
+    
+    if (memUsageMB > 400) { // Render has 512MB limit
+      logger.warn(`⚠️  RENDER MEMORY WARNING: ${memUsageMB}MB used (close to 512MB limit)`);
+      // Force garbage collection if available
+      if (global.gc) {
+        global.gc();
+        logger.info('🧹 Forced garbage collection completed');
+      }
+    }
+    
+    // Send initial progress with system status
     await sendProgress(sessionId, {
       type: 'progress',
-      message: 'Iniciando busca completa de dados...',
+      message: `🚀 RENDER: Iniciando refresh (${memUsageMB}MB memória)...`,
       progress: 2,
       processed: 0,
-      total: 0
+      total: 0,
+      systemInfo: { memoryMB: memUsageMB, platform: 'render' }
     });
     
     // Yield to event loop and send quick update
@@ -416,9 +511,23 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
     let tickersResponse;
     
     try {
-      parallelData = await bingxClient.getSymbolsAndTickersOptimized();
+      // RENDER CRITICAL: Add circuit breaker pattern for API calls
+      const apiStartTime = Date.now();
+      logger.info('📡 RENDER: Starting BingX API calls with timeout protection...');
+      
+      // Wrap API call with timeout and memory monitoring
+      const apiCallPromise = bingxClient.getSymbolsAndTickersOptimized();
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('RENDER_API_TIMEOUT: BingX API call exceeded 120 seconds')), 120000);
+      });
+      
+      parallelData = await Promise.race([apiCallPromise, timeoutPromise]) as any;
       contractsResponse = parallelData.symbols;
       tickersResponse = parallelData.tickers;
+      
+      const apiDuration = Date.now() - apiStartTime;
+      logger.info(`✅ RENDER: BingX API calls completed in ${apiDuration}ms`);
+      
     } catch (optimizedError: any) {
       logger.warn('⚠️  Optimized fetch failed, trying individual calls:', optimizedError.message);
       
@@ -434,10 +543,22 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
           
           await sendProgress(sessionId, {
             type: 'error',
-            message: `⏳ BingX rate limit active. Please wait ${remainingMinutes} minutes before trying again.`
+            message: `🚨 RENDER: BingX rate limit detected. Please wait ${remainingMinutes} minutes.`,
+            renderOptimized: true,
+            retryAfter: remainingMinutes
           });
           
-          throw new AppError(`BingX rate limit active. Recovery in ${remainingMinutes} minutes.`, 429);
+          throw new AppError(`RENDER: BingX rate limit active. Recovery in ${remainingMinutes} minutes.`, 429);
+        }
+        
+        // RENDER SPECIFIC: Handle timeout errors gracefully
+        if (optimizedError.message?.includes('RENDER_API_TIMEOUT')) {
+          await sendProgress(sessionId, {
+            type: 'error',
+            message: '⏰ RENDER: API timeout - Render platform may be under high load. Please try again later.',
+            renderOptimized: true
+          });
+          throw new AppError('RENDER: API timeout due to platform constraints', 504);
         }
         
         bingxClient.clearCache(); // This now also restarts limiters
@@ -519,7 +640,7 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
         code: tickersResponse?.code,
         dataLength: tickersResponse?.data?.length,
         totalTickers: tickersResponse?.data?.length || 0,
-        endpoint: (tickersResponse as any)?.endpoint || 'unknown'
+        endpoint: tickersResponse?.source || 'unknown'
       }
     });
     
@@ -648,10 +769,24 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
     };
     
     
-    // ULTRA-OPTIMIZED: Parallel batch processing with bulk database operations
+    // RENDER OPTIMIZED: Memory-conscious parallel processing
     const startTime = Date.now();
-    const BATCH_SIZE = 100; // Optimal batch size for parallel processing
-    const MAX_CONCURRENT_BATCHES = 5; // Process up to 5 batches in parallel
+    
+    // RENDER SPECIFIC: Reduce batch sizes for memory constraints
+    const currentMemory = process.memoryUsage();
+    const currentMemUsageMB = Math.round(currentMemory.heapUsed / 1024 / 1024);
+    
+    // Dynamic batch sizing based on available memory
+    let BATCH_SIZE = 50; // Conservative for Render's 512MB limit
+    let MAX_CONCURRENT_BATCHES = 3; // Reduced concurrency
+    
+    if (currentMemUsageMB > 300) {
+      BATCH_SIZE = 25; // Very conservative
+      MAX_CONCURRENT_BATCHES = 2;
+      logger.warn(`🚨 RENDER: High memory usage (${currentMemUsageMB}MB), using conservative batch sizes`);
+    }
+    
+    logger.info(`🔧 RENDER BATCH CONFIG: ${BATCH_SIZE} per batch, ${MAX_CONCURRENT_BATCHES} concurrent`);
     
     // Prepare all asset data in parallel batches
     const batches = [];
@@ -882,14 +1017,26 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
       const flattenedAssets = batchResults.flat();
       processedAssets.push(...flattenedAssets);
       
-      // Send bulk database progress update
+      // RENDER: Monitor memory during processing
+      const processingMemory = process.memoryUsage();
+      const processingMemMB = Math.round(processingMemory.heapUsed / 1024 / 1024);
+      
+      // Send bulk database progress update with memory monitoring
       await sendProgress(sessionId, {
         type: 'progress',
-        message: `💾 Salvando lote no banco: ${processedAssets.length} contratos preparados`,
+        message: `💾 RENDER: Salvando lote (${processingMemMB}MB): ${processedAssets.length} contratos`,
         progress: Math.min(85, 75 + (processedAssets.length / contractsToProcess.length) * 10),
         processed: processedAssets.length,
-        total: contractsToProcess.length
+        total: contractsToProcess.length,
+        memoryUsage: `${processingMemMB}MB`,
+        renderOptimized: true
       });
+      
+      // RENDER CRITICAL: Force garbage collection if memory is high
+      if (processingMemMB > 350 && global.gc) {
+        global.gc();
+        logger.info('🧹 RENDER: Forced GC due to high memory usage');
+      }
       
       // Yield to event loop between batch groups
       await yieldEventLoop();
@@ -905,16 +1052,30 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
     });
     
     try {
-      // Use bulkCreate with updateOnDuplicate for maximum performance
-      const bulkResult = await Asset.bulkCreate(processedAssets, {
-        updateOnDuplicate: [
-          'name', 'baseCurrency', 'quoteCurrency', 'status', 'minQty', 'maxQty',
-          'tickSize', 'stepSize', 'maxLeverage', 'maintMarginRate', 'lastPrice',
-          'priceChangePercent', 'volume24h', 'quoteVolume24h', 'highPrice24h',
-          'lowPrice24h', 'openInterest', 'updatedAt'
-        ],
-        returning: false // Improve performance by not returning created records
-      });
+      // RENDER OPTIMIZED: Database operations with error recovery
+      logger.info(`💾 RENDER: Starting bulk database operation for ${processedAssets.length} assets...`);
+      
+      const dbStartTime = Date.now();
+      const bulkResult = await Promise.race([
+        Asset.bulkCreate(processedAssets, {
+          updateOnDuplicate: [
+            'name', 'baseCurrency', 'quoteCurrency', 'status', 'minQty', 'maxQty',
+            'tickSize', 'stepSize', 'maxLeverage', 'maintMarginRate', 'lastPrice',
+            'priceChangePercent', 'volume24h', 'quoteVolume24h', 'highPrice24h',
+            'lowPrice24h', 'openInterest', 'updatedAt'
+          ],
+          returning: false, // Improve performance
+          validate: false,  // Skip validation for performance
+          ignoreDuplicates: false // Handle duplicates via updateOnDuplicate
+        }),
+        // RENDER: Add database timeout protection
+        new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('RENDER_DB_TIMEOUT: Database operation exceeded 60 seconds')), 60000);
+        })
+      ]) as any[];
+      
+      const dbDuration = Date.now() - dbStartTime;
+      logger.info(`✅ RENDER: Database bulk operation completed in ${dbDuration}ms`);
       
       // Count operations (approximate since bulkCreate doesn't distinguish created vs updated easily)
       const existingCount = await Asset.count();
@@ -949,33 +1110,70 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
       logger.info(`📊 FINAL DATABASE COUNT: ${finalCount} total assets in database`);
       
     } catch (bulkError: any) {
-      logger.error(`❌ BULK DATABASE ERROR:`, bulkError);
+      logger.error(`❌ RENDER BULK DATABASE ERROR:`, {
+        message: bulkError.message,
+        type: bulkError.constructor.name,
+        isTimeout: bulkError.message?.includes('RENDER_DB_TIMEOUT')
+      });
       
-      // Fallback to individual upserts if bulk operation fails
-      logger.info(`🔄 Falling back to individual upserts...`);
-      for (const assetData of processedAssets) {
-        try {
-          const [, wasCreated] = await Asset.upsert(assetData, {
-            returning: true
-          });
-          
-          if (wasCreated) {
-            created++;
-          } else {
-            updated++;
+      // RENDER SPECIFIC: Handle database timeout gracefully
+      if (bulkError.message?.includes('RENDER_DB_TIMEOUT')) {
+        await sendProgress(sessionId, {
+          type: 'warning',
+          message: '⚠️ RENDER: Database timeout - falling back to batch processing...'
+        });
+      }
+      
+      // Fallback to smaller batches for Render reliability
+      logger.info(`🔄 RENDER: Falling back to smaller batch upserts...`);
+      const FALLBACK_BATCH_SIZE = 10; // Very small batches for reliability
+      // RENDER OPTIMIZED: Process in smaller batches to avoid memory issues
+      for (let i = 0; i < processedAssets.length; i += FALLBACK_BATCH_SIZE) {
+        const fallbackBatch = processedAssets.slice(i, i + FALLBACK_BATCH_SIZE);
+        
+        for (const assetData of fallbackBatch) {
+          try {
+            const [, wasCreated] = await Asset.upsert(assetData, {
+              returning: true
+            });
+            
+            if (wasCreated) {
+              created++;
+            } else {
+              updated++;
+            }
+          } catch (individualError: any) {
+            logger.error(`❌ RENDER: Individual upsert failed for ${assetData.symbol}:`, individualError);
+            skipped++;
           }
-        } catch (individualError: any) {
-          logger.error(`❌ Individual upsert failed for ${assetData.symbol}:`, individualError);
-          skipped++;
+        }
+        
+        // RENDER: Yield to event loop between batches
+        if (i % 50 === 0) {
+          await yieldEventLoop();
+          const currentMem = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
+          logger.info(`🔄 RENDER: Fallback batch ${Math.floor(i/FALLBACK_BATCH_SIZE)+1} completed (${currentMem}MB)`);
         }
       }
     }
     
-    const totalTime = ((Date.now() - totalStartTime) / 1000).toFixed(2); // Real total time
-    const processingTime = ((Date.now() - startTime) / 1000).toFixed(2); // Just processing time
+    // RENDER: Final memory and performance metrics
+    const finalMemory = process.memoryUsage();
+    const finalMemMB = Math.round(finalMemory.heapUsed / 1024 / 1024);
+    const memoryDelta = finalMemMB - Math.round(startMemory.heapUsed / 1024 / 1024);
+    
+    const totalTime = ((Date.now() - totalStartTime) / 1000).toFixed(2);
+    const processingTime = ((Date.now() - startTime) / 1000).toFixed(2);
     const assetsPerSecond = ((created + updated) / parseFloat(processingTime)).toFixed(1);
     const totalSaved = created + updated;
     const successRate = ((totalSaved / processed) * 100).toFixed(1);
+    
+    logger.info(`🏁 RENDER PERFORMANCE SUMMARY:`, {
+      totalTime: `${totalTime}s`,
+      memoryUsed: `${finalMemMB}MB (Δ${memoryDelta >= 0 ? '+' : ''}${memoryDelta}MB)`,
+      successRate: `${successRate}%`,
+      throughput: `${assetsPerSecond} assets/second`
+    });
     
     // ANÁLISE CRÍTICA: Por que contratos foram perdidos?
     const contractsLost = processed - totalSaved;
@@ -1023,7 +1221,7 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
     const enrichmentRate = ((withMarketData / processed) * 100).toFixed(1);
     await sendProgress(sessionId, {
       type: 'completed',
-      message: `✅ COMPLETO: ${totalSaved} contratos + preços reais (${withMarketData} enriched, ${enrichmentRate}%) em ${totalTime}s total`,
+      message: `✅ RENDER: ${totalSaved} contratos salvos (${enrichmentRate}% enriched) - ${totalTime}s total`,
       progress: 100,
       processed,
       total: contractsToProcess.length,
@@ -1038,11 +1236,17 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
         enrichmentRate: `${enrichmentRate}%`
       },
       statusDistribution: statusCounts,
-      totalExecutionTime: totalTime,
-      processingTime: processingTime,
-      performance: assetsPerSecond,
+      performance: {
+        totalExecutionTime: totalTime,
+        processingTime: processingTime,
+        throughput: `${assetsPerSecond} assets/second`,
+        memoryUsage: `${finalMemMB}MB`,
+        memoryDelta: `${memoryDelta >= 0 ? '+' : ''}${memoryDelta}MB`,
+        platform: 'render'
+      },
       successRate: `${successRate}%`,
-      contractsLost
+      contractsLost,
+      renderOptimized: true
     });
     
     // Close SSE connection
@@ -1055,23 +1259,74 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
     res.json({
       success: true,
       data: {
-        message: 'Assets refreshed successfully',
+        message: 'RENDER: Assets refreshed successfully',
         created,
         updated,
         total: contractsToProcess.length,
         processed,
         statusDistribution: statusCounts,
-        sessionId
+        sessionId,
+        performance: {
+          executionTime: `${totalTime}s`,
+          memoryUsage: `${finalMemMB}MB`,
+          platform: 'render',
+          optimized: true
+        }
       }
     });
     
   } catch (error) {
-    logger.error('Failed to refresh assets:', error);
+    // RENDER OPTIMIZED: Enhanced error handling with diagnostics
+    const errorMemory = process.memoryUsage();
+    const errorMemMB = Math.round(errorMemory.heapUsed / 1024 / 1024);
     
-    // Send error progress if session exists
+    logger.error('RENDER: Assets refresh failed:', {
+      error: error instanceof Error ? {
+        message: error.message,
+        name: error.name,
+        stack: process.env.NODE_ENV === 'development' ? error.stack : 'hidden'
+      } : error,
+      memoryAtError: `${errorMemMB}MB`,
+      isMemoryIssue: errorMemMB > 450,
+      isTimeoutIssue: error instanceof Error && (
+        error.message?.includes('timeout') || 
+        error.message?.includes('TIMEOUT') ||
+        error.message?.includes('ECONNABORTED')
+      )
+    });
+    
+    // RENDER: Send detailed error information
+    let errorMessage = 'Unknown error during refresh';
+    let errorCode = 500;
+    
+    if (error instanceof Error) {
+      if (error.message?.includes('RENDER_API_TIMEOUT')) {
+        errorMessage = 'RENDER: API timeout - platform constraints reached';
+        errorCode = 504;
+      } else if (error.message?.includes('RENDER_DB_TIMEOUT')) {
+        errorMessage = 'RENDER: Database timeout - try again later';
+        errorCode = 503;
+      } else if (errorMemMB > 450) {
+        errorMessage = 'RENDER: Memory limit approached - refresh completed partially';
+        errorCode = 507;
+      } else if (error.message?.includes('rate limit')) {
+        errorMessage = `RENDER: ${error.message}`;
+        errorCode = 429;
+      } else {
+        errorMessage = `RENDER: ${error.message}`;
+      }
+    }
+    
     await sendProgress(sessionId, {
       type: 'error',
-      message: error instanceof Error ? error.message : 'Unknown error during refresh'
+      message: errorMessage,
+      errorDetails: {
+        platform: 'render',
+        memoryUsage: `${errorMemMB}MB`,
+        errorType: error instanceof Error ? error.name : 'Unknown',
+        timestamp: new Date().toISOString()
+      },
+      renderOptimized: true
     });
     
     // Close SSE connection
@@ -1081,7 +1336,7 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
       refreshSessions.delete(sessionId);
     }
     
-    throw new AppError('Failed to refresh assets', 500);
+    throw new AppError(errorMessage, errorCode);
   }
 }));
 
@@ -1416,7 +1671,7 @@ router.get('/debug/api-test', asyncHandler(async (req: Request, res: Response) =
       responseCode: tickerResponse.code,
       dataLength: tickerResponse.data?.length || 0,
       message: tickerResponse.msg,
-      endpoint: tickerResponse.endpoint
+      endpoint: tickerResponse.source || 'unknown'
     };
   } catch (error: any) {
     debugInfo.checks.ticker_data = {
