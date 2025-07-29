@@ -480,6 +480,15 @@ export const api = {
     return makeCancellableRequest(cacheKey, {
       method: 'GET',
       url: '/trading/parallel-bot/status'
+    }).catch(error => {
+      console.error('Bot status error:', error)
+      // Return a safe default to prevent crashes
+      return {
+        isRunning: false,
+        demoMode: true,
+        activePositions: [],
+        config: {}
+      }
     })
   },
 

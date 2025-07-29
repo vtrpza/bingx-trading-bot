@@ -34,7 +34,12 @@ export default function TradingPage() {
   // Optimized queries with consistent keys and better performance settings
   const { data: botStatus, isLoading } = useQuery<BotStatus2>({
     queryKey: QUERY_KEYS.BOT_STATUS,
-    queryFn: () => fetch('/api/trading/parallel-bot/status').then(res => res.json()).then(data => data.data),
+    queryFn: async () => {
+      const response = await fetch('/api/trading/parallel-bot/status')
+      const result = await response.json()
+      // Handle both old format {success: true, data: {...}} and direct data
+      return result.success ? result.data : result
+    },
     refetchInterval: 5000, // Increased from 3s to 5s to reduce API load
     staleTime: 2000, // Consider data fresh for 2 seconds
     cacheTime: 10000, // Keep in cache for 10 seconds
@@ -166,9 +171,12 @@ export default function TradingPage() {
     updateConfigMutation.mutate(config)
   }, [updateConfigMutation])
 
-  // Memoized derived data to prevent unnecessary calculations
-  const activePositions = useMemo(() => botStatus?.activePositions || [], [botStatus?.activePositions])
-  const isConnected = useMemo(() => Boolean(botStatus), [botStatus])
+  // Memoized derived data to prevent unnecessary calculations with safe defaults
+  const activePositions = useMemo(() => {
+    return Array.isArray(botStatus?.activePositions) ? botStatus.activePositions : []
+  }, [botStatus?.activePositions])
+  
+  const isConnected = useMemo(() => Boolean(botStatus && typeof botStatus === 'object'), [botStatus])
   const isDemoMode = useMemo(() => Boolean(botStatus?.demoMode), [botStatus?.demoMode])
   
   // Memoized blacklist data with slice optimization
@@ -190,6 +198,17 @@ export default function TradingPage() {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-lg text-gray-600">Carregando...</div>
+      </div>
+    )
+  }
+
+  // Safety check for botStatus
+  if (!botStatus || typeof botStatus !== 'object') {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-lg text-red-600">
+          Erro ao carregar status do bot. Recarregue a página.
+        </div>
       </div>
     )
   }
