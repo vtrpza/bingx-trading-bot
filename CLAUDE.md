@@ -161,3 +161,6 @@ The project implements two trading bot architectures:
 - Risk management controls prevent excessive losses
 - Position limits and daily loss limits enforced
 - Stop-loss and take-profit orders automatically placed
+
+## Symbol Selection and Filtering Notes
+- We are fetching only 443 symbols, for sure we are filtering, we should never filter

@@ -841,19 +841,20 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
       logger.warn(`⚠️ RENDER: Moderate memory usage (${currentMemUsageMB}MB), using conservative batch sizes`);
     }
     
-    // RENDER: Additional safety - limit total contracts if memory is constrained
-    const memoryAvailableMB = 512 - currentMemUsageMB;
-    const maxContractsForMemory = Math.min(contractsToProcess.length, Math.floor(memoryAvailableMB * 20)); // ~20 contracts per MB
+    // REMOVED: Memory-based contract limiting - we should never filter symbols
+    // The original filtering was causing only 443 symbols to be processed instead of all available symbols
+    // Better to use aggressive memory management during processing rather than arbitrary filtering
+    logger.info(`📊 PROCESSING ALL SYMBOLS: ${contractsToProcess.length} contracts without filtering`);
     
-    if (maxContractsForMemory < contractsToProcess.length) {
-      logger.warn(`🔒 RENDER: Memory constraint - processing only ${maxContractsForMemory}/${contractsToProcess.length} contracts`);
-      contractsToProcess.splice(maxContractsForMemory);
-      
+    const memoryAvailableMB = 512 - currentMemUsageMB;
+    if (memoryAvailableMB < 150) {
+      // Only warn if memory is critically low, but don't filter
       await sendProgress(sessionId, {
-        type: 'warning',
-        message: `⚠️ RENDER: Memory limited - processing ${maxContractsForMemory} contracts only`,
+        type: 'warning', 
+        message: `⚠️ RENDER: Low memory (${memoryAvailableMB}MB available) - processing all ${contractsToProcess.length} symbols with extra GC`,
         memoryConstraint: true,
-        availableMemory: `${memoryAvailableMB}MB`
+        availableMemory: `${memoryAvailableMB}MB`,
+        processingAll: true
       });
     }
     
