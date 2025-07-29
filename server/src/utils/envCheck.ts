@@ -67,5 +67,13 @@ export function validateEnvironment(): { valid: boolean; warnings: string[] } {
   logger.info(`🎯 Demo Mode: ${process.env.DEMO_MODE === 'true' ? 'enabled' : 'disabled'}`);
   logger.info(`🔧 Auto Start Bot: ${process.env.AUTO_START_BOT === 'true' ? 'enabled' : 'disabled'}`);
   
+  if (!valid) {
+    logger.error('❌ Environment validation failed - critical variables missing');
+  } else if (warnings.length > 0) {
+    logger.warn('⚠️  Environment validation passed with warnings - some optional features may not work');
+  } else {
+    logger.info('✅ Environment validation passed - all systems ready');
+  }
+  
   return { valid, warnings };
 }
