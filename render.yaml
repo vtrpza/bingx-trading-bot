@@ -40,10 +40,10 @@ services:
     buildCommand: npm install && npm run build
     staticPublishPath: ./dist
     routes:
-      # API routes MUST come first (with full path preservation)
+      # API routes - proxy ALL /api/* to backend with wildcard
       - type: rewrite
         source: /api/*
-        destination: https://bingx-trading-bot-lu0z.onrender.com$request_uri
+        destination: https://bingx-trading-bot-lu0z.onrender.com/*
       # WebSocket route
       - type: rewrite
         source: /ws
@@ -52,10 +52,6 @@ services:
       - type: rewrite
         source: /health
         destination: https://bingx-trading-bot-lu0z.onrender.com/health
-      # Static assets (preserve path structure)
-      - type: rewrite
-        source: /assets/*
-        destination: /assets/$1
       # SPA fallback MUST be last
       - type: rewrite
         source: /*

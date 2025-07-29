@@ -61,6 +61,40 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Comprehensive request logging middleware
+app.use((req: Request, res: Response, next) => {
+  const start = Date.now();
+  const requestId = Math.random().toString(36).substring(7);
+  
+  logger.info(`🔗 [${requestId}] ${req.method} ${req.url}`, {
+    method: req.method,
+    url: req.url,
+    headers: {
+      origin: req.headers.origin,
+      'user-agent': req.headers['user-agent'],
+      'x-forwarded-for': req.headers['x-forwarded-for'],
+      host: req.headers.host
+    },
+    query: req.query,
+    body: req.method !== 'GET' ? req.body : undefined
+  });
+
+  // Track response
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    const statusColor = res.statusCode >= 400 ? '🔴' : res.statusCode >= 300 ? '🟡' : '🟢';
+    
+    logger.info(`${statusColor} [${requestId}] ${res.statusCode} ${req.method} ${req.url} (${duration}ms)`, {
+      statusCode: res.statusCode,
+      duration,
+      method: req.method,
+      url: req.url
+    });
+  });
+
+  next();
+});
+
 // Serve static files
 app.use(express.static('public'));
 
@@ -128,8 +162,10 @@ app.get('/', (_req: Request, res: Response) => {
     name: 'BingX Trading Bot API',
     version: '1.0.0',
     status: 'running',
+    timestamp: new Date().toISOString(),
     endpoints: {
       health: '/health',
+      test: '/test',
       api: '/api/*',
       assets: '/api/assets',
       trading: '/api/trading', 
@@ -138,10 +174,57 @@ app.get('/', (_req: Request, res: Response) => {
   });
 });
 
-// API Routes
-app.use('/api/assets', assetsRouter);
-app.use('/api/trading', tradingRouter);
-app.use('/api/market-data', marketDataRouter);
+// Simple test endpoint to verify routing
+app.get('/test', (_req: Request, res: Response) => {
+  logger.info('✅ Test endpoint hit successfully');
+  res.json({
+    message: 'Backend is working!',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV,
+    mode: process.env.DEMO_MODE === 'true' ? 'demo' : 'live'
+  });
+});
+
+// Test API endpoint
+app.get('/api/test', (_req: Request, res: Response) => {
+  logger.info('✅ API test endpoint hit successfully');
+  res.json({
+    message: 'API routing is working!',
+    timestamp: new Date().toISOString(),
+    path: '/api/test'
+  });
+});
+
+// API Routes with error logging
+app.use('/api/assets', (req, _res, next) => {
+  logger.info(`🔄 Assets API request: ${req.method} ${req.url}`);
+  next();
+}, assetsRouter);
+
+app.use('/api/trading', (req, _res, next) => {
+  logger.info(`🔄 Trading API request: ${req.method} ${req.url}`);
+  next();
+}, tradingRouter);
+
+app.use('/api/market-data', (req, _res, next) => {
+  logger.info(`🔄 Market Data API request: ${req.method} ${req.url}`);
+  next();
+}, marketDataRouter);
+
+// Catch-all for unmatched API routes
+app.use('/api/*', (req: Request, res: Response) => {
+  logger.warn(`❌ Unmatched API route: ${req.method} ${req.url}`);
+  res.status(404).json({
+    error: 'API endpoint not found',
+    method: req.method,
+    url: req.url,
+    availableRoutes: [
+      '/api/assets',
+      '/api/trading',
+      '/api/market-data'
+    ]
+  });
+});
 
 // Error handling middleware
 app.use(errorHandler);
