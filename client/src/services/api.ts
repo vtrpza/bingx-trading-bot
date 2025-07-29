@@ -1,4 +1,4 @@
-import axios, { AxiosRequestConfig, CancelTokenSource } from 'axios'
+import axios, { AxiosRequestConfig, CancelTokenSource, InternalAxiosRequestConfig, AxiosResponse } from 'axios'
 import type { 
   Asset, 
   Trade, 
@@ -12,6 +12,21 @@ import type {
   PaginatedResponse,
   ActivityEvent
 } from '../types'
+
+// Extend Axios types for metadata
+declare module 'axios' {
+  interface InternalAxiosRequestConfig {
+    metadata?: {
+      startTime: number
+    }
+  }
+}
+
+// Enhanced Error type
+interface ApiError extends Error {
+  status?: number
+  url?: string
+}
 
 // Request deduplication cache
 const requestCache = new Map<string, Promise<any>>()
@@ -73,7 +88,7 @@ let sseErrorCount = 0
 
 // Performance optimized request interceptor
 axiosInstance.interceptors.request.use(
-  (config) => {
+  (config: InternalAxiosRequestConfig) => {
     // Add request timestamp for performance monitoring
     config.metadata = { startTime: Date.now() }
     
@@ -95,9 +110,9 @@ axiosInstance.interceptors.request.use(
 
 // Performance optimized response interceptor
 axiosInstance.interceptors.response.use(
-  (response) => {
+  (response: AxiosResponse) => {
     // Log performance metrics
-    const duration = Date.now() - response.config.metadata?.startTime
+    const duration = Date.now() - (response.config.metadata?.startTime || Date.now())
     if (duration > 5000) {
       console.warn(`Slow API request: ${response.config.url} took ${duration}ms`)
     }
@@ -128,7 +143,7 @@ axiosInstance.interceptors.response.use(
                    'An error occurred'
     
     // Add context to error
-    const enhancedError = new Error(message)
+    const enhancedError: ApiError = new Error(message)
     enhancedError.status = error.response?.status
     enhancedError.url = error.config?.url
     
@@ -151,7 +166,7 @@ function deduplicateRequest<T>(key: string, requestFn: () => Promise<T>): Promis
 }
 
 // Cancellable request wrapper
-function makeCancellableRequest<T>(key: string, config: AxiosRequestConfig): Promise<T> {
+function makeCancellableRequest<T = any>(key: string, config: AxiosRequestConfig): Promise<T> {
   // Cancel previous request with same key if exists
   const existingToken = cancelTokens.get(key)
   if (existingToken) {
@@ -163,6 +178,7 @@ function makeCancellableRequest<T>(key: string, config: AxiosRequestConfig): Pro
   cancelTokens.set(key, source)
   
   return axiosInstance({ ...config, cancelToken: source.token })
+    .then((response: AxiosResponse) => response.data)
     .finally(() => {
       cancelTokens.delete(key)
     })
