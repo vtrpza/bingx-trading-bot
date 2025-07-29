@@ -15,7 +15,7 @@ export default function Layout({ children }: LayoutProps) {
   const [currentTab, setCurrentTab] = useState<'assets' | 'trading'>('assets')
 
   // Get bot status for the header with safe error handling
-  const { data: botStatus } = useQuery<BotStatus>({
+  const { data: botStatus } = useQuery<BotStatus['data']>({
     queryKey: ['bot-status'],
     queryFn: async () => {
       try {
@@ -25,92 +25,88 @@ export default function Layout({ children }: LayoutProps) {
         // Check if result has the bot status properties directly (same as TradingPage)
         if (result.hasOwnProperty('isRunning') && result.hasOwnProperty('demoMode')) {
           console.log('✅ Layout - Direct bot status response:', result)
-          return { data: result }
+          return result
         }
         // Or if it has the success wrapper format
         else if (result.success && result.data) {
           console.log('✅ Layout - Success response with data:', result.data)
-          return { data: result.data }
+          return result.data
         } else if (result.success) {
           console.log('✅ Layout - Success response without data field')
-          return { data: result }
+          return result
         } else {
           console.error('❌ Layout - API returned error or unexpected format:', result)
           throw new Error(result.error || 'API returned unexpected format')
         }
       } catch (error) {
         console.error('Bot status error in Layout:', error)
-        // Return safe default in BotStatus format
+        // Return safe default
         return {
-          data: {
-            isRunning: false,
-            demoMode: true,
-            activePositions: [],
-            architecture: 'parallel',
-            balance: { balance: '0' },
-            config: {
-              enabled: true,
-              maxConcurrentTrades: 3,
-              defaultPositionSize: 50,
-              scanInterval: 30000,
-              symbolsToScan: [],
-              stopLossPercent: 3,
-              takeProfitPercent: 5,
-              trailingStopPercent: 1,
-              minVolumeUSDT: 100000,
-              rsiOversold: 30,
-              rsiOverbought: 70,
-              volumeSpikeThreshold: 2,
-              minSignalStrength: 0.6,
-              confirmationRequired: true,
-              ma1Period: 9,
-              ma2Period: 21,
-              riskRewardRatio: 2,
-              maxDrawdownPercent: 10,
-              maxDailyLossUSDT: 100,
-              maxPositionSizePercent: 10
-            },
-            symbolsCount: 0,
-            scannedSymbols: []
-          }
+          isRunning: false,
+          demoMode: true,
+          activePositions: [],
+          architecture: 'parallel',
+          balance: { balance: '0' },
+          config: {
+            enabled: true,
+            maxConcurrentTrades: 3,
+            defaultPositionSize: 50,
+            scanInterval: 30000,
+            symbolsToScan: [],
+            stopLossPercent: 3,
+            takeProfitPercent: 5,
+            trailingStopPercent: 1,
+            minVolumeUSDT: 100000,
+            rsiOversold: 30,
+            rsiOverbought: 70,
+            volumeSpikeThreshold: 2,
+            minSignalStrength: 0.6,
+            confirmationRequired: true,
+            ma1Period: 9,
+            ma2Period: 21,
+            riskRewardRatio: 2,
+            maxDrawdownPercent: 10,
+            maxDailyLossUSDT: 100,
+            maxPositionSizePercent: 10
+          },
+          symbolsCount: 0,
+          scannedSymbols: []
         }
       }
     },
     refetchInterval: 5000,
     retry: false,
-    // Provide initial data in BotStatus format
+    // Provide initial data
     initialData: {
-      data: {
-        isRunning: false,
-        demoMode: true,
-        activePositions: [],
-        architecture: 'parallel',
-        balance: { balance: '0' },
-        config: {
-          enabled: true,
-          maxConcurrentTrades: 3,
-          defaultPositionSize: 50,
-          scanInterval: 30000,
-          symbolsToScan: [],
-          stopLossPercent: 3,
-          takeProfitPercent: 5,
-          trailingStopPercent: 1,
-          minVolumeUSDT: 100000,
-          rsiOversold: 30,
-          rsiOverbought: 70,
-          volumeSpikeThreshold: 2,
-          minSignalStrength: 0.6,
-          confirmationRequired: true,
-          ma1Period: 9,
-          ma2Period: 21,
-          riskRewardRatio: 2,
-          maxDrawdownPercent: 10,
-          maxDailyLossUSDT: 100,
-          maxPositionSizePercent: 10
-        },
-        symbolsCount: 0,
-        scannedSymbols: []
-      }
+      isRunning: false,
+      demoMode: true,
+      activePositions: [],
+      architecture: 'parallel',
+      balance: { balance: '0' },
+      config: {
+        enabled: true,
+        maxConcurrentTrades: 3,
+        defaultPositionSize: 50,
+        scanInterval: 30000,
+        symbolsToScan: [],
+        stopLossPercent: 3,
+        takeProfitPercent: 5,
+        trailingStopPercent: 1,
+        minVolumeUSDT: 100000,
+        rsiOversold: 30,
+        rsiOverbought: 70,
+        volumeSpikeThreshold: 2,
+        minSignalStrength: 0.6,
+        confirmationRequired: true,
+        ma1Period: 9,
+        ma2Period: 21,
+        riskRewardRatio: 2,
+        maxDrawdownPercent: 10,
+        maxDailyLossUSDT: 100,
+        maxPositionSizePercent: 10
+      },
+      symbolsCount: 0,
+      scannedSymbols: []
     }
   })
 
@@ -132,14 +128,14 @@ export default function Layout({ children }: LayoutProps) {
               <h1 className="text-2xl font-bold text-gray-900">
                 BingX Trading Bot
               </h1>
-              {botStatus?.data?.demoMode && (
+              {botStatus?.demoMode && (
                 <span className="ml-3 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
                   {t('dashboard.demoMode')}
                 </span>
               )}
-              {botStatus?.data?.architecture && (
+              {botStatus?.architecture && (
                 <span className="ml-3 inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                  {botStatus.data.architecture === 'parallel' ? 'Parallel Bot' : 'Legacy Bot'}
+                  {botStatus.architecture === 'parallel' ? 'Parallel Bot' : 'Legacy Bot'}
                 </span>
               )}
             </div>
@@ -148,10 +144,10 @@ export default function Layout({ children }: LayoutProps) {
               {/* Bot Status Indicator */}
               <div className="flex items-center space-x-2">
                 <div className={`w-3 h-3 rounded-full ${
-                  botStatus?.data.isRunning ? 'bg-green-500' : 'bg-red-500'
+                  botStatus?.isRunning ? 'bg-green-500' : 'bg-red-500'
                 }`} />
                 <span className="text-sm text-gray-600">
-                  Bot {botStatus?.data.isRunning ? t('trading.running') : t('trading.stopped')}
+                  Bot {botStatus?.isRunning ? t('trading.running') : t('trading.stopped')}
                 </span>
               </div>
               
@@ -159,7 +155,7 @@ export default function Layout({ children }: LayoutProps) {
               {botStatus && (
                 <div className="flex items-center space-x-2">
                   <span className="text-sm text-gray-600">
-                    Posições: {botStatus.data.managedPositions ?? botStatus.data.activePositions?.length ?? 0}
+                    Posições: {botStatus.managedPositions ?? botStatus.activePositions?.length ?? 0}
                   </span>
                 </div>
               )}
@@ -168,7 +164,7 @@ export default function Layout({ children }: LayoutProps) {
               {botStatus && (
                 <div className="flex items-center space-x-2">
                   <span className="text-sm text-gray-600">
-                    Saldo: {parseFloat(botStatus?.data?.balance?.balance || '0').toFixed(2)} {botStatus?.data?.demoMode ? 'VST' : 'USDT'}
+                    Saldo: {parseFloat(botStatus?.balance?.balance || '0').toFixed(2)} {botStatus?.demoMode ? 'VST' : 'USDT'}
                   </span>
                 </div>
               )} 

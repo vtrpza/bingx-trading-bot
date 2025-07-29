@@ -32,7 +32,7 @@ export default function TradingPage() {
   const queryClient = useQueryClient()
 
   // Optimized queries with consistent keys and better performance settings
-  const { data: botStatusResponse, isLoading } = useQuery<{data: BotStatus2}>({
+  const { data: botStatus, isLoading } = useQuery<BotStatus2>({
     queryKey: QUERY_KEYS.BOT_STATUS,
     queryFn: async () => {
       try {
@@ -46,116 +46,90 @@ export default function TradingPage() {
         // Check if result has the bot status properties directly
         if (result.hasOwnProperty('isRunning') && result.hasOwnProperty('demoMode')) {
           console.log('✅ Direct bot status response:', result)
-          return { data: result }
+          return result
         }
         // Or if it has the success wrapper format
         else if (result.success && result.data) {
           console.log('✅ Success response with data:', result.data)
-          return { data: result.data }
+          return result.data
         } else if (result.success) {
           console.log('✅ Success response without data field')
-          return { data: result }
+          return result
         } else {
           console.error('❌ API returned error or unexpected format:', result)
           throw new Error(result.error || 'API returned unexpected format')
         }
       } catch (error) {
         console.error('Bot status error in TradingPage:', error)
-        // Return safe default in expected format
+        // Return safe default
         return {
-          data: {
-            isRunning: false,
-            demoMode: true,
-            activePositions: [],
-            config: {
-              enabled: true,
-              maxConcurrentTrades: 3,
-              defaultPositionSize: 50,
-              scanInterval: 30000,
-              symbolsToScan: [],
-              stopLossPercent: 3,
-              takeProfitPercent: 5,
-              trailingStopPercent: 1,
-              minVolumeUSDT: 100000,
-              rsiOversold: 30,
-              rsiOverbought: 70,
-              volumeSpikeThreshold: 2,
-              minSignalStrength: 0.6,
-              confirmationRequired: true,
-              ma1Period: 9,
-              ma2Period: 21,
-              riskRewardRatio: 2,
-              maxDrawdownPercent: 10,
-              maxDailyLossUSDT: 100,
-              maxPositionSizePercent: 10
-            },
-            symbolsCount: 0,
-            scannedSymbols: [],
-            architecture: 'parallel'
-          }
+          isRunning: false,
+          demoMode: true,
+          activePositions: [],
+          config: {
+            enabled: true,
+            maxConcurrentTrades: 3,
+            defaultPositionSize: 50,
+            scanInterval: 30000,
+            symbolsToScan: [],
+            stopLossPercent: 3,
+            takeProfitPercent: 5,
+            trailingStopPercent: 1,
+            minVolumeUSDT: 100000,
+            rsiOversold: 30,
+            rsiOverbought: 70,
+            volumeSpikeThreshold: 2,
+            minSignalStrength: 0.6,
+            confirmationRequired: true,
+            ma1Period: 9,
+            ma2Period: 21,
+            riskRewardRatio: 2,
+            maxDrawdownPercent: 10,
+            maxDailyLossUSDT: 100,
+            maxPositionSizePercent: 10
+          },
+          symbolsCount: 0,
+          scannedSymbols: [],
+          architecture: 'parallel'
         }
       }
     },
     refetchInterval: 5000, // Increased from 3s to 5s to reduce API load
     staleTime: 2000, // Consider data fresh for 2 seconds
     cacheTime: 10000, // Keep in cache for 10 seconds
-    // Provide initial data in expected format
+    // Provide initial data
     initialData: {
-      data: {
-        isRunning: false,
-        demoMode: true,
-        activePositions: [],
-        config: {
-          enabled: true,
-          maxConcurrentTrades: 3,
-          defaultPositionSize: 50,
-          scanInterval: 30000,
-          symbolsToScan: [],
-          stopLossPercent: 3,
-          takeProfitPercent: 5,
-          trailingStopPercent: 1,
-          minVolumeUSDT: 100000,
-          rsiOversold: 30,
-          rsiOverbought: 70,
-          volumeSpikeThreshold: 2,
-          minSignalStrength: 0.6,
-          confirmationRequired: true,
-          ma1Period: 9,
-          ma2Period: 21,
-          riskRewardRatio: 2,
-          maxDrawdownPercent: 10,
-          maxDailyLossUSDT: 100,
-          maxPositionSizePercent: 10
-        },
-        symbolsCount: 0,
-        scannedSymbols: [],
-        architecture: 'parallel'
-      }
+      isRunning: false,
+      demoMode: true,
+      activePositions: [],
+      config: {
+        enabled: true,
+        maxConcurrentTrades: 3,
+        defaultPositionSize: 50,
+        scanInterval: 30000,
+        symbolsToScan: [],
+        stopLossPercent: 3,
+        takeProfitPercent: 5,
+        trailingStopPercent: 1,
+        minVolumeUSDT: 100000,
+        rsiOversold: 30,
+        rsiOverbought: 70,
+        volumeSpikeThreshold: 2,
+        minSignalStrength: 0.6,
+        confirmationRequired: true,
+        ma1Period: 9,
+        ma2Period: 21,
+        riskRewardRatio: 2,
+        maxDrawdownPercent: 10,
+        maxDailyLossUSDT: 100,
+        maxPositionSizePercent: 10
+      },
+      symbolsCount: 0,
+      scannedSymbols: [],
+      architecture: 'parallel'
     }
   })
 
-  // Extract botStatus from response for component use with comprehensive safety
-  const botStatus = useMemo((): BotStatus2 | undefined => {
-    try {
-      console.log('🔍 Extracting botStatus from response:', botStatusResponse)
-      
-      if (!botStatusResponse) {
-        console.warn('⚠️ botStatusResponse is null/undefined')
-        return undefined
-      }
-      
-      if (!botStatusResponse.data) {
-        console.warn('⚠️ botStatusResponse.data is null/undefined:', botStatusResponse)
-        return undefined
-      }
-      
-      console.log('✅ Extracted botStatus:', botStatusResponse.data)
-      return botStatusResponse.data
-    } catch (error) {
-      console.error('❌ Error extracting botStatus:', error)
-      return undefined
-    }
-  }, [botStatusResponse])
 
   // Get trading statistics - Optimized with conditional fetching
   const { data: tradingStats } = useQuery({
@@ -354,12 +328,10 @@ export default function TradingPage() {
   // Safety check for botStatus with detailed logging (avoid early returns that break hooks)
   if (isLoading) {
     console.log('🔄 Still loading bot status...')
-  } else if (!botStatusResponse) {
-    console.error('❌ No botStatusResponse received')
-  } else if (!botStatusResponse.data) {
-    console.error('❌ botStatusResponse has no data:', botStatusResponse)
+  } else if (!botStatus) {
+    console.error('❌ No botStatus received')
   } else {
-    console.log('✅ Bot status loaded successfully:', botStatusResponse.data)
+    console.log('✅ Bot status loaded successfully:', botStatus)
   }
 
   // Determine what to render
