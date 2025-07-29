@@ -40,10 +40,10 @@ services:
     buildCommand: npm install && npm run build
     staticPublishPath: ./dist
     routes:
-      # API routes - proxy ALL /api/* to backend with wildcard
+      # API routes - preserve /api prefix when proxying to backend
       - type: rewrite
         source: /api/*
-        destination: https://bingx-trading-bot-lu0z.onrender.com/*
+        destination: https://bingx-trading-bot-lu0z.onrender.com/api/*
       # WebSocket route
       - type: rewrite
         source: /ws
