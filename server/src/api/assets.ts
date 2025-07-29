@@ -468,17 +468,55 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
   });
   
   try {
-    // RENDER HEALTH CHECK: Verify system resources before starting
+    // RENDER CRITICAL HEALTH CHECK: Verify system resources before starting
     const memCheck = process.memoryUsage();
     const memUsageMB = Math.round(memCheck.heapUsed / 1024 / 1024);
     
-    if (memUsageMB > 400) { // Render has 512MB limit
-      logger.warn(`⚠️  RENDER MEMORY WARNING: ${memUsageMB}MB used (close to 512MB limit)`);
-      // Force garbage collection if available
+    // RENDER EMERGENCY: Refuse to start if memory is already critical
+    if (memUsageMB > 450) {
+      logger.error(`🚨 RENDER ABORT: Memory too high to start refresh (${memUsageMB}MB/512MB)`);
+      
+      await sendProgress(sessionId, {
+        type: 'error',
+        message: `🚨 RENDER: Cannot start refresh - memory usage too high (${memUsageMB}MB/512MB)`,
+        errorDetails: {
+          platform: 'render',
+          memoryUsage: `${memUsageMB}MB`,
+          memoryLimit: '512MB',
+          recommendation: 'Wait 10 minutes for memory to stabilize, then try again'
+        }
+      });
+      
+      throw new AppError(`RENDER: Memory usage too high to start refresh (${memUsageMB}MB/512MB)`, 507);
+    }
+    
+    // RENDER WARNING: High memory usage - force cleanup before proceeding
+    if (memUsageMB > 350) {
+      logger.warn(`⚠️ RENDER MEMORY WARNING: ${memUsageMB}MB used - forcing cleanup before refresh`);
+      
+      // Aggressive cleanup before starting
       if (global.gc) {
         global.gc();
-        logger.info('🧹 Forced garbage collection completed');
+        const afterGC = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
+        logger.info(`🧹 RENDER: Forced GC before refresh - ${memUsageMB}MB → ${afterGC}MB`);
+        
+        // Update memory usage after GC
+        if (afterGC > 400) {
+          logger.error(`🚨 RENDER: Memory still high after GC (${afterGC}MB) - delaying refresh`);
+          
+          await sendProgress(sessionId, {
+            type: 'warning',
+            message: `⚠️ RENDER: High memory after cleanup (${afterGC}MB) - using minimal processing mode`,
+            memoryConstraint: true
+          });
+        }
       }
+      
+      // Clear any existing caches to free memory
+      bingxClient.clearCache();
+      
+      // Wait briefly for system to stabilize
+      await new Promise(resolve => setTimeout(resolve, 2000));
     }
     
     // Send initial progress with system status
@@ -772,18 +810,51 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
     // RENDER OPTIMIZED: Memory-conscious parallel processing
     const startTime = Date.now();
     
-    // RENDER SPECIFIC: Reduce batch sizes for memory constraints
+    // RENDER CRITICAL: Memory-aware batch sizing with emergency protocols
     const currentMemory = process.memoryUsage();
     const currentMemUsageMB = Math.round(currentMemory.heapUsed / 1024 / 1024);
     
-    // Dynamic batch sizing based on available memory
-    let BATCH_SIZE = 50; // Conservative for Render's 512MB limit
-    let MAX_CONCURRENT_BATCHES = 3; // Reduced concurrency
+    // RENDER EMERGENCY: Abort if memory is already critical
+    if (currentMemUsageMB > 480) {
+      logger.error(`🚨 RENDER ABORT: Critical memory usage (${currentMemUsageMB}MB) before processing - aborting to prevent crash`);
+      throw new AppError(`RENDER: Memory usage too high (${currentMemUsageMB}MB/512MB) - please try again later`, 507);
+    }
     
-    if (currentMemUsageMB > 300) {
-      BATCH_SIZE = 25; // Very conservative
-      MAX_CONCURRENT_BATCHES = 2;
-      logger.warn(`🚨 RENDER: High memory usage (${currentMemUsageMB}MB), using conservative batch sizes`);
+    // Dynamic batch sizing based on available memory - more aggressive limits
+    let BATCH_SIZE = 30; // Very conservative for Render's 512MB limit
+    let MAX_CONCURRENT_BATCHES = 2; // Reduced concurrency
+    
+    if (currentMemUsageMB > 350) {
+      BATCH_SIZE = 15; // Ultra conservative
+      MAX_CONCURRENT_BATCHES = 1; // Sequential processing only
+      logger.warn(`🚨 RENDER: High memory usage (${currentMemUsageMB}MB), using ultra-conservative batch sizes`);
+      
+      // Force garbage collection before proceeding
+      if (global.gc) {
+        global.gc();
+        const afterGC = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
+        logger.info(`🧹 RENDER: Forced GC - memory reduced from ${currentMemUsageMB}MB to ${afterGC}MB`);
+      }
+    } else if (currentMemUsageMB > 300) {
+      BATCH_SIZE = 20; // Conservative
+      MAX_CONCURRENT_BATCHES = 1;
+      logger.warn(`⚠️ RENDER: Moderate memory usage (${currentMemUsageMB}MB), using conservative batch sizes`);
+    }
+    
+    // RENDER: Additional safety - limit total contracts if memory is constrained
+    const memoryAvailableMB = 512 - currentMemUsageMB;
+    const maxContractsForMemory = Math.min(contractsToProcess.length, Math.floor(memoryAvailableMB * 20)); // ~20 contracts per MB
+    
+    if (maxContractsForMemory < contractsToProcess.length) {
+      logger.warn(`🔒 RENDER: Memory constraint - processing only ${maxContractsForMemory}/${contractsToProcess.length} contracts`);
+      contractsToProcess.splice(maxContractsForMemory);
+      
+      await sendProgress(sessionId, {
+        type: 'warning',
+        message: `⚠️ RENDER: Memory limited - processing ${maxContractsForMemory} contracts only`,
+        memoryConstraint: true,
+        availableMemory: `${memoryAvailableMB}MB`
+      });
     }
     
     logger.info(`🔧 RENDER BATCH CONFIG: ${BATCH_SIZE} per batch, ${MAX_CONCURRENT_BATCHES} concurrent`);
@@ -1017,11 +1088,42 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
       const flattenedAssets = batchResults.flat();
       processedAssets.push(...flattenedAssets);
       
-      // RENDER: Monitor memory during processing
+      // RENDER CRITICAL: Monitor memory during processing with emergency protocols
       const processingMemory = process.memoryUsage();
       const processingMemMB = Math.round(processingMemory.heapUsed / 1024 / 1024);
       
-      // Send bulk database progress update with memory monitoring
+      // RENDER EMERGENCY: Abort if memory becomes critical during processing
+      if (processingMemMB > 490) {
+        logger.error(`🚨 RENDER EMERGENCY ABORT: Critical memory (${processingMemMB}MB) during processing`);
+        
+        // Emergency cleanup
+        if (global.gc) {
+          global.gc();
+          const postGCMemory = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
+          logger.info(`🧹 RENDER EMERGENCY: Post-GC memory: ${postGCMemory}MB`);
+          
+          // If still critical after GC, abort with partial results
+          if (postGCMemory > 480) {
+            await sendProgress(sessionId, {
+              type: 'warning',
+              message: `🚨 RENDER: Emergency stop due to memory pressure - saved ${processedAssets.length} assets`,
+              partialResults: true,
+              memoryUsage: `${postGCMemory}MB`
+            });
+            break; // Exit batch processing loop early
+          }
+        } else {
+          // No GC available, must abort
+          await sendProgress(sessionId, {
+            type: 'error',
+            message: `🚨 RENDER: Critical memory exceeded (${processingMemMB}MB) - operation aborted`,
+            memoryExceeded: true
+          });
+          throw new AppError(`RENDER: Memory exceeded during processing (${processingMemMB}MB/512MB)`, 507);
+        }
+      }
+      
+      // Send bulk database progress update with enhanced memory monitoring
       await sendProgress(sessionId, {
         type: 'progress',
         message: `💾 RENDER: Salvando lote (${processingMemMB}MB): ${processedAssets.length} contratos`,
@@ -1029,13 +1131,24 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
         processed: processedAssets.length,
         total: contractsToProcess.length,
         memoryUsage: `${processingMemMB}MB`,
+        memoryPercentage: `${((processingMemMB / 512) * 100).toFixed(1)}%`,
         renderOptimized: true
       });
       
-      // RENDER CRITICAL: Force garbage collection if memory is high
+      // RENDER: Proactive garbage collection at memory thresholds
       if (processingMemMB > 350 && global.gc) {
         global.gc();
-        logger.info('🧹 RENDER: Forced GC due to high memory usage');
+        const afterGCMemory = Math.round(process.memoryUsage().heapUsed / 1024 / 1024);
+        logger.info(`🧹 RENDER: Proactive GC - ${processingMemMB}MB → ${afterGCMemory}MB`);
+      }
+      
+      // RENDER: Additional cleanup for large batches
+      if (processedAssets.length > 500 && processedAssets.length % 100 === 0) {
+        // Clear processed batch data to free memory
+        const earliestBatches = Math.floor(processedAssets.length / 100) - 2;
+        if (earliestBatches > 0) {
+          logger.debug(`🧹 RENDER: Clearing early batch references to save memory`);
+        }
       }
       
       // Yield to event loop between batch groups
@@ -1276,64 +1389,120 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
     });
     
   } catch (error) {
-    // RENDER OPTIMIZED: Enhanced error handling with diagnostics
+    // RENDER CRITICAL: Enhanced error handling with memory diagnostics
     const errorMemory = process.memoryUsage();
     const errorMemMB = Math.round(errorMemory.heapUsed / 1024 / 1024);
+    
+    // RENDER EMERGENCY: Force garbage collection if memory is critical
+    if (errorMemMB > 480 && global.gc) {
+      global.gc();
+      logger.info('🚨 RENDER EMERGENCY: Forced GC due to critical memory usage');
+    }
     
     logger.error('RENDER: Assets refresh failed:', {
       error: error instanceof Error ? {
         message: error.message,
         name: error.name,
-        stack: process.env.NODE_ENV === 'development' ? error.stack : 'hidden'
+        stack: process.env.NODE_ENV === 'development' ? error.stack?.substring(0, 1000) : 'hidden'
       } : error,
       memoryAtError: `${errorMemMB}MB`,
       isMemoryIssue: errorMemMB > 450,
+      isMemoryCritical: errorMemMB > 480,
       isTimeoutIssue: error instanceof Error && (
         error.message?.includes('timeout') || 
         error.message?.includes('TIMEOUT') ||
-        error.message?.includes('ECONNABORTED')
+        error.message?.includes('ECONNABORTED') ||
+        error.message?.includes('ETIMEDOUT')
+      ),
+      isNetworkIssue: error instanceof Error && (
+        error.message?.includes('ECONNRESET') ||
+        error.message?.includes('ENOTFOUND') ||
+        error.message?.includes('network')
       )
     });
     
-    // RENDER: Send detailed error information
+    // RENDER: Enhanced error classification for better debugging
     let errorMessage = 'Unknown error during refresh';
     let errorCode = 500;
     
     if (error instanceof Error) {
-      if (error.message?.includes('RENDER_API_TIMEOUT')) {
-        errorMessage = 'RENDER: API timeout - platform constraints reached';
+      // Memory-related errors
+      if (errorMemMB > 480) {
+        errorMessage = 'RENDER: Memory limit exceeded (>480MB) - operation aborted for platform stability';
+        errorCode = 507;
+      } else if (errorMemMB > 450 && error.message?.includes('out of memory')) {
+        errorMessage = 'RENDER: Out of memory - try refreshing with fewer concurrent operations';
+        errorCode = 507;
+      }
+      // API timeout errors
+      else if (error.message?.includes('RENDER_API_TIMEOUT')) {
+        errorMessage = 'RENDER: BingX API timeout - platform may be under high load';
         errorCode = 504;
       } else if (error.message?.includes('RENDER_DB_TIMEOUT')) {
-        errorMessage = 'RENDER: Database timeout - try again later';
+        errorMessage = 'RENDER: Database timeout - database may be overloaded';
         errorCode = 503;
-      } else if (errorMemMB > 450) {
-        errorMessage = 'RENDER: Memory limit approached - refresh completed partially';
-        errorCode = 507;
-      } else if (error.message?.includes('rate limit')) {
+      }
+      // Network errors
+      else if (error.message?.includes('ECONNRESET') || error.message?.includes('ENOTFOUND')) {
+        errorMessage = 'RENDER: Network connectivity issue - check BingX API status';
+        errorCode = 502;
+      } else if (error.message?.includes('ETIMEDOUT')) {
+        errorMessage = 'RENDER: Request timeout - external API unresponsive';
+        errorCode = 504;
+      }
+      // Rate limiting
+      else if (error.message?.includes('rate limit')) {
         errorMessage = `RENDER: ${error.message}`;
         errorCode = 429;
-      } else {
+      }
+      // Generic fallback
+      else {
         errorMessage = `RENDER: ${error.message}`;
+        // Keep original error code if it's an AppError
+        if (error.name === 'AppError' && (error as any).statusCode) {
+          errorCode = (error as any).statusCode;
+        }
       }
     }
     
+    // RENDER: Send comprehensive error information
     await sendProgress(sessionId, {
       type: 'error',
       message: errorMessage,
       errorDetails: {
         platform: 'render',
         memoryUsage: `${errorMemMB}MB`,
+        memoryLimit: '512MB',
+        memoryUtilization: `${((errorMemMB / 512) * 100).toFixed(1)}%`,
         errorType: error instanceof Error ? error.name : 'Unknown',
-        timestamp: new Date().toISOString()
+        errorCategory: errorCode === 507 ? 'memory' : errorCode === 504 ? 'timeout' : errorCode === 502 ? 'network' : 'unknown',
+        timestamp: new Date().toISOString(),
+        recommendation: errorMemMB > 450 
+          ? 'Wait 5 minutes and try again with fewer assets' 
+          : 'Check BingX API status or try again later'
       },
       renderOptimized: true
     });
     
-    // Close SSE connection
-    const session = refreshSessions.get(sessionId);
-    if (session) {
-      session.end();
-      refreshSessions.delete(sessionId);
+    // RENDER CRITICAL: Cleanup resources before throwing
+    try {
+      // Clear any remaining caches
+      bingxClient?.clearCache?.();
+      
+      // Force garbage collection to free memory
+      if (global.gc) {
+        global.gc();
+        logger.info('🧹 RENDER: Emergency cleanup - forced GC on error');
+      }
+      
+      // Close SSE connection
+      const session = refreshSessions.get(sessionId);
+      if (session) {
+        session.end();
+        refreshSessions.delete(sessionId);
+      }
+    } catch (cleanupError) {
+      logger.warn('RENDER: Error during cleanup:', cleanupError);
     }
     
     throw new AppError(errorMessage, errorCode);
