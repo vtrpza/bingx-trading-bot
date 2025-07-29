@@ -78,7 +78,7 @@ export default function Layout({ children }: LayoutProps) {
               {botStatus && (
                 <div className="flex items-center space-x-2">
                   <span className="text-sm text-gray-600">
-                    Saldo: {parseFloat( botStatus?.data.balance.balance || '0').toFixed(2)} {botStatus.data.demoMode ? 'VST' : 'USDT'}
+                    Saldo: {parseFloat(botStatus?.data?.balance?.balance || '0').toFixed(2)} {botStatus.data.demoMode ? 'VST' : 'USDT'}
                   </span>
                 </div>
               )} 

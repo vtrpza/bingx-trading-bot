@@ -119,10 +119,10 @@ export default function RealTimeSignals() {
       if (data.success && data.data?.balance) {
         // Buscar saldo USDT ou VST (demo mode)
         const balanceData = Array.isArray(data.data.balance) ? data.data.balance : [data.data.balance]
-        const usdtBalance = balanceData.find((b: any) => b.asset === 'USDT' || b.asset === 'VST')
+        const usdtBalance = balanceData.find((b: any) => b?.asset === 'USDT' || b?.asset === 'VST')
         return parseFloat(usdtBalance?.availableMargin || usdtBalance?.balance || '1000')
       }
-      return 1000 // Valor padrão se não conseguir buscar
+      return 1000 // Valor padrão se não conseguir buscar ou balance for null
     },
     { refetchInterval: 30000 } // Atualizar a cada 30 segundos
   )
