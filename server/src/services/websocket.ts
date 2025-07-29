@@ -334,7 +334,7 @@ export function setupWebSocket(server: Server) {
       // Accept any protocol for flexibility
       return protocols.values().next().value || false;
     },
-    verifyClient: (info) => {
+    verifyClient: (info: { origin?: string; req: any }) => {
       // Accept connections from allowed origins
       const origin = info.origin || info.req.headers.origin;
       const allowedOrigins = [
