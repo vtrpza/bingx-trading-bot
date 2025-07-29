@@ -118,13 +118,13 @@ export class ProductionBingXRateLimiter {
     // Market Data Limiter (100 requests/10s per IP)
     this.marketDataLimiter = new Bottleneck({
       ...this.MARKET_DATA_CONFIG,
-      id: 'bingx-market-data-production'
+      id: 'bingx-market-data-development'
     });
 
     // Account/Trading Limiter (1000 requests/10s per IP)
     this.accountTradingLimiter = new Bottleneck({
       ...this.ACCOUNT_TRADING_CONFIG,
-      id: 'bingx-account-trading-production'
+      id: 'bingx-account-trading-development'
     });
 
     this.setupLimiterEventHandlers();
@@ -389,8 +389,8 @@ export class ProductionBingXRateLimiter {
       recoveryDelay = Math.max(resetTime - Date.now(), 10000);
     }
     
-    // BingX SAFETY: Add buffer for production stability
-    if (process.env.NODE_ENV === 'production') {
+    // BingX SAFETY: Add buffer for development stability
+    if (process.env.NODE_ENV === 'development') {
       recoveryDelay = Math.max(recoveryDelay * 1.2, 12000); // 20% buffer, minimum 12s
     }
     
@@ -410,13 +410,13 @@ export class ProductionBingXRateLimiter {
     });
 
     // BingX PRODUCTION: Enhanced monitoring
-    if (process.env.NODE_ENV === 'production') {
+    if (process.env.NODE_ENV === 'development') {
       await logToExternal('error', 'BingX Rate Limit - Strict Compliance Mode', {
         endpoint: error.config?.url,
         waitTimeSeconds: Math.ceil(recoveryDelay / 1000),
         rateLimitHits: this.metrics.rateLimitHits,
         totalRequests: this.metrics.totalRequests,
-        environment: 'production',
+        environment: 'development',
         complianceLevel: 'strict_official_limits',
         bingxWindow: '10_seconds'
       });
@@ -499,7 +499,7 @@ export class ProductionBingXRateLimiter {
     });
 
     // Log critical errors to external monitoring
-    if (process.env.NODE_ENV === 'production' && 
+    if (process.env.NODE_ENV === 'development' && 
         ['RATE_LIMIT', 'SERVER'].includes(errorCategory)) {
       await logToExternal('error', `BingX API Error: ${errorCategory}`, {
         key,
@@ -526,7 +526,7 @@ export class ProductionBingXRateLimiter {
     // Implement your alerting mechanism here (Slack, email, etc.)
     logger.error(`🚨 ALERT: ${alertType}`, data);
     
-    if (process.env.NODE_ENV === 'production') {
+    if (process.env.NODE_ENV === 'development') {
       await logToExternal('alert', `Production Alert: ${alertType}`, {
         ...data,
         timestamp: new Date().toISOString(),
@@ -626,7 +626,7 @@ export class ProductionBingXRateLimiter {
    * Restart limiters in case of failure
    */
   restart(): void {
-    logger.info('🔄 Restarting production rate limiters...');
+    logger.info('🔄 Restarting development rate limiters...');
     
     try {
       this.setupRateLimiters();
@@ -722,5 +722,5 @@ class EnhancedCircuitBreaker {
   }
 }
 
-// Singleton instance for production use
+// Singleton instance for development use
 export const productionBingXRateLimiter = new ProductionBingXRateLimiter();
