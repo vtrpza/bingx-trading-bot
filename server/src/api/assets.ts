@@ -395,12 +395,12 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
     await yieldEventLoop();
     
     // Invalidate cache to ensure fresh data
-    bingxClient.invalidateSymbolsCache();
+    bingxClient.clearCache();
     
-    // OPTIMIZED: Parallel fetch of contracts and market data
+    // RATE-LIMITED: Sequential fetch of contracts and market data
     await sendProgress(sessionId, {
       type: 'progress',
-      message: '🚀 Buscando contratos + dados de mercado em paralelo...',
+      message: '🚀 Buscando contratos + dados de mercado sequencialmente...',
       progress: 10,
       processed: 0,
       total: 0
@@ -411,13 +411,13 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
     let tickersResponse;
     
     try {
-      parallelData = await bingxClient.getSymbolsAndTickersParallel();
+      parallelData = await bingxClient.getSymbolsAndTickersSequential();
       contractsResponse = parallelData.symbols;
       tickersResponse = parallelData.tickers;
-    } catch (parallelError: any) {
-      logger.warn('⚠️  Parallel fetch failed, trying individual calls:', parallelError.message);
+    } catch (sequentialError: any) {
+      logger.warn('⚠️  Sequential fetch failed, trying individual calls:', sequentialError.message);
       
-      // Fallback to individual calls if parallel fails
+      // Fallback to individual calls if sequential fails
       try {
         contractsResponse = await bingxClient.getSymbols();
         
@@ -1015,7 +1015,7 @@ router.post('/cache/invalidate', asyncHandler(async (_req: Request, res: Respons
   
   try {
     // Invalidate BingX client caches
-    bingxClient.invalidateSymbolsCache();
+    bingxClient.clearCache();
     
     logger.info('✅ All caches invalidated successfully');
     

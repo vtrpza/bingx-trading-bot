@@ -1,24 +1,12 @@
 import axios, { AxiosInstance } from 'axios';
 import crypto from 'crypto';
 import { logger, logToExternal } from '../utils/logger';
-import { globalRateLimiter, RateLimiter, RequestCategory } from './rateLimiter';
+import { bingxRateLimiter } from './bingxRateLimiter';
 import dotenv from 'dotenv';
 import path from 'path';
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
 
-// Create a specific rate limiter for kline data  
-const klineRateLimiter = new RateLimiter(5, 900); // 5 requests per 900ms (same as global)
-
-// Enhanced cache for kline data with better rate limiting
-const klineCache = new Map<string, { timestamp: number; data: any }>();
-const KLINE_CACHE_DURATION = 90000; // 90 seconds - increased from 30s to reduce API pressure
-
-// Additional cache for balance and other frequently accessed data
-const balanceCache = new Map<string, { timestamp: number; data: any }>();
-const BALANCE_CACHE_DURATION = 60000; // 60 seconds for balance data
-
-const symbolCache = new Map<string, { timestamp: number; data: any }>();
-const SYMBOL_CACHE_DURATION = 120000; // 2 minutes for symbols data (reduced for faster refresh)
+// Legacy cache maps (now replaced by BingXRateLimiter caching)
 
 interface BingXConfig {
   apiKey: string;
@@ -31,49 +19,6 @@ export class BingXClient {
   private axios: AxiosInstance;
   private config: BingXConfig;
 
-  /**
-   * 🚀 ULTRA-FAST: Determine request category from URL for intelligent rate limiting
-   */
-  private getRequestCategory(url: string): RequestCategory {
-    if (!url) return RequestCategory.MARKET_DATA;
-    
-    // Market data endpoints (highest volume, fastest limits)
-    if (url.includes('/quote/') || 
-        url.includes('/klines') || 
-        url.includes('/depth') || 
-        url.includes('/ticker') ||
-        url.includes('/aggTrades') ||
-        url.includes('/24hr')) {
-      return RequestCategory.MARKET_DATA;
-    }
-    
-    // Symbol/contract information
-    if (url.includes('/symbols') || 
-        url.includes('/contracts') || 
-        url.includes('/exchangeInfo')) {
-      return RequestCategory.SYMBOLS;
-    }
-    
-    // Trading operations (orders, positions)
-    if (url.includes('/order') || 
-        url.includes('/position') || 
-        url.includes('/trade') ||
-        url.includes('/leverage') ||
-        url.includes('/marginType')) {
-      return RequestCategory.TRADING;
-    }
-    
-    // Account information (balance, etc)
-    if (url.includes('/account') || 
-        url.includes('/balance') || 
-        url.includes('/income') ||
-        url.includes('/commissionRate')) {
-      return RequestCategory.ACCOUNT;
-    }
-    
-    // Default to market data for unknown endpoints
-    return RequestCategory.MARKET_DATA;
-  }
 
   constructor() {
     const demoMode = process.env.DEMO_MODE === 'true';
@@ -106,49 +51,33 @@ export class BingXClient {
       }
     });
 
-    // Add request interceptor for rate limiting and authentication
+    // Add request interceptor for authentication only (rate limiting handled per method)
     this.axios.interceptors.request.use(
       async (config) => {
-        // 🚀 ULTRA-FAST: Apply categorized rate limiting
-        const category = this.getRequestCategory(config.url || '');
-        await globalRateLimiter.waitForSlot(category);
         return this.addAuthentication(config);
       },
       (error) => Promise.reject(error)
     );
 
-    // Add response interceptor for error handling with retry logic
+    // Add response interceptor for error handling with new rate limiter
     this.axios.interceptors.response.use(
       (response) => response,
       async (error) => {
         const originalRequest = error.config;
         
-        // Handle BingX rate limiting error 109400
-        if (error.response?.data?.code === 109400 && !originalRequest._retried) {
+        // Handle rate limiting with new comprehensive system
+        if ((error.response?.status === 429 || error.response?.data?.code === 109400) && !originalRequest._retried) {
           originalRequest._retried = true;
           
-          logger.warn('BingX rate limit exceeded (109400), implementing backoff and retry', {
+          logger.warn('BingX rate limit exceeded, using comprehensive rate limiter backoff', {
             url: originalRequest.url,
-            retryAfter: error.response.data.retryAfter || 'unknown',
-            message: error.response.data.msg || 'Rate limit exceeded'
+            status: error.response?.status,
+            code: error.response?.data?.code,
+            message: error.response?.data?.msg
           });
           
-          // Parse retry time from error message if available
-          const errorMsg = error.response.data.msg || '';
-          const retryTimeMatch = errorMsg.match(/retry after time: (\d+)/);
-          let retryAfter = 3000; // Default 3 seconds
-          
-          if (retryTimeMatch) {
-            const retryTimestamp = parseInt(retryTimeMatch[1]);
-            const currentTime = Date.now();
-            retryAfter = Math.max(1000, retryTimestamp - currentTime); // At least 1 second
-            logger.info(`BingX specified retry time: ${new Date(retryTimestamp).toISOString()}, waiting ${retryAfter}ms`);
-          }
-          
-          await new Promise(resolve => setTimeout(resolve, retryAfter));
-          
-          // Reset rate limiter to prevent immediate subsequent failures
-          globalRateLimiter.reset();
+          await bingxRateLimiter.handleRateLimit(error, originalRequest._retryCount || 1);
+          originalRequest._retryCount = (originalRequest._retryCount || 1) + 1;
           
           // Retry the original request
           return this.axios(originalRequest);
@@ -241,62 +170,46 @@ export class BingXClient {
   }
 
 
-  // OPTIMIZED: Parallel API calls for maximum performance
-  async getSymbolsAndTickersParallel() {
-    const cacheKey = 'symbols_and_tickers_parallel';
-    const now = Date.now();
+  // RATE-LIMITED: Sequential API calls to prevent 429 errors
+  async getSymbolsAndTickersSequential() {
+    const cacheKey = 'symbols_and_tickers_sequential';
     
-    // Check cache first
-    if (symbolCache.has(cacheKey)) {
-      const cached = symbolCache.get(cacheKey)!;
-      if (now - cached.timestamp < SYMBOL_CACHE_DURATION) {
-        logger.debug('Returning cached parallel symbols+tickers data');
-        return cached.data;
-      }
-    }
-    
-    logger.info('🚀 PARALLEL FETCH: Getting symbols and tickers simultaneously...');
-    
-    try {
-      // Execute both API calls in parallel for maximum speed
-      const [symbolsResult, tickersResult] = await Promise.all([
-        this.getSymbols(),
-        this.getAllTickers()
-      ]);
-      
-      const result = {
-        symbols: symbolsResult,
-        tickers: tickersResult,
-        timestamp: now,
-        source: 'parallel_fetch'
-      };
-      
-      // Cache the combined result
-      symbolCache.set(cacheKey, { timestamp: now, data: result });
-      
-      logger.info(`✅ PARALLEL FETCH COMPLETED: ${symbolsResult?.data?.length || 0} symbols + ${tickersResult?.data?.length || 0} tickers`);
-      
-      return result;
-      
-    } catch (error) {
-      logger.error('❌ PARALLEL FETCH FAILED:', error);
-      throw error;
-    }
+    // Use rate limiter's caching mechanism for better cache management
+    return bingxRateLimiter.executeMarketDataRequest(
+      cacheKey,
+      async () => {
+        logger.info('📊 SEQUENTIAL FETCH: Getting symbols and tickers with rate limiting...');
+        
+        // Execute sequentially to avoid rate limits
+        const symbolsResult = await this.getSymbols();
+        const tickersResult = await this.getAllTickers();
+        
+        const result = {
+          symbols: symbolsResult,
+          tickers: tickersResult,
+          timestamp: Date.now(),
+          source: 'sequential_fetch_rate_limited'
+        };
+        
+        logger.info(`✅ SEQUENTIAL FETCH COMPLETED: ${symbolsResult?.data?.length || 0} symbols + ${tickersResult?.data?.length || 0} tickers`);
+        return result;
+      },
+      120 // Cache for 2 minutes
+    );
   }
 
   // Market Data Methods (Public)
   async getSymbols() {
     const cacheKey = 'symbols';
-    const now = Date.now();
     
-    // Check cache first
-    if (symbolCache.has(cacheKey)) {
-      const cached = symbolCache.get(cacheKey)!;
-      if (now - cached.timestamp < SYMBOL_CACHE_DURATION) {
-        logger.debug('Returning cached symbols data');
-        return cached.data;
-      }
-    }
+    return bingxRateLimiter.executeMarketDataRequest(
+      cacheKey,
+      async () => this.fetchSymbolsFromAPI(),
+      120 // Cache for 2 minutes
+    );
+  }
+  
+  private async fetchSymbolsFromAPI() {
     
     try {
       logger.info('🔥 BUSCA EXAUSTIVA: Vasculhando TODOS os endpoints BingX...');
@@ -458,7 +371,7 @@ export class BingXClient {
       
       logger.info(`🎉 BUSCA COMPLETA FINALIZADA: ${finalContracts.length} contratos únicos encontrados`);
       
-      const finalData = {
+      return {
         code: 0,
         data: finalContracts,
         msg: 'exhaustive_search_complete',
@@ -467,17 +380,9 @@ export class BingXClient {
           endpointsTested: totalEndpointsTested,
           successfulEndpoints,
           searchType: 'exhaustive',
-          timestamp: now
+          timestamp: Date.now()
         }
       };
-      
-      // Cache por mais tempo já que foi uma busca exaustiva
-      symbolCache.set(cacheKey, {
-        timestamp: now,
-        data: finalData
-      });
-      
-      return finalData;
       
     } catch (error) {
       logger.error('Failed exhaustive search:', error);
@@ -562,40 +467,34 @@ export class BingXClient {
     }
   }
 
-  // Method to invalidate symbols cache for forced refresh
-  invalidateSymbolsCache() {
-    symbolCache.clear();
-    logger.debug('Symbols cache invalidated');
-  }
 
   async getTicker(symbol: string) {
-    try {
-      // Demo mode uses same symbol format as live mode
-      const apiSymbol = symbol;
-      
-      const response = await this.axios.get('/openApi/swap/v2/quote/ticker', {
-        params: { symbol: apiSymbol }
-      });
-      return response.data;
-    } catch (error) {
-      logger.error(`Failed to get ticker for ${symbol}:`, error);
-      throw error;
-    }
+    const cacheKey = `ticker:${symbol}`;
+    
+    return bingxRateLimiter.executeMarketDataRequest(
+      cacheKey,
+      async () => {
+        const apiSymbol = symbol;
+        const response = await this.axios.get('/openApi/swap/v2/quote/ticker', {
+          params: { symbol: apiSymbol }
+        });
+        return response.data;
+      },
+      30 // Cache for 30 seconds
+    );
   }
 
   async getAllTickers() {
     const cacheKey = 'all_tickers';
-    const now = Date.now();
-    const TICKERS_CACHE_DURATION = 30000; // 30 seconds cache for market data
     
-    // Check cache first
-    if (symbolCache.has(cacheKey)) {
-      const cached = symbolCache.get(cacheKey)!;
-      if (now - cached.timestamp < TICKERS_CACHE_DURATION) {
-        logger.debug('Returning cached tickers data');
-        return cached.data;
-      }
-    }
+    return bingxRateLimiter.executeMarketDataRequest(
+      cacheKey,
+      async () => this.fetchTickersFromAPI(),
+      30 // Cache for 30 seconds
+    );
+  }
+  
+  private async fetchTickersFromAPI() {
     
     try {
       logger.info('🎯 Fetching ALL market data from BingX...');
@@ -655,12 +554,6 @@ export class BingXClient {
         count: allTickers.length
       };
       
-      // Cache the tickers data
-      symbolCache.set(cacheKey, {
-        timestamp: now,
-        data: response
-      });
-      
       logger.info(`🎉 All tickers fetched successfully: ${allTickers.length} symbols from ${successfulEndpoint}`);
       
       return response;
@@ -672,44 +565,35 @@ export class BingXClient {
   }
 
   async getKlines(symbol: string, interval: string, limit: number = 500) {
-    const cacheKey = `${symbol}:${interval}:${limit}`;
-    const cached = klineCache.get(cacheKey);
-
-    if (cached && (Date.now() - cached.timestamp) < KLINE_CACHE_DURATION) {
-      logger.debug(`Returning cached kline data for ${symbol}`);
-      return cached.data;
-    }
-
-    try {
-      await klineRateLimiter.waitForSlot();
-      // Demo mode uses same symbol format as live mode
-      const apiSymbol = symbol;
-      
-      const response = await this.axios.get('/openApi/swap/v2/quote/klines', {
-        params: { symbol: apiSymbol, interval, limit }
-      });
-
-      klineCache.set(cacheKey, { timestamp: Date.now(), data: response.data });
-      return response.data;
-    } catch (error) {
-      logger.error(`Failed to get klines for ${symbol}:`, error);
-      throw error;
-    }
+    const cacheKey = `klines:${symbol}:${interval}:${limit}`;
+    
+    return bingxRateLimiter.executeMarketDataRequest(
+      cacheKey,
+      async () => {
+        const apiSymbol = symbol;
+        const response = await this.axios.get('/openApi/swap/v2/quote/klines', {
+          params: { symbol: apiSymbol, interval, limit }
+        });
+        return response.data;
+      },
+      90 // Cache for 90 seconds
+    );
   }
 
   async getDepth(symbol: string, limit: number = 20) {
-    try {
-      // Demo mode uses same symbol format as live mode
-      const apiSymbol = symbol;
-      
-      const response = await this.axios.get('/openApi/swap/v2/quote/depth', {
-        params: { symbol: apiSymbol, limit }
-      });
-      return response.data;
-    } catch (error) {
-      logger.error(`Failed to get depth for ${symbol}:`, error);
-      throw error;
-    }
+    const cacheKey = `depth:${symbol}:${limit}`;
+    
+    return bingxRateLimiter.executeMarketDataRequest(
+      cacheKey,
+      async () => {
+        const apiSymbol = symbol;
+        const response = await this.axios.get('/openApi/swap/v2/quote/depth', {
+          params: { symbol: apiSymbol, limit }
+        });
+        return response.data;
+      },
+      5 // Cache for 5 seconds
+    );
   }
 
   // Trading Methods (Private)
@@ -724,7 +608,7 @@ export class BingXClient {
     takeProfit?: number;
     stopLoss?: number;
   }) {
-    try {
+    return bingxRateLimiter.executeTradingRequest(async () => {
       // VST mode (DEMO_MODE=true) sends real orders to BingX with virtual balance
       const orderParams: any = {
         symbol: orderData.symbol,
@@ -752,97 +636,70 @@ export class BingXClient {
         data: orderParams
       });
       
-      // Log detalhado da resposta completa
       logger.info('BingX API response details:', {
         status: response.status,
         statusText: response.statusText,
-        headers: response.headers,
-        data: response.data,
-        fullDataStructure: JSON.stringify(response.data, null, 2)
-      });
-      
-      return response.data;
-    } catch (error) {
-      logger.error('Failed to place order:', {
-        error: error instanceof Error ? error.message : error,
-        orderData,
-        response: (error as any)?.response?.data
-      });
-      throw error;
-    }
-  }
-
-  async cancelOrder(symbol: string, orderId: string) {
-    try {
-      // Demo mode uses same symbol format as live mode
-
-      const response = await this.axios.delete('/openApi/swap/v2/trade/order', {
-        params: { symbol, orderId }
-      });
-      return response.data;
-    } catch (error) {
-      logger.error('Failed to cancel order:', error);
-      throw error;
-    }
-  }
-
-  async getPositions(symbol?: string) {
-    try {
-      const params: any = {};
-      if (symbol) {
-        params.symbol = symbol; // Demo mode uses same symbol format
-      }
-
-      const response = await this.axios.get('/openApi/swap/v2/user/positions', { params });
-      return response.data;
-    } catch (error) {
-      logger.error('Failed to get positions:', error);
-      throw error;
-    }
-  }
-
-  async getOpenOrders(symbol?: string) {
-    try {
-      const params: any = {};
-      if (symbol) {
-        params.symbol = symbol; // Demo mode uses same symbol format
-      }
-
-      const response = await this.axios.get('/openApi/swap/v2/trade/openOrders', { params });
-      return response.data;
-    } catch (error) {
-      logger.error('Failed to get open orders:', error);
-      throw error;
-    }
-  }
-
-  async getBalance() {
-    const cacheKey = 'balance';
-    const now = Date.now();
-    
-    // Check cache first
-    if (balanceCache.has(cacheKey)) {
-      const cached = balanceCache.get(cacheKey)!;
-      if (now - cached.timestamp < BALANCE_CACHE_DURATION) {
-        logger.debug('Returning cached balance data');
-        return cached.data;
-      }
-    }
-    
-    try {
-      const response = await this.axios.get('/openApi/swap/v2/user/balance');
-      
-      // Cache the response
-      balanceCache.set(cacheKey, {
-        timestamp: now,
         data: response.data
       });
       
       return response.data;
-    } catch (error) {
-      logger.error('Failed to get balance:', error);
-      throw error;
-    }
+    });
+  }
+
+  async cancelOrder(symbol: string, orderId: string) {
+    return bingxRateLimiter.executeTradingRequest(async () => {
+      const response = await this.axios.delete('/openApi/swap/v2/trade/order', {
+        params: { symbol, orderId }
+      });
+      return response.data;
+    });
+  }
+
+  async getPositions(symbol?: string) {
+    const cacheKey = `positions:${symbol || 'all'}`;
+    
+    return bingxRateLimiter.executeMarketDataRequest(
+      cacheKey,
+      async () => {
+        const params: any = {};
+        if (symbol) {
+          params.symbol = symbol;
+        }
+        const response = await this.axios.get('/openApi/swap/v2/user/positions', { params });
+        return response.data;
+      },
+      10 // Cache for 10 seconds
+    );
+  }
+
+  async getOpenOrders(symbol?: string) {
+    const cacheKey = `open_orders:${symbol || 'all'}`;
+    
+    return bingxRateLimiter.executeMarketDataRequest(
+      cacheKey,
+      async () => {
+        const params: any = {};
+        if (symbol) {
+          params.symbol = symbol;
+        }
+        const response = await this.axios.get('/openApi/swap/v2/trade/openOrders', { params });
+        return response.data;
+      },
+      5 // Cache for 5 seconds
+    );
+  }
+
+  async getBalance() {
+    const cacheKey = 'balance';
+    
+    return bingxRateLimiter.executeMarketDataRequest(
+      cacheKey,
+      async () => {
+        const response = await this.axios.get('/openApi/swap/v2/user/balance');
+        return response.data;
+      },
+      60 // Cache for 60 seconds
+    );
   }
 
   // Listen Key for WebSocket
@@ -987,7 +844,13 @@ export class BingXClient {
 
   // Rate Limit Status
   getRateLimitStatus() {
-    return globalRateLimiter.getStatus();
+    return bingxRateLimiter.getStatus();
+  }
+  
+  // Clear rate limiter cache
+  clearCache() {
+    bingxRateLimiter.clearCache();
+    logger.info('BingX client cache cleared');
   }
 }
 

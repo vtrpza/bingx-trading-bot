@@ -54,11 +54,11 @@ export class BingXRateLimiter {
     });
 
     // Log when we're being throttled
-    this.marketDataLimiter.on('depleted', (empty) => {
+    this.marketDataLimiter.on('depleted', (_empty: any) => {
       logger.warn('🚨 Market data rate limit depleted, requests will be queued');
     });
 
-    this.tradingLimiter.on('depleted', (empty) => {
+    this.tradingLimiter.on('depleted', (_empty: any) => {
       logger.warn('🚨 Trading rate limit depleted, requests will be queued');
     });
   }
@@ -75,7 +75,7 @@ export class BingXRateLimiter {
     const cached = this.getFromCache(key, cacheSeconds * 1000);
     if (cached) {
       logger.debug(`📋 Cache hit for ${key}`);
-      return cached;
+      return cached as T;
     }
 
     // Execute with circuit breaker and rate limiting
@@ -146,9 +146,8 @@ export class BingXRateLimiter {
 
       await new Promise(resolve => setTimeout(resolve, exponentialDelay));
 
-      // Resume limiters
-      this.marketDataLimiter.start();
-      this.tradingLimiter.start();
+      // Resume limiters (they automatically resume after pausing)
+      // Note: Bottleneck v2 doesn't have start() method
     }
   }
 
@@ -160,12 +159,12 @@ export class BingXRateLimiter {
       marketData: {
         running: this.marketDataLimiter.running(),
         queued: this.marketDataLimiter.queued(),
-        reservoir: this.marketDataLimiter.reservoir()
+        reservoir: (this.marketDataLimiter as any).reservoir || 0
       },
       trading: {
         running: this.tradingLimiter.running(),
         queued: this.tradingLimiter.queued(),
-        reservoir: this.tradingLimiter.reservoir()
+        reservoir: (this.tradingLimiter as any).reservoir || 0
       },
       circuitBreaker: this.circuitBreaker.getState(),
       cacheSize: this.cache.size
