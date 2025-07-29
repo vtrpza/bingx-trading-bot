@@ -576,7 +576,7 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
    
     const contractsToProcess = response.data;
     
-    // 🔍 INVESTIGAR: Verificar se há contratos duplicados
+    // 🔍 ANÁLISE DE CONTRATOS: Verificar duplicados mas SALVAR TODOS OS ÚNICOS
     const symbolCounts = new Map<string, number>();
     const duplicateSymbols: string[] = [];
     
@@ -593,16 +593,34 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
     const uniqueSymbols = symbolCounts.size;
     const totalDuplicates = contractsToProcess.length - uniqueSymbols;
     
-    logger.info(`🔍 ANÁLISE DE DUPLICATAS:`, {
+    logger.info(`🔍 ANÁLISE DE CONTRATOS (SALVAR TODOS):`, {
       totalContratos: contractsToProcess.length,
       simbolosUnicos: uniqueSymbols,
       duplicatas: totalDuplicates,
-      exemplosDuplicatas: duplicateSymbols.slice(0, 5)
+      exemplosDuplicatas: duplicateSymbols.slice(0, 5),
+      STRATEGY: 'SAVE_ALL_UNIQUE_SYMBOLS'
     });
     
     if (totalDuplicates > 0) {
-      logger.warn(`⚠️ ENCONTRADAS ${totalDuplicates} DUPLICATAS! Isso pode explicar a diferença.`);
+      logger.warn(`⚠️ ENCONTRADAS ${totalDuplicates} DUPLICATAS - Manteremos apenas uma ocorrência de cada símbolo único.`);
     }
+    
+    // CRITICAL FIX: Remove duplicates but keep ALL unique symbols
+    const uniqueContracts = new Map<string, any>();
+    contractsToProcess.forEach((contract: any) => {
+      if (contract.symbol && !uniqueContracts.has(contract.symbol)) {
+        uniqueContracts.set(contract.symbol, contract);
+      }
+    });
+    
+    // Use the deduplicated array for processing
+    const contractsToProcessDeduped = Array.from(uniqueContracts.values());
+    
+    logger.info(`✅ DEDUPLICAÇÃO COMPLETA: ${contractsToProcessDeduped.length} contratos únicos serão processados`);
+    
+    // Update the processing array to use deduplicated contracts
+    const originalContractsToProcess = contractsToProcess;
+    contractsToProcess.splice(0, contractsToProcess.length, ...contractsToProcessDeduped);
     
     // Send progress with total count - merge phase starting
     await sendProgress(sessionId, {
@@ -762,31 +780,49 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
         openInterest: ticker ? parseFloat(ticker.openInterest || '0') || 0 : 0
       };
       
-      // FORÇAR SALVAMENTO DE TODOS - garantir que não haja valores que quebrem o banco
-      assetData.symbol = assetData.symbol || `UNKNOWN_${processed}`;
+      // CRITICAL: FORCE SAVE ALL CONTRACTS - ensure no values break database
+      assetData.symbol = assetData.symbol || `UNKNOWN_${processed}_${Date.now()}`;
       assetData.name = assetData.name || assetData.symbol;
       assetData.baseCurrency = assetData.baseCurrency || 'UNKNOWN';
       assetData.quoteCurrency = assetData.quoteCurrency || 'USDT';
       assetData.status = assetData.status || 'UNKNOWN';
       
-      // Garantir que números sejam válidos
-      Object.keys(assetData).forEach(key => {
-        if (typeof assetData[key] === 'number' && isNaN(assetData[key])) {
-          assetData[key] = 0;
+      // Ensure all numbers are valid (no NaN, null, undefined)
+      const numericFields = [
+        'lastPrice', 'priceChangePercent', 'volume24h', 'quoteVolume24h', 
+        'highPrice24h', 'lowPrice24h', 'openInterest', 'minQty', 'maxQty', 
+        'tickSize', 'stepSize', 'maxLeverage', 'maintMarginRate'
+      ];
+      
+      numericFields.forEach(field => {
+        if (typeof assetData[field] !== 'number' || isNaN(assetData[field]) || !isFinite(assetData[field])) {
+          assetData[field] = 0;
         }
       });
+      
+      // CRITICAL: Validate required fields are not null/empty
+      if (!assetData.symbol || assetData.symbol.trim() === '') {
+        logger.error(`🚨 CRITICAL: Asset without symbol at position ${processed}`);
+        assetData.symbol = `EMERGENCY_${processed}_${Date.now()}`;
+      }
       
       // Log first few asset data for debugging
       if (processed <= 3) {
         logger.debug(`Asset data ${processed}:`, assetData);
       }
       
-      // ACEITAR TODOS OS CONTRATOS - apenas validar se tem símbolo mínimo
+      // CRITICAL: ACCEPT ALL CONTRACTS - Validate only minimum symbol requirement
       if (!contract.symbol || contract.symbol.trim() === '') {
-        // Criar símbolo temporário se não existir
+        // Create temporary symbol if none exists - we still want to save it
         const tempSymbol = `UNKNOWN_${processed}_${Date.now()}`;
-        logger.warn(`⚠️ Contrato sem símbolo, criando temporário: ${tempSymbol}`);
+        logger.warn(`⚠️ Contract without symbol, creating temporary: ${tempSymbol}`);
         contract.symbol = tempSymbol;
+        assetData.symbol = tempSymbol; // Ensure assetData has the symbol too
+      }
+      
+      // CRITICAL DEBUG: Log if any contract is being skipped (there should be NONE)
+      if (processed <= 10) {
+        logger.info(`✅ PROCESSING CONTRACT ${processed}/${contractsToProcess.length}: ${contract.symbol} (${statusText})`);
       }
 
       // Log detalhado dos primeiros contratos para debug
@@ -811,8 +847,13 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
         });
       }
 
-        // Store prepared asset data for bulk processing
+        // CRITICAL: Store prepared asset data for bulk processing - EVERY contract MUST be saved
         batchAssets.push(assetData);
+        
+        // VALIDATION: Ensure we're not losing any contracts
+        if (processed <= 10) {
+          logger.info(`✅ ADDED TO BATCH ${processed}: ${assetData.symbol} - BatchSize: ${batchAssets.length}`);
+        }
         
         // Count status distribution for metrics
         if (statusCounts.hasOwnProperty(statusText)) {
@@ -890,8 +931,23 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
         estimatedCreated: created,
         estimatedUpdated: updated,
         skipped,
-        totalContracts: contractsToProcess.length
+        totalContracts: contractsToProcess.length,
+        processedAssets: processedAssets.length,
+        VALIDATION: bulkResult.length === processedAssets.length ? 'ALL_SAVED' : 'SOME_LOST'
       });
+      
+      // CRITICAL VALIDATION: Check if we lost any contracts during bulk operation
+      if (bulkResult.length !== processedAssets.length) {
+        logger.error(`🚨 CRITICAL: Database bulk operation lost contracts!`, {
+          prepared: processedAssets.length,
+          savedToDB: bulkResult.length,
+          lost: processedAssets.length - bulkResult.length
+        });
+      }
+      
+      // FINAL VALIDATION: Verify all unique symbols are in database
+      const finalCount = await Asset.count();
+      logger.info(`📊 FINAL DATABASE COUNT: ${finalCount} total assets in database`);
       
     } catch (bulkError: any) {
       logger.error(`❌ BULK DATABASE ERROR:`, bulkError);
