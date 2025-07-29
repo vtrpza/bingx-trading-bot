@@ -43,16 +43,21 @@ export default function TradingPage() {
         const result = await response.json()
         console.log('📊 Raw API result:', JSON.stringify(result, null, 2))
         
-        // API always returns {success: true/false, data: {...}}
-        if (result.success && result.data) {
+        // Check if result has the bot status properties directly
+        if (result.hasOwnProperty('isRunning') && result.hasOwnProperty('demoMode')) {
+          console.log('✅ Direct bot status response:', result)
+          return { data: result }
+        }
+        // Or if it has the success wrapper format
+        else if (result.success && result.data) {
           console.log('✅ Success response with data:', result.data)
           return { data: result.data }
         } else if (result.success) {
           console.log('✅ Success response without data field')
           return { data: result }
         } else {
-          console.error('❌ API returned error:', result)
-          throw new Error(result.error || 'API returned error')
+          console.error('❌ API returned error or unexpected format:', result)
+          throw new Error(result.error || 'API returned unexpected format')
         }
       } catch (error) {
         console.error('Bot status error in TradingPage:', error)
@@ -346,15 +351,7 @@ export default function TradingPage() {
   }, [])
 
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <div className="text-lg text-gray-600">Carregando...</div>
-      </div>
-    )
-  }
-
-  // Safety check for botStatus with detailed logging
+  // Safety check for botStatus with detailed logging (avoid early returns that break hooks)
   if (isLoading) {
     console.log('🔄 Still loading bot status...')
   } else if (!botStatusResponse) {
@@ -365,8 +362,23 @@ export default function TradingPage() {
     console.log('✅ Bot status loaded successfully:', botStatusResponse.data)
   }
 
-  if (!isLoading && (!botStatus || typeof botStatus !== 'object')) {
+  // Determine what to render
+  const shouldShowLoading = isLoading
+  const shouldShowError = !isLoading && (!botStatus || typeof botStatus !== 'object')
+  
+  if (shouldShowError) {
     console.error('🚨 Rendering error state - botStatus:', botStatus)
+  }
+
+  if (shouldShowLoading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="text-lg text-gray-600">Carregando...</div>
+      </div>
+    )
+  }
+
+  if (shouldShowError) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-lg text-red-600">
