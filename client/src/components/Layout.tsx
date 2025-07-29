@@ -22,14 +22,21 @@ export default function Layout({ children }: LayoutProps) {
         const response = await fetch('/api/trading/parallel-bot/status')
         const result = await response.json()
         
-        // Return in BotStatus format which expects data property
-        if (result.success && result.data) {
-          return result // Already has {success: true, data: {...}} format
+        // Check if result has the bot status properties directly (same as TradingPage)
+        if (result.hasOwnProperty('isRunning') && result.hasOwnProperty('demoMode')) {
+          console.log('✅ Layout - Direct bot status response:', result)
+          return { data: result }
+        }
+        // Or if it has the success wrapper format
+        else if (result.success && result.data) {
+          console.log('✅ Layout - Success response with data:', result.data)
+          return { data: result.data }
+        } else if (result.success) {
+          console.log('✅ Layout - Success response without data field')
+          return { data: result }
         } else {
-          // If direct data, wrap it in the expected BotStatus format
-          return {
-            data: result.success ? result.data : result
-          }
+          console.error('❌ Layout - API returned error or unexpected format:', result)
+          throw new Error(result.error || 'API returned unexpected format')
         }
       } catch (error) {
         console.error('Bot status error in Layout:', error)
