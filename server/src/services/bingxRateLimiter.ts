@@ -79,15 +79,34 @@ export class BingXRateLimiter {
       return cached as T;
     }
 
-    // Execute with circuit breaker and rate limiting
-    return this.circuitBreaker.execute(async () => {
-      return this.marketDataLimiter.schedule(async () => {
-        logger.debug(`🌐 API call: ${key}`);
-        const result = await requestFn();
-        this.setCache(key, result);
-        return result;
+    try {
+      // Execute with circuit breaker and rate limiting
+      return await this.circuitBreaker.execute(async () => {
+        return this.marketDataLimiter.schedule(async () => {
+          logger.debug(`🌐 API call: ${key}`);
+          const result = await requestFn();
+          this.setCache(key, result);
+          return result;
+        });
       });
-    });
+    } catch (error: any) {
+      // If limiter was stopped, try to restart and retry once
+      if (error.message?.includes('limiter has been stopped')) {
+        logger.warn('🔄 Limiter stopped error, attempting restart and retry...');
+        this.restartLimiters();
+        
+        // Retry once after restart
+        return this.circuitBreaker.execute(async () => {
+          return this.marketDataLimiter.schedule(async () => {
+            logger.debug(`🌐 API call retry: ${key}`);
+            const result = await requestFn();
+            this.setCache(key, result);
+            return result;
+          });
+        });
+      }
+      throw error;
+    }
   }
 
   /**
@@ -136,9 +155,23 @@ export class BingXRateLimiter {
   async executeTradingRequest<T>(
     requestFn: () => Promise<T>
   ): Promise<T> {
-    return this.circuitBreaker.execute(async () => {
-      return this.tradingLimiter.schedule(requestFn);
-    });
+    try {
+      return await this.circuitBreaker.execute(async () => {
+        return this.tradingLimiter.schedule(requestFn);
+      });
+    } catch (error: any) {
+      // If limiter was stopped, try to restart and retry once
+      if (error.message?.includes('limiter has been stopped')) {
+        logger.warn('🔄 Trading limiter stopped error, attempting restart and retry...');
+        this.restartLimiters();
+        
+        // Retry once after restart
+        return this.circuitBreaker.execute(async () => {
+          return this.tradingLimiter.schedule(requestFn);
+        });
+      }
+      throw error;
+    }
   }
 
   /**
@@ -181,14 +214,11 @@ export class BingXRateLimiter {
 
       logger.warn(`🚦 Rate limited, waiting ${exponentialDelay}ms (attempt ${attempt})`);
       
-      // Pause all limiters during cooldown
-      this.marketDataLimiter.stop({ dropWaitingJobs: false });
-      this.tradingLimiter.stop({ dropWaitingJobs: false });
-
+      // Don't stop the limiters - just wait and let them handle the rate limiting
+      // Stopping them causes "limiter has been stopped" errors
       await new Promise(resolve => setTimeout(resolve, exponentialDelay));
 
-      // Resume limiters (they automatically resume after pausing)
-      // Note: Bottleneck v2 doesn't have start() method
+      logger.info(`✅ Rate limit cooldown completed, resuming operations`);
     }
   }
 
@@ -218,6 +248,43 @@ export class BingXRateLimiter {
   clearCache(): void {
     this.cache.clear();
     logger.info('🗑️ Rate limiter cache cleared');
+  }
+
+  /**
+   * Restart limiters if they have been stopped
+   */
+  restartLimiters(): void {
+    try {
+      // Check if limiters are stopped and recreate them if needed
+      if ((this.marketDataLimiter as any)._drainHandlers?.length === 0) {
+        logger.warn('🔄 Market data limiter appears stopped, recreating...');
+        this.marketDataLimiter = new Bottleneck({
+          maxConcurrent: 3,
+          minTime: 80,
+          reservoir: 90,
+          reservoirRefreshAmount: 90,
+          reservoirRefreshInterval: 10 * 1000,
+          id: 'bingx-market-data-optimized-restart'
+        });
+      }
+
+      if ((this.tradingLimiter as any)._drainHandlers?.length === 0) {
+        logger.warn('🔄 Trading limiter appears stopped, recreating...');
+        this.tradingLimiter = new Bottleneck({
+          maxConcurrent: 1,
+          minTime: 250,
+          reservoir: 4,
+          reservoirRefreshAmount: 4,
+          reservoirRefreshInterval: 1000,
+          id: 'bingx-trading-restart'
+        });
+      }
+
+      this.setupErrorHandling();
+      logger.info('✅ Rate limiters restarted successfully');
+    } catch (error) {
+      logger.error('❌ Failed to restart limiters:', error);
+    }
   }
 }
 

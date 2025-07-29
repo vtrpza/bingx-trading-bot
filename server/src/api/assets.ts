@@ -421,6 +421,20 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
     } catch (optimizedError: any) {
       logger.warn('⚠️  Optimized fetch failed, trying individual calls:', optimizedError.message);
       
+      // Check if it's a rate limiter stopped error and restart
+      if (optimizedError.message?.includes('limiter has been stopped')) {
+        logger.error('🚨 Rate limiter stopped error detected, restarting limiters...');
+        bingxClient.clearCache(); // This now also restarts limiters
+        
+        await sendProgress(sessionId, {
+          type: 'progress',
+          message: '🔄 Rate limiter recovered, retrying data fetch...',
+          progress: 15,
+          processed: 0,
+          total: 0
+        });
+      }
+      
       // Fallback to individual calls if optimized fetch fails
       try {
         contractsResponse = await bingxClient.getSymbols();
@@ -433,6 +447,15 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
           tickersResponse = { code: 0, data: [], msg: 'Ticker data unavailable in production' };
         }
       } catch (contractError: any) {
+        // Check if it's still a rate limiter error
+        if (contractError.message?.includes('limiter has been stopped')) {
+          await sendProgress(sessionId, {
+            type: 'error',
+            message: 'Rate limiter issue detected. Please try refreshing again in a few seconds.'
+          });
+          throw new AppError('Rate limiter needs restart. Please try again.', 503);
+        }
+        
         await sendProgress(sessionId, {
           type: 'error',
           message: `Failed to fetch asset data: ${contractError.message}`

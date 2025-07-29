@@ -852,7 +852,9 @@ export class BingXClient {
   // Clear rate limiter cache
   clearCache() {
     bingxRateLimiter.clearCache();
-    logger.info('BingX client cache cleared');
+    // Also restart limiters in case they were stopped
+    bingxRateLimiter.restartLimiters();
+    logger.info('BingX client cache cleared and limiters restarted');
   }
 }
 
