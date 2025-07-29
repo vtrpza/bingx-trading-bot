@@ -73,15 +73,46 @@ app.get('/manifest.json', (_req: Request, res: Response) => {
   res.status(204).end();
 });
 
-// Health check endpoint
-app.get('/health', (_req: Request, res: Response) => {
-  res.json({ 
-    status: 'healthy', 
-    timestamp: new Date().toISOString(),
-    mode: process.env.DEMO_MODE === 'true' ? 'demo' : 'live',
-    websocket: 'enabled',
-    protocol: 'ws/wss'
-  });
+// Health check endpoint with database verification
+app.get('/health', async (_req: Request, res: Response) => {
+  try {
+    // Test database connection
+    await sequelize.authenticate();
+    
+    const health = {
+      status: 'healthy',
+      timestamp: new Date().toISOString(),
+      mode: process.env.DEMO_MODE === 'true' ? 'demo' : 'live',
+      websocket: 'enabled',
+      protocol: 'ws/wss',
+      database: 'connected',
+      environment: process.env.NODE_ENV,
+      services: {
+        api: 'operational',
+        websocket: 'operational',
+        database: 'connected',
+        trading: process.env.AUTO_START_BOT === 'true' ? 'enabled' : 'disabled'
+      },
+      version: '1.0.0',
+      uptime: process.uptime()
+    };
+    
+    res.json(health);
+  } catch (error) {
+    logger.error('Health check failed:', error);
+    res.status(503).json({
+      status: 'unhealthy',
+      timestamp: new Date().toISOString(),
+      error: error instanceof Error ? error.message : 'Unknown error',
+      database: 'disconnected',
+      services: {
+        api: 'operational',
+        websocket: 'unknown',
+        database: 'error',
+        trading: 'disabled'
+      }
+    });
+  }
 });
 
 // Root endpoint for API service
@@ -122,9 +153,9 @@ async function startServer() {
     // This avoids conflicts and ensures proper database setup
     logger.info('Database models will be managed by migration scripts');
     
-    // Start the server
-    server.listen(PORT, () => {
-      logger.info(`Server running on port ${PORT} in ${process.env.NODE_ENV} mode`);
+    // Start the server - bind to 0.0.0.0 for Render
+    server.listen(PORT, '0.0.0.0', () => {
+      logger.info(`Server running on 0.0.0.0:${PORT} in ${process.env.NODE_ENV} mode`);
       
       // Start trading bot if enabled
       if (process.env.AUTO_START_BOT === 'true') {
@@ -161,13 +192,41 @@ process.on('uncaughtException', (error: Error) => {
 });
 
 // Handle graceful shutdown
-process.on('SIGTERM', async () => {
-  logger.info('SIGTERM received, shutting down gracefully');
-  server.close(() => {
-    logger.info('Server closed');
+const gracefulShutdown = (signal: string) => {
+  logger.info(`${signal} received, shutting down gracefully`);
+  
+  // Stop accepting new connections
+  server.close(async () => {
+    logger.info('HTTP server closed');
+    
+    try {
+      // Close database connections
+      await sequelize.close();
+      logger.info('Database connections closed');
+      
+      // Close any active WebSocket connections
+      const io = (global as any).io;
+      if (io) {
+        io.close(() => {
+          logger.info('WebSocket server closed');
+        });
+      }
+      
+      process.exit(0);
+    } catch (error) {
+      logger.error('Error during graceful shutdown:', error);
+      process.exit(1);
+    }
   });
-  await sequelize.close();
-  process.exit(0);
-});
+  
+  // Force close after 25 seconds (Render's timeout is 30s)
+  setTimeout(() => {
+    logger.error('Could not close connections in time, forcefully shutting down');
+    process.exit(1);
+  }, 25000);
+};
+
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 startServer();

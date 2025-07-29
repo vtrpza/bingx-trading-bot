@@ -8,21 +8,55 @@ const databaseUrl = process.env.DATABASE_URL;
 let sequelize: Sequelize;
 
 if (databaseUrl && databaseUrl.includes('postgresql')) {
-  // PostgreSQL configuration
+  // PostgreSQL configuration with enhanced retry logic for Render
   sequelize = new Sequelize(databaseUrl, {
     dialect: 'postgres',
-    logging: (msg) => logger.debug(msg),
+    logging: isDevelopment ? (msg) => logger.debug(msg) : false,
     pool: {
-      max: 5,
-      min: 0,
-      acquire: 30000,
-      idle: 10000
+      max: 10,          // Increased for Render
+      min: 2,           // Minimum connections
+      acquire: 60000,   // Increased timeout for Render
+      idle: 10000,
+      evict: 1000
     },
     dialectOptions: {
       ssl: process.env.NODE_ENV === 'production' ? {
         require: true,
         rejectUnauthorized: false
-      } : false
+      } : false,
+      // Add connection timeout
+      connectTimeout: 60000,
+      // Add statement timeout
+      statement_timeout: 30000,
+      query_timeout: 30000
+    },
+    // Retry configuration for connection failures
+    retry: {
+      max: 3,
+      match: [
+        /ETIMEDOUT/,
+        /EHOSTUNREACH/,
+        /ECONNRESET/,
+        /ECONNREFUSED/,
+        /ENOTFOUND/,
+        /ENETUNREACH/,
+        /EAI_AGAIN/,
+        /SequelizeConnectionError/,
+        /SequelizeConnectionRefusedError/,
+        /SequelizeHostNotFoundError/,
+        /SequelizeHostNotReachableError/,
+        /SequelizeInvalidConnectionError/,
+        /SequelizeConnectionTimedOutError/
+      ]
+    },
+    // Define hooks for connection monitoring
+    hooks: {
+      beforeConnect: async (config) => {
+        logger.info('Attempting to connect to PostgreSQL database...');
+      },
+      afterConnect: async (connection, config) => {
+        logger.info('Successfully connected to PostgreSQL database');
+      }
     }
   });
 } else {

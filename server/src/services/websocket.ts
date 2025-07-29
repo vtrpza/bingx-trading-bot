@@ -320,10 +320,64 @@ export const wsManager = new BingXWebSocketManager();
 export function setupWebSocket(server: Server) {
   // Import here to avoid circular dependency
   const { getTradingBot } = require('../trading/bot');
-  const wss = new WebSocket.Server({ server, path: '/ws' });
+  
+  // Enhanced WebSocket configuration for Render deployment
+  const wss = new WebSocket.Server({ 
+    server, 
+    path: '/ws',
+    // Production-ready configuration
+    clientTracking: true,
+    perMessageDeflate: false, // Disable compression for better compatibility
+    maxPayload: 100 * 1024 * 1024, // 100MB max payload
+    // Handle Render's proxy
+    handleProtocols: (protocols: Set<string>) => {
+      // Accept any protocol for flexibility
+      return protocols.values().next().value || false;
+    },
+    verifyClient: (info) => {
+      // Accept connections from allowed origins
+      const origin = info.origin || info.req.headers.origin;
+      const allowedOrigins = [
+        'http://localhost:3000',
+        'https://bingx-trading-bot-lu0z-frontend-rjhj.onrender.com',
+        process.env.FRONTEND_URL
+      ].filter(Boolean);
+      
+      // In production, check origin
+      if (process.env.NODE_ENV === 'production' && origin) {
+        const isAllowed = allowedOrigins.some(allowed => origin.startsWith(allowed));
+        if (!isAllowed) {
+          logger.warn(`WebSocket connection rejected from origin: ${origin}`);
+          return false;
+        }
+      }
+      
+      return true;
+    }
+  });
+  
+  // Store WebSocket server reference globally for graceful shutdown
+  (global as any).io = wss;
 
-  wss.on('connection', (ws: WebSocket) => {
-    logger.info('Client WebSocket connected');
+  wss.on('connection', (ws: WebSocket, request) => {
+    const clientIp = request.headers['x-forwarded-for'] || request.socket.remoteAddress;
+    logger.info(`Client WebSocket connected from ${clientIp}`);
+    
+    // Set up heartbeat to detect broken connections
+    let isAlive = true;
+    const heartbeatInterval = setInterval(() => {
+      if (!isAlive) {
+        logger.warn('Client WebSocket connection lost (no heartbeat)');
+        ws.terminate();
+        return;
+      }
+      isAlive = false;
+      ws.ping();
+    }, 30000);
+    
+    ws.on('pong', () => {
+      isAlive = true;
+    });
 
     ws.on('message', (message: WebSocket.Data) => {
       try {
@@ -336,6 +390,12 @@ export function setupWebSocket(server: Server) {
 
     ws.on('close', () => {
       logger.info('Client WebSocket disconnected');
+      clearInterval(heartbeatInterval);
+    });
+    
+    ws.on('error', (error) => {
+      logger.error('Client WebSocket error:', error);
+      clearInterval(heartbeatInterval);
     });
   });
 
@@ -427,9 +487,29 @@ function handleClientMessage(_ws: WebSocket, message: any) {
 }
 
 function broadcast(wss: WebSocket.Server, data: any) {
+  const message = JSON.stringify(data);
+  let sentCount = 0;
+  let errorCount = 0;
+  
   wss.clients.forEach((client: WebSocket) => {
     if (client.readyState === WebSocket.OPEN) {
-      client.send(JSON.stringify(data));
+      try {
+        client.send(message);
+        sentCount++;
+      } catch (error) {
+        errorCount++;
+        logger.error('Failed to send WebSocket message to client:', error);
+        // Terminate broken connection
+        try {
+          client.terminate();
+        } catch (termError) {
+          logger.error('Failed to terminate broken WebSocket connection:', termError);
+        }
+      }
     }
   });
+  
+  if (errorCount > 0) {
+    logger.warn(`WebSocket broadcast: ${sentCount} sent, ${errorCount} failed`);
+  }
 }
