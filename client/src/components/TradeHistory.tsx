@@ -58,19 +58,19 @@ export default function TradeHistory() {
   return (
     <div className="card">
       <div className="px-6 py-4 border-b border-gray-200">
-        <h3 className="text-lg font-medium text-gray-900">Trade History</h3>
+        <h3 className="text-lg font-medium text-gray-900">Histórico de Trades</h3>
       </div>
 
       {/* Filters */}
       <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Symbol</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Símbolo</label>
             <input
               type="text"
               value={filters.symbol}
               onChange={(e) => setFilters({ ...filters, symbol: e.target.value })}
-              placeholder="e.g., BTC-USDT"
+              placeholder="ex: BTC-USDT"
               className="input"
             />
           </div>
@@ -82,17 +82,17 @@ export default function TradeHistory() {
               onChange={(e) => setFilters({ ...filters, status: e.target.value })}
               className="input"
             >
-              <option value="">All</option>
-              <option value="FILLED">Filled</option>
-              <option value="NEW">New</option>
-              <option value="PARTIALLY_FILLED">Partially Filled</option>
-              <option value="CANCELED">Canceled</option>
-              <option value="REJECTED">Rejected</option>
+              <option value="">Todos</option>
+              <option value="FILLED">Executado</option>
+              <option value="NEW">Novo</option>
+              <option value="PARTIALLY_FILLED">Parcialmente Executado</option>
+              <option value="CANCELED">Cancelado</option>
+              <option value="REJECTED">Rejeitado</option>
             </select>
           </div>
           
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Data Inicial</label>
             <input
               type="date"
               value={filters.startDate}
@@ -102,7 +102,7 @@ export default function TradeHistory() {
           </div>
           
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">End Date</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Data Final</label>
             <input
               type="date"
               value={filters.endDate}
@@ -119,22 +119,22 @@ export default function TradeHistory() {
           <thead className="bg-gray-50">
             <tr>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Date/Time
+                Data/Hora
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Symbol
+                Símbolo
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Side
+                Lado
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Type
+                Tipo
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Quantity
+                Quantidade
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Price
+                Preço
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 P&L
@@ -143,7 +143,7 @@ export default function TradeHistory() {
                 Status
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Signal
+                Sinal
               </th>
             </tr>
           </thead>
@@ -151,13 +151,13 @@ export default function TradeHistory() {
             {isLoading ? (
               <tr>
                 <td colSpan={9} className="px-6 py-4 text-center text-gray-500">
-                  Loading trades...
+                  Carregando trades...
                 </td>
               </tr>
             ) : trades.length === 0 ? (
               <tr>
                 <td colSpan={9} className="px-6 py-4 text-center text-gray-500">
-                  No trades found
+                  Nenhum trade encontrado
                 </td>
               </tr>
             ) : (
@@ -222,8 +222,8 @@ export default function TradeHistory() {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm text-gray-700">
-                Showing {((page - 1) * 20) + 1} to {Math.min(page * 20, pagination.total)} of{' '}
-                {pagination.total} results
+                Mostrando {((page - 1) * 20) + 1} a {Math.min(page * 20, pagination.total)} de{' '}
+                {pagination.total} resultados
               </p>
             </div>
             <div>
@@ -233,11 +233,11 @@ export default function TradeHistory() {
                   disabled={page === 1}
                   className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50"
                 >
-                  Previous
+                  Anterior
                 </button>
                 
                 <span className="relative inline-flex items-center px-4 py-2 border border-gray-300 bg-white text-sm font-medium text-gray-700">
-                  Page {page} of {pagination.totalPages}
+                  Página {page} de {pagination.totalPages}
                 </span>
                 
                 <button
@@ -245,7 +245,7 @@ export default function TradeHistory() {
                   disabled={page === pagination.totalPages}
                   className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50"
                 >
-                  Next
+                  Próximo
                 </button>
               </nav>
             </div>

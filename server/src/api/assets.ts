@@ -5,6 +5,7 @@ import { AppError, asyncHandler } from '../utils/errorHandler';
 import { logger } from '../utils/logger';
 import { Op } from 'sequelize';
 import { sequelize } from '../config/database';
+import CoinInfoService from '../services/coinInfoService';
 
 const router = Router();
 
@@ -1423,6 +1424,71 @@ router.get('/debug/api-test', asyncHandler(async (req: Request, res: Response) =
   };
 
   res.json(debugInfo);
+}));
+
+// Update coin names from external API
+router.post('/update-coin-names', asyncHandler(async (_req: Request, res: Response) => {
+  logger.info('🪙 Starting coin names update process...');
+  
+  try {
+    // Get all unique symbols from database
+    const assets = await Asset.findAll({
+      attributes: ['symbol', 'baseCurrency'],
+      group: ['symbol', 'baseCurrency']
+    });
+    
+    if (assets.length === 0) {
+      return res.json({
+        success: false,
+        message: 'No assets found in database',
+        data: {
+          totalAssets: 0,
+          updated: 0,
+          cacheInfo: CoinInfoService.getCacheInfo()
+        }
+      });
+    }
+    
+    // Extract symbols for API call
+    const symbols = assets.map(asset => asset.symbol);
+    logger.info(`📊 Found ${symbols.length} unique symbols to update`);
+    
+    // Get coin names from external API
+    const coinNames = await CoinInfoService.getCoinNames(symbols);
+    
+    // Update assets with real coin names
+    let updated = 0;
+    for (const asset of assets) {
+      const realName = coinNames[asset.symbol];
+      if (realName && realName !== asset.symbol) {
+        await Asset.update(
+          { name: realName },
+          { where: { symbol: asset.symbol } }
+        );
+        updated++;
+      }
+    }
+    
+    logger.info(`✅ Updated ${updated} asset names`);
+    
+    res.json({
+      success: true,
+      message: `Successfully updated ${updated} coin names`,
+      data: {
+        totalAssets: assets.length,
+        updated: updated,
+        cacheInfo: CoinInfoService.getCacheInfo()
+      }
+    });
+    
+  } catch (error: any) {
+    logger.error('Error updating coin names:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update coin names',
+      error: error.message
+    });
+  }
 }));
 
 export default router;

@@ -32,26 +32,26 @@ const VALIDATION_RULES = {
   maxPositionSizePercent: { min: 5, max: 50, step: 5 }
 }
 
-// Tooltips for each field
+// Tooltips para cada campo
 const TOOLTIPS = {
-  maxConcurrentTrades: 'Maximum number of trades the bot can have open at the same time',
-  defaultPositionSize: 'Default amount to invest in each trade',
-  stopLossPercent: 'Percentage loss at which to close a losing position',
-  takeProfitPercent: 'Percentage profit at which to close a winning position',
-  trailingStopPercent: 'Percentage for trailing stop to protect profits',
-  minVolumeUSDT: 'Minimum 24h volume required to trade a symbol',
-  rsiOversold: 'RSI level below which a symbol is considered oversold (buy signal)',
-  rsiOverbought: 'RSI level above which a symbol is considered overbought (sell signal)',
-  volumeSpikeThreshold: 'Multiplier for detecting abnormal volume spikes',
-  minSignalStrength: 'Minimum signal strength percentage required to execute trades',
-  ma1Period: 'Period for the fast moving average',
-  ma2Period: 'Period for the slow moving average',
-  confirmationRequired: 'Require multiple technical indicators to confirm before trading',
-  // Risk Manager tooltips
-  riskRewardRatio: 'Minimum reward/risk ratio required for trades (e.g., 2.0 = potential reward must be 2x potential risk)',
-  maxDrawdownPercent: 'Maximum percentage drawdown allowed before emergency stop',
-  maxDailyLossUSDT: 'Maximum daily loss in USDT before stopping trading for the day',
-  maxPositionSizePercent: 'Maximum percentage of account balance to risk in a single position'
+  maxConcurrentTrades: 'Número máximo de trades que o bot pode ter abertos ao mesmo tempo',
+  defaultPositionSize: 'Valor padrão para investir em cada trade',
+  stopLossPercent: 'Percentual de perda no qual fechar uma posição perdedora',
+  takeProfitPercent: 'Percentual de lucro no qual fechar uma posição vencedora',
+  trailingStopPercent: 'Percentual para trailing stop para proteger lucros',
+  minVolumeUSDT: 'Volume mínimo de 24h necessário para negociar um símbolo',
+  rsiOversold: 'Nível de RSI abaixo do qual um símbolo é considerado sobrevendido (sinal de compra)',
+  rsiOverbought: 'Nível de RSI acima do qual um símbolo é considerado sobrecomprado (sinal de venda)',
+  volumeSpikeThreshold: 'Multiplicador para detectar picos anormais de volume',
+  minSignalStrength: 'Força mínima do sinal necessária para executar trades',
+  ma1Period: 'Período da média móvel rápida',
+  ma2Period: 'Período da média móvel lenta',
+  confirmationRequired: 'Requer múltiplos indicadores técnicos para confirmar antes de negociar',
+  // Tooltips do Risk Manager
+  riskRewardRatio: 'Razão mínima recompensa/risco necessária para trades (ex: 2.0 = recompensa potencial deve ser 2x o risco potencial)',
+  maxDrawdownPercent: 'Percentual máximo de drawdown permitido antes de parada de emergência',
+  maxDailyLossUSDT: 'Perda diária máxima em USDT antes de parar as negociações do dia',
+  maxPositionSizePercent: 'Percentual máximo do saldo da conta para arriscar em uma única posição'
 }
 
 // Validation function
@@ -60,28 +60,28 @@ const validateField = (field: string, value: number, config?: any): { isValid: b
   if (!rules) return { isValid: true }
   
   if (value < rules.min) {
-    return { isValid: false, error: `Minimum value is ${rules.min}` }
+    return { isValid: false, error: `Valor mínimo é ${rules.min}` }
   }
   if (value > rules.max) {
-    return { isValid: false, error: `Maximum value is ${rules.max}` }
+    return { isValid: false, error: `Valor máximo é ${rules.max}` }
   }
   
-  // Special validation for MA periods
+  // Validação especial para períodos de MA
   if (field === 'ma2Period' && config && value <= config.ma1Period) {
-    return { isValid: false, error: 'MA2 period must be greater than MA1 period' }
+    return { isValid: false, error: 'Período MA2 deve ser maior que período MA1' }
   }
   if (field === 'ma1Period' && config && value >= config.ma2Period) {
-    return { isValid: false, error: 'MA1 period must be less than MA2 period' }
+    return { isValid: false, error: 'Período MA1 deve ser menor que período MA2' }
   }
   
   return { isValid: true }
 }
 
-// Predefined trading profiles
+// Perfis de trading predefinidos
 const getTradingProfiles = (t: any) => ({
   conservative: {
-    name: t('trading.config.profiles.conservative'),
-    description: t('trading.config.profiles.conservativeDesc'),
+    name: 'Conservativo',
+    description: 'Estratégia segura com baixo risco',
     config: {
       maxConcurrentTrades: 2,
       defaultPositionSize: 50,
@@ -104,8 +104,8 @@ const getTradingProfiles = (t: any) => ({
     }
   },
   balanced: {
-    name: t('trading.config.profiles.balanced'),
-    description: t('trading.config.profiles.balancedDesc'),
+    name: 'Equilibrado',
+    description: 'Estratégia equilibrada entre risco e retorno',
     config: {
       maxConcurrentTrades: 3,
       defaultPositionSize: 100,
@@ -128,8 +128,8 @@ const getTradingProfiles = (t: any) => ({
     }
   },
   aggressive: {
-    name: t('trading.config.profiles.aggressive'),
-    description: t('trading.config.profiles.aggressiveDesc'),
+    name: 'Agressivo',
+    description: 'Estratégia de alto risco e alto retorno',
     config: {
       maxConcurrentTrades: 5,
       defaultPositionSize: 200,
@@ -265,7 +265,7 @@ export default function BotControls({
   const handleConfigSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     
-    // Check if there are any validation errors
+    // Verificar se há erros de validação
     if (Object.keys(validationErrors).length > 0) {
       alert('Por favor, corrija os erros de validação antes de enviar')
       return
@@ -279,7 +279,7 @@ export default function BotControls({
     const profiles = getTradingProfiles(t)
     const profile = profiles[profileKey as keyof typeof profiles]
     setConfig({ ...config, ...profile.config })
-    setValidationErrors({}) // Clear any validation errors when applying a profile
+    setValidationErrors({}) // Limpar erros de validação ao aplicar um perfil
   }
 
   const renderTabContent = () => {
@@ -288,7 +288,7 @@ export default function BotControls({
         return (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <InputField
-              label={t('trading.config.fields.maxConcurrentTrades')}
+              label="Máximo de Trades Simultâneos"
               field="maxConcurrentTrades"
               value={config.maxConcurrentTrades}
               onChange={(value) => updateField('maxConcurrentTrades', value)}
@@ -296,7 +296,7 @@ export default function BotControls({
             />
             
             <InputField
-              label={t('trading.config.fields.defaultPositionSize')}
+              label="Tamanho Padrão da Posição"
               field="defaultPositionSize"
               value={config.defaultPositionSize}
               onChange={(value) => updateField('defaultPositionSize', value)}
@@ -305,7 +305,7 @@ export default function BotControls({
             />
             
             <InputField
-              label={t('trading.config.fields.stopLoss')}
+              label="Stop Loss (%)"
               field="stopLossPercent"
               value={config.stopLossPercent}
               onChange={(value) => updateField('stopLossPercent', value)}
@@ -313,7 +313,7 @@ export default function BotControls({
             />
             
             <InputField
-              label={t('trading.config.fields.takeProfit')}
+              label="Take Profit (%)"
               field="takeProfitPercent"
               value={config.takeProfitPercent}
               onChange={(value) => updateField('takeProfitPercent', value)}
@@ -321,7 +321,7 @@ export default function BotControls({
             />
             
             <InputField
-              label={t('trading.config.fields.trailingStop')}
+              label="Trailing Stop (%)"
               field="trailingStopPercent"
               value={config.trailingStopPercent}
               onChange={(value) => updateField('trailingStopPercent', value)}
@@ -329,7 +329,7 @@ export default function BotControls({
             />
             
             <InputField
-              label={t('trading.config.fields.minVolume')}
+              label="Volume Mínimo (USDT)"
               field="minVolumeUSDT"
               value={config.minVolumeUSDT}
               onChange={(value) => updateField('minVolumeUSDT', value)}
@@ -342,7 +342,7 @@ export default function BotControls({
         return (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <InputField
-              label="RSI Oversold Level"
+              label="RSI Sobrevendido"
               field="rsiOversold"
               value={config.rsiOversold}
               onChange={(value) => updateField('rsiOversold', value)}
@@ -350,7 +350,7 @@ export default function BotControls({
             />
             
             <InputField
-              label="RSI Overbought Level"
+              label="RSI Sobrecomprado"
               field="rsiOverbought"
               value={config.rsiOverbought}
               onChange={(value) => updateField('rsiOverbought', value)}
@@ -358,7 +358,7 @@ export default function BotControls({
             />
             
             <InputField
-              label="Volume Spike Threshold"
+              label="Limite de Pico de Volume"
               field="volumeSpikeThreshold"
               value={config.volumeSpikeThreshold}
               onChange={(value) => updateField('volumeSpikeThreshold', value)}
@@ -366,7 +366,7 @@ export default function BotControls({
             />
             
             <InputField
-              label="Min Signal Strength (%)"
+              label="Força Mínima do Sinal (%)"
               field="minSignalStrength"
               value={config.minSignalStrength}
               onChange={(value) => updateField('minSignalStrength', value)}
@@ -374,7 +374,7 @@ export default function BotControls({
             />
             
             <InputField
-              label="MA1 Period"
+              label="Período MA1"
               field="ma1Period"
               value={config.ma1Period}
               onChange={(value) => updateField('ma1Period', value)}
@@ -382,7 +382,7 @@ export default function BotControls({
             />
             
             <InputField
-              label="MA2 Period"
+              label="Período MA2"
               field="ma2Period"
               value={config.ma2Period}
               onChange={(value) => updateField('ma2Period', value)}
@@ -400,7 +400,7 @@ export default function BotControls({
                   })}
                   className="rounded border-gray-300 text-primary-600 focus:border-primary-300 focus:ring focus:ring-primary-200 focus:ring-opacity-50"
                 />
-                <span className="text-sm font-medium text-gray-700">Require Multiple Confirmations</span>
+                <span className="text-sm font-medium text-gray-700">Requer Múltiplas Confirmações</span>
                 {TOOLTIPS.confirmationRequired && (
                   <div className="group relative ml-2">
                     <svg className="w-4 h-4 text-gray-400 hover:text-gray-600 cursor-help" fill="currentColor" viewBox="0 0 20 20">
@@ -512,13 +512,13 @@ export default function BotControls({
               botStatus?.isRunning ? 'bg-green-500' : 'bg-red-500'
             }`} />
             <span className="font-medium">
-              {t('trading.botStatus')}: {botStatus?.isRunning ? t('trading.running') : t('trading.stopped')}
+              Status do Bot: {botStatus?.isRunning ? 'Executando' : 'Parado'}
             </span>
           </div>
           
           {botStatus?.isRunning && (
             <div className="text-sm text-gray-600">
-              {t('trading.scanningSymbols').replace('{count}', botStatus.symbolsCount?.toString() || '0')}
+              Escaneando {botStatus.symbolsCount || 0} símbolos
             </div>
           )}
         </div>
@@ -528,7 +528,7 @@ export default function BotControls({
             onClick={() => setShowConfig(!showConfig)}
             className="btn btn-secondary"
           >
-            {showConfig ? t('trading.hideConfig') : t('trading.configure')}
+            {showConfig ? 'Ocultar Configuração' : 'Configurar'}
           </button>
           
           {botStatus?.isRunning ? (
@@ -537,7 +537,7 @@ export default function BotControls({
               disabled={isStopping}
               className="btn btn-danger"
             >
-              {isStopping ? t('trading.stopping') : t('trading.stop')}
+              {isStopping ? 'Parando...' : 'Parar'}
             </button>
           ) : (
             <button
@@ -545,7 +545,7 @@ export default function BotControls({
               disabled={isStarting}
               className="btn btn-success"
             >
-              {isStarting ? t('trading.starting') : t('trading.start')}
+              {isStarting ? 'Iniciando...' : 'Iniciar'}
             </button>
           )}
         </div>
@@ -555,11 +555,11 @@ export default function BotControls({
       {showConfig && (
         <div className="mt-6 pt-6 border-t border-gray-200">
           <div className="flex items-center justify-between mb-6">
-            <h3 className="text-lg font-medium text-gray-900">{t('trading.config.title')}</h3>
+            <h3 className="text-lg font-medium text-gray-900">Configuração do Bot</h3>
             
             {/* Profile Selector */}
             <div className="flex items-center space-x-2">
-              <span className="text-sm text-gray-600">{t('trading.config.quickSetup')}</span>
+              <span className="text-sm text-gray-600">Configuração Rápida:</span>
               {Object.entries(getTradingProfiles(t)).map(([key, profile]) => (
                 <button
                   key={key}
@@ -592,7 +592,7 @@ export default function BotControls({
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
               >
-                {t('trading.config.basicSettings')}
+                Configurações Básicas
               </button>
               <button
                 type="button"
@@ -603,7 +603,7 @@ export default function BotControls({
                     : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
                 }`}
               >
-                {t('trading.config.signalParameters')}
+                Parâmetros dos Sinais
               </button>
               <button
                 type="button"
@@ -629,15 +629,15 @@ export default function BotControls({
                 onClick={() => setShowConfig(false)}
                 className="btn btn-secondary"
               >
-                {t('trading.config.cancel')}
+                Cancelar
               </button>
               <button
                 type="submit"
                 disabled={isUpdatingConfig || Object.keys(validationErrors).length > 0}
                 className={`btn ${Object.keys(validationErrors).length > 0 ? 'btn-secondary opacity-50 cursor-not-allowed' : 'btn-primary'}`}
-                title={Object.keys(validationErrors).length > 0 ? t('trading.config.fixErrors') : ''}
+                title={Object.keys(validationErrors).length > 0 ? 'Corrija os erros antes de continuar' : ''}
               >
-                {isUpdatingConfig ? t('trading.config.updating') : t('trading.config.update')}
+                {isUpdatingConfig ? 'Atualizando...' : 'Atualizar'}
               </button>
             </div>
           </form>

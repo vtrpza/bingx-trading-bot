@@ -90,12 +90,12 @@ export default function TradingPage() {
           // New trading signal received
           break
         case 'tradeExecuted':
-          toast.success(t('trading.notifications.tradeExecuted').replace('{side}', data.data.side).replace('{symbol}', data.data.symbol))
+          toast.success(`Trade ${data.data.side} executado para ${data.data.symbol}`)
           queryClient.invalidateQueries('parallel-bot-status')
           queryClient.invalidateQueries('trading-stats')
           break
         case 'positionClosed':
-          toast(t('trading.notifications.positionClosed').replace('{symbol}', data.data.symbol))
+          toast(`Posição fechada para ${data.data.symbol}`)
           queryClient.invalidateQueries('parallel-bot-status')
           break
         case 'orderUpdate':
@@ -114,11 +114,11 @@ export default function TradingPage() {
     }).then(res => res.json()),
     {
       onSuccess: () => {
-        toast.success('Parallel Trading Bot started successfully')
+        toast.success('Bot de Trading Paralelo iniciado com sucesso')
         queryClient.invalidateQueries('parallel-bot-status')
       },
       onError: (error: any) => {
-        toast.error(error.message || 'Failed to start bot')
+        toast.error(error.message || 'Falha ao iniciar o bot')
       },
     }
   )
@@ -128,11 +128,11 @@ export default function TradingPage() {
     () => fetch('/api/trading/parallel-bot/stop', { method: 'POST' }).then(res => res.json()),
     {
       onSuccess: () => {
-        toast.success('Parallel Trading Bot stopped')
+        toast.success('Bot de Trading Paralelo parado')
         queryClient.invalidateQueries('parallel-bot-status')
       },
       onError: (error: any) => {
-        toast.error(error.message || 'Failed to stop bot')
+        toast.error(error.message || 'Falha ao parar o bot')
       },
     }
   )
@@ -146,11 +146,11 @@ export default function TradingPage() {
     }).then(res => res.json()),
     {
       onSuccess: () => {
-        toast.success('Configuration updated successfully')
+        toast.success('Configuração atualizada com sucesso')
         queryClient.invalidateQueries('parallel-bot-status')
       },
       onError: (error: any) => {
-        toast.error(error.message || 'Failed to update config')
+        toast.error(error.message || 'Falha ao atualizar configuração')
       },
     }
   )
@@ -160,11 +160,11 @@ export default function TradingPage() {
     () => fetch('/api/trading/parallel-bot/blacklist/clear', { method: 'POST' }).then(res => res.json()),
     {
       onSuccess: () => {
-        toast.success('Symbol blacklist cleared successfully')
+        toast.success('Lista negra de símbolos limpa com sucesso')
         queryClient.invalidateQueries('parallel-bot-blacklist')
       },
       onError: (error: any) => {
-        toast.error(error.message || 'Failed to clear blacklist')
+        toast.error(error.message || 'Falha ao limpar lista negra')
       },
     }
   )
@@ -187,13 +187,13 @@ export default function TradingPage() {
   // )
 
   const handleStartBot = () => {
-    if (window.confirm(t('trading.confirmations.startBot'))) {
+    if (window.confirm('Tem certeza que deseja iniciar o bot de trading?')) {
       startBotMutation.mutate()
     }
   }
 
   const handleStopBot = () => {
-    if (window.confirm(t('trading.confirmations.stopBot'))) {
+    if (window.confirm('Tem certeza que deseja parar o bot de trading?')) {
       stopBotMutation.mutate()
     }
   }
@@ -206,7 +206,7 @@ export default function TradingPage() {
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <div className="text-lg text-gray-600">{t('common.loading')}</div>
+        <div className="text-lg text-gray-600">Carregando...</div>
       </div>
     )
   }

@@ -64,8 +64,8 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
         setClosePercentage(100)
         setShowConfirmation(false)
         
-        // Success toast
-        addToast('success', `Position ${data.data.symbol} closed successfully (${data.data.percentage}%)`)
+        // Toast de sucesso
+        addToast('success', `Posição ${data.data.symbol} fechada com sucesso (${data.data.percentage}%)`)
         
         // Immediate optimistic update for 100% closes
         if (data.data.percentage === 100) {
@@ -84,7 +84,7 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
         }, 500) // Short delay to allow server to process
       },
       onError: (error: any) => {
-        addToast('error', `Failed to close position: ${error.message}`)
+        addToast('error', `Falha ao fechar posição: ${error.message}`)
       }
     }
   )
@@ -185,9 +185,9 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
     return (
       <div className="card p-8">
         <div className="text-center">
-          <div className="text-red-400 text-lg mb-2">⚠️ Error Loading Positions</div>
+          <div className="text-red-400 text-lg mb-2">⚠️ Erro ao Carregar Posições</div>
           <p className="text-gray-500">
-            Unable to fetch position data. The bot may still be running normally.
+            Não foi possível buscar dados das posições. O bot pode ainda estar funcionando normalmente.
           </p>
         </div>
       </div>
@@ -198,9 +198,9 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
     return (
       <div className="card p-8">
         <div className="text-center">
-          <div className="text-gray-400 text-lg mb-2">No Active Positions</div>
+          <div className="text-gray-400 text-lg mb-2">Nenhuma Posição Ativa</div>
           <p className="text-gray-500">
-            The bot will automatically open positions when trading signals are detected.
+            O bot abrirá posições automaticamente quando sinais de trading forem detectados.
           </p>
         </div>
       </div>
@@ -211,7 +211,7 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
     <div className="card overflow-hidden">
       <div className="px-6 py-4 border-b border-gray-200">
         <h3 className="text-lg font-medium text-gray-900">
-          Active Positions ({displayPositions.length})
+          Posições Ativas ({displayPositions.length})
         </h3>
       </div>
       
@@ -220,28 +220,28 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
           <thead className="bg-gray-50">
             <tr>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Symbol
+                Símbolo
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Side
+                Lado
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Size
+                Tamanho
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Entry Price
+                Preço de Entrada
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Mark Price
+                Preço de Mercado
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Unrealized PnL
+                PnL Não Realizado
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 ROE %
               </th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Actions
+                Ações
               </th>
             </tr>
           </thead>
@@ -315,7 +315,7 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
           <div className="bg-white rounded-lg shadow-xl p-6 max-w-lg w-full mx-4">
             <div className="flex justify-between items-center mb-6">
               <h3 className="text-lg font-medium text-gray-900">
-                Manage Position: {selectedSymbol}
+                Gerenciar Posição: {selectedSymbol}
               </h3>
               <button
                 onClick={() => setSelectedSymbol(null)}
@@ -329,7 +329,7 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
             <div className="bg-gray-50 rounded-lg p-4 mb-6">
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div>
-                  <span className="text-gray-500">Side:</span>
+                  <span className="text-gray-500">Lado:</span>
                   <span className={`ml-2 font-medium ${
                     Number(selectedPosition.positionAmt) > 0 ? 'text-green-600' : 'text-red-600'
                   }`}>
@@ -337,13 +337,13 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
                   </span>
                 </div>
                 <div>
-                  <span className="text-gray-500">Size:</span>
+                  <span className="text-gray-500">Tamanho:</span>
                   <span className="ml-2 font-medium">
                     {formatNumber(Math.abs(Number(selectedPosition.positionAmt)), 6)}
                   </span>
                 </div>
                 <div>
-                  <span className="text-gray-500">Entry:</span>
+                  <span className="text-gray-500">Entrada:</span>
                   <span className="ml-2 font-medium">
                     ${formatNumber(selectedPosition.entryPrice)}
                   </span>
@@ -363,7 +363,7 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Close Percentage
+                  Porcentagem para Fechar
                 </label>
                 <div className="flex items-center space-x-4">
                   <input
@@ -417,7 +417,7 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
               {closePercentage < 100 && (
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-3">
                   <p className="text-sm text-blue-800">
-                    <strong>Partial Close:</strong> {closePercentage}% of position will be closed
+                    <strong>Fechamento Parcial:</strong> {closePercentage}% da posição será fechada
                     ({formatNumber(Math.abs(Number(selectedPosition.positionAmt)) * closePercentage / 100, 6)} tokens)
                   </p>
                 </div>
@@ -430,7 +430,7 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
                   className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
                   disabled={loading}
                 >
-                  Cancel
+                  Cancelar
                 </button>
                 <button
                   onClick={() => setShowConfirmation(true)}
@@ -447,10 +447,10 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
                         <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                         <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                       </svg>
-                      Closing...
+                      Fechando...
                     </span>
                   ) : (
-                    `Close ${closePercentage}% Position`
+                    `Fechar ${closePercentage}% da Posição`
                   )}
                 </button>
               </div>
@@ -471,18 +471,18 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
               </div>
               <div className="ml-3">
                 <h3 className="text-lg font-medium text-gray-900">
-                  Confirm Position Close
+                  Confirmar Fechamento da Posição
                 </h3>
               </div>
             </div>
             
             <div className="mb-4">
               <p className="text-sm text-gray-600">
-                Are you sure you want to close <strong>{closePercentage}%</strong> of your <strong>{selectedSymbol}</strong> position?
+                Tem certeza que deseja fechar <strong>{closePercentage}%</strong> da sua posição em <strong>{selectedSymbol}</strong>?
               </p>
               {closePercentage === 100 && (
                 <p className="text-sm text-red-600 mt-2">
-                  ⚠️ This will completely close the position and remove it from your portfolio.
+                  ⚠️ Isso fechará completamente a posição e a removerá do seu portfólio.
                 </p>
               )}
             </div>
@@ -492,7 +492,7 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
                 onClick={() => setShowConfirmation(false)}
                 className="px-4 py-2 text-gray-700 bg-gray-100 rounded-lg hover:bg-gray-200"
               >
-                Cancel
+                Cancelar
               </button>
               <button
                 onClick={handleConfirmClose}
@@ -502,7 +502,7 @@ export default function PositionsTable({ positions }: PositionsTableProps) {
                     : 'bg-orange-600 hover:bg-orange-700'
                 }`}
               >
-                Yes, Close Position
+                Sim, Fechar Posição
               </button>
             </div>
           </div>

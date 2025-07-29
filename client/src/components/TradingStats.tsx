@@ -29,7 +29,7 @@ export default function TradingStats({ stats: initialStats }: TradingStatsProps)
     return (
       <div className="card p-6">
         <div className="text-center text-red-500">
-          Error loading trading statistics: {error instanceof Error ? error.message : 'Unknown error'}
+          Erro ao carregar estatísticas de trading: {error instanceof Error ? error.message : 'Erro desconhecido'}
         </div>
       </div>
     )
@@ -38,7 +38,7 @@ export default function TradingStats({ stats: initialStats }: TradingStatsProps)
   if (isLoading || !stats) {
     return (
       <div className="card p-6">
-        <div className="text-center text-gray-500">Loading trading statistics...</div>
+        <div className="text-center text-gray-500">Carregando estatísticas de trading...</div>
       </div>
     )
   }
@@ -62,7 +62,7 @@ export default function TradingStats({ stats: initialStats }: TradingStatsProps)
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 h-full flex flex-col">
       <div className="px-4 py-3 border-b border-gray-200 flex justify-between items-center">
-        <h3 className="text-lg font-medium text-gray-900">Trading Statistics</h3>
+        <h3 className="text-lg font-medium text-gray-900">Estatísticas de Trading</h3>
         
         <div className="flex space-x-1">
           {['24h', '7d', '30d', 'all'].map((p) => (
@@ -75,7 +75,7 @@ export default function TradingStats({ stats: initialStats }: TradingStatsProps)
                   : 'text-gray-500 hover:text-gray-700'
               }`}
             >
-              {p === 'all' ? 'All Time' : p.toUpperCase()}
+              {p === 'all' ? 'Todos os Períodos' : p.toUpperCase()}
             </button>
           ))}
         </div>
@@ -88,13 +88,13 @@ export default function TradingStats({ stats: initialStats }: TradingStatsProps)
             {/* Total Trades */}
             <div className="text-center bg-gray-50 rounded-lg p-3">
               <div className="text-xl font-bold text-gray-900">{stats.totalTrades || 0}</div>
-              <div className="text-xs text-gray-500">Total Trades</div>
+              <div className="text-xs text-gray-500">Total de Trades</div>
             </div>
 
             {/* Win Rate */}
             <div className="text-center bg-green-50 rounded-lg p-3">
               <div className="text-xl font-bold text-green-600">{stats.winRate || '0'}%</div>
-              <div className="text-xs text-gray-500">Win Rate</div>
+              <div className="text-xs text-gray-500">Taxa de Vitória</div>
               <div className="text-xs text-gray-400 mt-1">
                 {stats.winningTrades || 0}W / {stats.losingTrades || 0}L
               </div>
@@ -109,7 +109,7 @@ export default function TradingStats({ stats: initialStats }: TradingStatsProps)
               }`}>
                 {formatCurrency(stats.totalPnl || '0.00')}
               </div>
-              <div className="text-xs text-gray-500">Total P&L</div>
+              <div className="text-xs text-gray-500">P&L Total</div>
             </div>
 
             {/* Average P&L */}
@@ -121,7 +121,7 @@ export default function TradingStats({ stats: initialStats }: TradingStatsProps)
               }`}>
                 {formatCurrency(stats.averagePnl || '0.00')}
               </div>
-              <div className="text-xs text-gray-500">Avg P&L</div>
+              <div className="text-xs text-gray-500">P&L Médio</div>
             </div>
           </div>
 
@@ -130,7 +130,7 @@ export default function TradingStats({ stats: initialStats }: TradingStatsProps)
             <div className="text-xl font-bold text-blue-600">
               ${formatNumber(parseFloat(stats.totalVolume || '0'))}
             </div>
-            <div className="text-xs text-gray-500">Total Volume</div>
+            <div className="text-xs text-gray-500">Volume Total</div>
           </div>
         </div>
 
@@ -143,7 +143,7 @@ export default function TradingStats({ stats: initialStats }: TradingStatsProps)
                   stats.bot.isRunning ? 'bg-green-500' : 'bg-gray-400'
                 }`}></div>
                 <span className="text-xs text-gray-600">
-                  {stats.bot.isRunning ? 'Running' : 'Stopped'}
+                  {stats.bot.isRunning ? 'Executando' : 'Parado'}
                 </span>
               </div>
               <div className="text-xs text-gray-600">

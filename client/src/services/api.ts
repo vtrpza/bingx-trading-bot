@@ -18,6 +18,17 @@ const axiosInstance = axios.create({
   timeout: 300000, // 5 minutes for refresh operations
 })
 
+// Configuration for SSE - can be disabled if problematic
+const SSE_CONFIG = {
+  enabled: true,
+  timeout: 10000, // 10 seconds
+  retryDelay: 500, // 500ms delay before starting request
+  maxErrors: 3 // Disable SSE after 3 consecutive errors
+}
+
+// Track SSE errors to auto-disable if problematic
+let sseErrorCount = 0
+
 // Request interceptor
 axiosInstance.interceptors.request.use(
   (config) => {
@@ -89,13 +100,15 @@ export const api = {
       let eventSource: EventSource | null = null;
       
       // Connect to SSE for progress updates
-      if (onProgress) {
+      if (onProgress && SSE_CONFIG.enabled) {
         const sseUrl = `/api/assets/refresh/progress/${sessionId}`;
         console.log('🔌 Delta refresh SSE:', sseUrl);
         eventSource = new EventSource(sseUrl);
         
         eventSource.onopen = () => {
           console.log('✅ Delta SSE connected');
+          // Reset error count on successful connection
+          sseErrorCount = 0;
         };
 
         eventSource.onmessage = (event) => {
@@ -124,8 +137,33 @@ export const api = {
         
         eventSource.onerror = (error) => {
           console.error('❌ Delta SSE connection error:', error);
+          sseErrorCount++;
+          
+          // Try to get more details about the error
+          if (eventSource?.readyState === EventSource.CLOSED) {
+            console.warn('⚠️ SSE connection was closed by server');
+          } else if (eventSource?.readyState === EventSource.CONNECTING) {
+            console.warn('⚠️ SSE connection is still trying to connect');
+          }
+          
+          // Auto-disable SSE if too many errors
+          if (sseErrorCount >= SSE_CONFIG.maxErrors) {
+            console.warn(`⚠️ Too many SSE errors (${sseErrorCount}), disabling SSE`);
+            SSE_CONFIG.enabled = false;
+          }
+          
+          // Don't reject immediately, let the request continue without SSE
+          // The HTTP request will still work even if SSE fails
         };
       }
+      
+      // Add timeout to close SSE if it takes too long
+      const sseTimeout = setTimeout(() => {
+        if (eventSource && eventSource.readyState !== EventSource.CLOSED) {
+          console.warn('⏰ SSE timeout - closing connection');
+          eventSource.close();
+        }
+      }, SSE_CONFIG.timeout);
       
       // Start delta refresh
       setTimeout(async () => {
@@ -133,9 +171,12 @@ export const api = {
           console.log('🚀 Starting delta refresh with sessionId:', sessionId);
           const response = await axiosInstance.post('/assets/refresh/delta', { sessionId });
           console.log('✅ Delta refresh response:', response.data);
+          clearTimeout(sseTimeout);
+          eventSource?.close();
           resolve(response.data);
         } catch (error) {
           console.error('❌ Delta refresh error:', error);
+          clearTimeout(sseTimeout);
           eventSource?.close();
           reject(error);
         }
@@ -150,7 +191,7 @@ export const api = {
       let eventSource: EventSource | null = null;
       
       // Connect to SSE for progress updates
-      if (onProgress) {
+      if (onProgress && SSE_CONFIG.enabled) {
         // Usar URL relativa para evitar problemas de CORS
         const sseUrl = `/api/assets/refresh/progress/${sessionId}`;
         console.log('🔌 Conectando SSE:', sseUrl);
@@ -158,6 +199,8 @@ export const api = {
         
         eventSource.onopen = () => {
           console.log('✅ SSE conectado com sucesso!');
+          // Reset error count on successful connection
+          sseErrorCount = 0;
         };
 
         eventSource.onmessage = (event) => {
@@ -189,9 +232,32 @@ export const api = {
         eventSource.onerror = (error) => {
           console.error('❌ SSE erro de conexão:', error);
           console.log('📊 SSE readyState:', eventSource?.readyState);
-          // Não fechar automaticamente para permitir reconexão
+          sseErrorCount++;
+          
+          // Try to get more details about the error
+          if (eventSource?.readyState === EventSource.CLOSED) {
+            console.warn('⚠️ SSE connection was closed by server');
+          } else if (eventSource?.readyState === EventSource.CONNECTING) {
+            console.warn('⚠️ SSE connection is still trying to connect');
+          }
+          
+          // Auto-disable SSE if too many errors
+          if (sseErrorCount >= SSE_CONFIG.maxErrors) {
+            console.warn(`⚠️ Too many SSE errors (${sseErrorCount}), disabling SSE`);
+            SSE_CONFIG.enabled = false;
+          }
+          
+          // Don't reject immediately, let the request continue without SSE
         };
       }
+      
+      // Add timeout to close SSE if it takes too long
+      const sseTimeout = setTimeout(() => {
+        if (eventSource && eventSource.readyState !== EventSource.CLOSED) {
+          console.warn('⏰ SSE timeout - closing connection');
+          eventSource.close();
+        }
+      }, SSE_CONFIG.timeout);
       
       // Wait a bit for SSE connection to establish, then start refresh
       setTimeout(async () => {
@@ -199,13 +265,16 @@ export const api = {
           console.log('🚀 Iniciando refresh com sessionId:', sessionId);
           const response = await axiosInstance.post('/assets/refresh', { sessionId });
           console.log('✅ Refresh response:', response.data);
+          clearTimeout(sseTimeout);
+          eventSource?.close();
           resolve(response.data);
         } catch (error) {
           console.error('❌ Erro no refresh:', error);
+          clearTimeout(sseTimeout);
           eventSource?.close();
           reject(error);
         }
-      }, 500); // 500ms delay para garantir conexão SSE
+      }, SSE_CONFIG.retryDelay);
     });
   },
 
@@ -230,6 +299,23 @@ export const api = {
       return response.data
     } catch (error: any) {
       console.error('❌ API: Cache invalidation error:', error)
+      throw error
+    }
+  },
+
+  async updateCoinNames(): Promise<{
+    message: string
+    totalAssets: number
+    updated: number
+    cacheInfo: any
+  }> {
+    console.log('🪙 API: Updating coin names from external source')
+    try {
+      const response = await axiosInstance.post('/assets/update-coin-names')
+      console.log('✅ API: Coin names updated:', response.data)
+      return response.data
+    } catch (error: any) {
+      console.error('❌ API: Coin names update error:', error)
       throw error
     }
   },

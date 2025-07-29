@@ -14,6 +14,7 @@ export default function AssetsPage() {
   const [status, setStatus] = useState('TRADING')
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [isClearing, setIsClearing] = useState(false)
+  const [isUpdatingNames, setIsUpdatingNames] = useState(false)
   const [refreshProgress, setRefreshProgress] = useState({ 
     progress: 0, 
     message: '', 
@@ -263,6 +264,35 @@ export default function AssetsPage() {
     }
   }
 
+  // Handle update coin names
+  const handleUpdateCoinNames = async () => {
+    setIsUpdatingNames(true)
+    toast.loading('🪙 Atualizando nomes das moedas...', { id: 'update-coin-names' })
+    
+    try {
+      const result = await api.updateCoinNames()
+      
+      toast.success(
+        `🎉 Nomes atualizados com sucesso!\n${result.updated} de ${result.totalAssets} ativos atualizados`,
+        { 
+          id: 'update-coin-names',
+          duration: 5000 
+        }
+      )
+      
+      // Invalidate cache to refresh UI
+      queryClient.invalidateQueries(['assets'])
+      queryClient.invalidateQueries(['all-assets'])
+      queryClient.invalidateQueries('asset-stats')
+      
+    } catch (error: any) {
+      const errorMessage = error?.message || 'Falha ao atualizar nomes das moedas'
+      toast.error(`❌ ${errorMessage}`, { id: 'update-coin-names', duration: 8000 })
+    } finally {
+      setIsUpdatingNames(false)
+    }
+  }
+
   // Handle clear database
   const handleClearDatabase = async () => {
     console.log('🎯 CLICK: Botão limpar banco clicado')
@@ -359,23 +389,24 @@ export default function AssetsPage() {
   // Format percentage
   const formatPercent = (value: number | string) => {
     const numValue = Number(value)
-    const formatted = numValue.toFixed(2)
+    const formatted = numValue.toFixed(1)
     return numValue >= 0 ? `+${formatted}%` : `${formatted}%`
   }
 
-  // Format date in UTC-3 (Brazil timezone)
+  // Format date in Brazil timezone (UTC-3) - dd/mm/yyyy hh:mm:ss
   const formatDate = (dateString: string) => {
     const date = new Date(dateString)
-    // Convert to UTC-3 (Brazil timezone)
-    const utcMinus3 = new Date(date.getTime() - (3 * 60 * 60 * 1000))
-    return utcMinus3.toLocaleString('pt-BR', {
+    return date.toLocaleString('pt-BR', {
+      timeZone: 'America/Sao_Paulo',
       day: '2-digit',
       month: '2-digit',
       year: 'numeric',
       hour: '2-digit',
-      minute: '2-digit'
+      minute: '2-digit',
+      second: '2-digit'
     })
   }
+
 
 
   return (
@@ -383,7 +414,7 @@ export default function AssetsPage() {
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Asset Analysis</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Análise de Ativos</h1>
           {lastUpdateTime && (
             <p className="text-sm text-gray-600 mt-1">
               🕒 Última atualização: <span className="font-medium text-blue-600">{lastUpdateTime}</span> (UTC-3)
@@ -391,6 +422,28 @@ export default function AssetsPage() {
           )}
         </div>
         <div className="flex gap-3">
+          {/* <button
+            onClick={handleUpdateCoinNames}
+            disabled={isUpdatingNames || isRefreshing || isClearing}
+            className={`btn flex items-center gap-2 px-4 py-3 rounded-lg font-medium transition-all ${
+              isUpdatingNames || isRefreshing || isClearing
+                ? 'bg-purple-100 text-purple-700 border border-purple-300 cursor-not-allowed' 
+                : 'bg-purple-600 text-white hover:bg-purple-700 border border-purple-600'
+            }`}
+          >
+            {isUpdatingNames ? (
+              <>
+                <div className="w-4 h-4 border-2 border-purple-300 border-t-purple-600 rounded-full animate-spin"></div>
+                <span>🪙 Atualizando...</span>
+              </>
+            ) : (
+              <>
+                <span>🪙</span>
+                <span>Atualizar Nomes</span>
+              </>
+            )}
+          </button>
+           */}
           <button
             onClick={(e) => {
               console.log('🎯 EVENTO CLICK CAPTURADO:', e)
@@ -398,9 +451,9 @@ export default function AssetsPage() {
               console.log('🎯 isRefreshing:', isRefreshing)
               handleClearDatabase()
             }}
-            disabled={isClearing || isRefreshing}
+            disabled={isClearing || isRefreshing || isUpdatingNames}
             className={`btn flex items-center gap-2 px-4 py-3 rounded-lg font-medium transition-all ${
-              isClearing || isRefreshing
+              isClearing || isRefreshing || isUpdatingNames
                 ? 'bg-red-100 text-red-700 border border-red-300 cursor-not-allowed' 
                 : 'bg-red-600 text-white hover:bg-red-700 border border-red-600'
             }`}
@@ -420,9 +473,9 @@ export default function AssetsPage() {
           
           <button
             onClick={handleSmartRefresh}
-            disabled={isRefreshing || isClearing}
+            disabled={isRefreshing || isClearing || isUpdatingNames}
             className={`btn flex items-center gap-2 px-6 py-3 rounded-lg font-medium transition-all ${
-              isRefreshing || isClearing
+              isRefreshing || isClearing || isUpdatingNames
                 ? 'bg-green-100 text-green-700 border border-green-300 cursor-not-allowed' 
                 : 'bg-green-600 text-white hover:bg-green-700 border border-green-600'
             }`}
@@ -442,9 +495,9 @@ export default function AssetsPage() {
           
           <button
             onClick={handleRefresh}
-            disabled={isRefreshing || isClearing}
+            disabled={isRefreshing || isClearing || isUpdatingNames}
             className={`btn flex items-center gap-2 px-4 py-3 rounded-lg font-medium transition-all ${
-              isRefreshing || isClearing
+              isRefreshing || isClearing || isUpdatingNames
                 ? 'bg-blue-100 text-blue-700 border border-blue-300 cursor-not-allowed' 
                 : 'bg-blue-600 text-white hover:bg-blue-700 border border-blue-600'
             }`}
@@ -550,41 +603,56 @@ export default function AssetsPage() {
       {statusBreakdown && (
         <div className="card p-6">
           <h3 className="text-lg font-medium text-gray-900 mb-4">📊 Distribuição de Status dos Contratos</h3>
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
             <div className="text-center">
               <div className="text-2xl font-bold text-green-600">{statusBreakdown.TRADING || 0}</div>
               <div className="text-xs text-gray-500 flex items-center justify-center gap-1">
                 <span>🟢</span>
-                <span>Trading</span>
+                <span>Negociando</span>
               </div>
             </div>
             <div className="text-center">
               <div className="text-2xl font-bold text-yellow-600">{statusBreakdown.SUSPENDED || 0}</div>
               <div className="text-xs text-gray-500 flex items-center justify-center gap-1">
                 <span>🟡</span>
-                <span>Suspended</span>
+                <span>Suspenso</span>
               </div>
             </div>
             <div className="text-center">
               <div className="text-2xl font-bold text-red-600">{statusBreakdown.DELISTED || 0}</div>
               <div className="text-xs text-gray-500 flex items-center justify-center gap-1">
                 <span>🔴</span>
-                <span>Delisted</span>
+                <span>Removido</span>
               </div>
             </div>
             <div className="text-center">
               <div className="text-2xl font-bold text-blue-600">{statusBreakdown.MAINTENANCE || 0}</div>
               <div className="text-xs text-gray-500 flex items-center justify-center gap-1">
                 <span>🔵</span>
-                <span>Maintenance</span>
+                <span>Manutenção</span>
+              </div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-purple-600">{statusBreakdown.INVALID || 0}</div>
+              <div className="text-xs text-gray-500 flex items-center justify-center gap-1">
+                <span>🟣</span>
+                <span>Inválido</span>
               </div>
             </div>
             <div className="text-center">
               <div className="text-2xl font-bold text-gray-600">{statusBreakdown.UNKNOWN || 0}</div>
               <div className="text-xs text-gray-500 flex items-center justify-center gap-1">
                 <span>⚪</span>
-                <span>Unknown</span>
+                <span>Desconhecido</span>
               </div>
+            </div>
+          </div>
+          <div className="mt-4 pt-4 border-t border-gray-200">
+            <div className="text-center">
+              <div className="text-xl font-bold text-gray-800">
+                {Object.values(statusBreakdown).reduce((total: number, count: any) => total + (count || 0), 0)}
+              </div>
+              <div className="text-sm text-gray-600">Total de Ativos</div>
             </div>
           </div>
         </div>
@@ -592,43 +660,11 @@ export default function AssetsPage() {
 
       {/* Statistics Cards */}
       {stats && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 gap-6">
           <div className="card p-6">
-            <h3 className="text-lg font-medium text-gray-900">Total Assets</h3>
+            <h3 className="text-lg font-medium text-gray-900">Total de Ativos</h3>
             <p className="text-3xl font-bold text-gray-900">{stats.totalAssets}</p>
-            <p className="text-sm text-gray-500">{stats.tradingAssets} trading</p>
-          </div>
-          
-          <div className="card p-6">
-            <h3 className="text-lg font-medium text-gray-900">Top Gainer</h3>
-            {stats.topGainers && stats.topGainers.length > 0 ? (
-              <>
-                <p className="text-xl font-bold text-gray-900">{stats.topGainers[0].symbol}</p>
-                <p className="text-lg font-bold text-green-600">
-                  {formatPercent(stats.topGainers[0].priceChangePercent)}
-                </p>
-              </>
-            ) : (
-              <p className="text-sm text-gray-500">
-                {stats.totalAssets > 0 ? t('common.noData') : t('common.loading')}
-              </p>
-            )}
-          </div>
-          
-          <div className="card p-6">
-            <h3 className="text-lg font-medium text-gray-900">Highest Volume</h3>
-            {stats.topVolume && stats.topVolume.length > 0 ? (
-              <>
-                <p className="text-xl font-bold text-gray-900">{stats.topVolume[0].symbol}</p>
-                <p className="text-lg text-gray-600">
-                  ${formatNumber(stats.topVolume[0].quoteVolume24h)}
-                </p>
-              </>
-            ) : (
-              <p className="text-sm text-gray-500">
-                {stats.totalAssets > 0 ? t('common.noData') : t('common.loading')}
-              </p>
-            )}
+            <p className="text-sm text-gray-500">{stats.tradingAssets} em negociação</p>
           </div>
         </div>
       )}
@@ -637,7 +673,7 @@ export default function AssetsPage() {
       <div className="card p-6">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
-            <label className="label">Search</label>
+            <label className="label">Buscar</label>
             <input
               type="text"
               value={search}
@@ -661,16 +697,18 @@ export default function AssetsPage() {
               className="input"
             >
               <option value="">🔍 Todos os Status</option>
-              <option value="TRADING">🟢 Trading (Ativos)</option>
-              <option value="SUSPENDED">🟡 Suspended (Suspensos)</option>
-              <option value="DELISTED">🔴 Delisted (Removidos)</option>
-              <option value="MAINTENANCE">🔵 Maintenance (Manutenção)</option>
+              <option value="TRADING">🟢 Negociando</option>
+              <option value="SUSPENDED">🟡 Suspenso</option>
+              <option value="DELISTED">🔴 Removido</option>
+              <option value="MAINTENANCE">🔵 Manutenção</option>
+              <option value="INVALID">🟣 Inválido</option>
+              <option value="UNKNOWN">⚪ Desconhecido</option>
             </select>
           </div>
           
           <div className="flex items-end">
             <span className="text-sm text-gray-500">
-              {pagination?.total || 0} assets found
+              {pagination?.total || 0} ativos encontrados
             </span>
           </div>
         </div>
@@ -701,25 +739,25 @@ export default function AssetsPage() {
                   onClick={() => handleSort('symbol')}
                   className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
                 >
-                  Symbol {sortBy === 'symbol' && (sortOrder === 'ASC' ? '↑' : '↓')}
+                  Símbolo {sortBy === 'symbol' && (sortOrder === 'ASC' ? '↑' : '↓')}
                 </th>
                 <th 
                   onClick={() => handleSort('name')}
                   className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
                 >
-                  Name {sortBy === 'name' && (sortOrder === 'ASC' ? '↑' : '↓')}
+                  Nome {sortBy === 'name' && (sortOrder === 'ASC' ? '↑' : '↓')}
                 </th>
                 <th 
                   onClick={() => handleSort('lastPrice')}
                   className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
                 >
-                  Price {sortBy === 'lastPrice' && (sortOrder === 'ASC' ? '↑' : '↓')}
+                  Preço {sortBy === 'lastPrice' && (sortOrder === 'ASC' ? '↑' : '↓')}
                 </th>
                 <th 
                   onClick={() => handleSort('priceChangePercent')}
                   className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
                 >
-                  24h Change {sortBy === 'priceChangePercent' && (sortOrder === 'ASC' ? '↑' : '↓')}
+                  Variação 24h {sortBy === 'priceChangePercent' && (sortOrder === 'ASC' ? '↑' : '↓')}
                 </th>
                 <th 
                   onClick={() => handleSort('quoteVolume24h')}
@@ -731,48 +769,45 @@ export default function AssetsPage() {
                   onClick={() => handleSort('highPrice24h')}
                   className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
                 >
-                  High 24h {sortBy === 'highPrice24h' && (sortOrder === 'ASC' ? '↑' : '↓')}
+                  Máxima 24h {sortBy === 'highPrice24h' && (sortOrder === 'ASC' ? '↑' : '↓')}
                 </th>
                 <th 
                   onClick={() => handleSort('lowPrice24h')}
                   className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
                 >
-                  Low 24h {sortBy === 'lowPrice24h' && (sortOrder === 'ASC' ? '↑' : '↓')}
-                </th>
-                <th 
-                  onClick={() => handleSort('openInterest')}
-                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                >
-                  Open Interest {sortBy === 'openInterest' && (sortOrder === 'ASC' ? '↑' : '↓')}
+                  Mínima 24h {sortBy === 'lowPrice24h' && (sortOrder === 'ASC' ? '↑' : '↓')}
                 </th>
                 <th 
                   onClick={() => handleSort('maxLeverage')}
                   className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
                 >
-                  Max Leverage {sortBy === 'maxLeverage' && (sortOrder === 'ASC' ? '↑' : '↓')}
+                  Alavancagem Máx {sortBy === 'maxLeverage' && (sortOrder === 'ASC' ? '↑' : '↓')}
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Status
+                <th 
+                  onClick={() => handleSort('status')}
+                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                >
+                  Status {sortBy === 'status' && (sortOrder === 'ASC' ? '↑' : '↓')}
                 </th>
                 <th 
                   onClick={() => handleSort('updatedAt')}
                   className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
                 >
-                  Last Update {sortBy === 'updatedAt' && (sortOrder === 'ASC' ? '↑' : '↓')}
+                  Última Atualização {sortBy === 'updatedAt' && (sortOrder === 'ASC' ? '↑' : '↓')}
                 </th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
               {isLoading ? (
                 <tr>
-                  <td colSpan={11} className="px-6 py-4 text-center text-gray-500">
-                    Loading assets...
+                  <td colSpan={10} className="px-6 py-4 text-center text-gray-500">
+                    Carregando ativos...
                   </td>
                 </tr>
               ) : assets.length === 0 ? (
                 <tr>
-                  <td colSpan={11} className="px-6 py-4 text-center text-gray-500">
-                    No assets found
+                  <td colSpan={10} className="px-6 py-4 text-center text-gray-500">
+                    Nenhum ativo encontrado
                   </td>
                 </tr>
               ) : (
@@ -805,9 +840,6 @@ export default function AssetsPage() {
                       ${Number(asset.lowPrice24h).toFixed(4)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      {formatNumber(asset.openInterest)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                       {asset.maxLeverage}x
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -820,13 +852,16 @@ export default function AssetsPage() {
                           ? 'bg-red-100 text-red-800'
                           : asset.status === 'MAINTENANCE'
                           ? 'bg-blue-100 text-blue-800'
+                          : asset.status === 'INVALID'
+                          ? 'bg-purple-100 text-purple-800'
                           : 'bg-gray-100 text-gray-800'
                       }`}>
-                        {asset.status === 'TRADING' ? '🟢' : 
-                         asset.status === 'SUSPENDED' ? '🟡' : 
-                         asset.status === 'DELISTED' ? '🔴' : 
-                         asset.status === 'MAINTENANCE' ? '🔵' : 
-                         '⚪'} {asset.status}
+                        {asset.status === 'TRADING' ? '🟢 Negociando' : 
+                         asset.status === 'SUSPENDED' ? '🟡 Suspenso' : 
+                         asset.status === 'DELISTED' ? '🔴 Removido' : 
+                         asset.status === 'MAINTENANCE' ? '🔵 Manutenção' : 
+                         asset.status === 'INVALID' ? '🟣 Inválido' : 
+                         '⚪ Desconhecido'}
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
@@ -849,21 +884,21 @@ export default function AssetsPage() {
                   disabled={page === 1}
                   className="btn btn-secondary"
                 >
-                  {t('common.previous')}
+                  Anterior
                 </button>
                 <button
                   onClick={() => setPage(Math.min(pagination.totalPages, page + 1))}
                   disabled={page === pagination.totalPages}
                   className="btn btn-secondary"
                 >
-                  {t('common.next')}
+                  Próximo
                 </button>
               </div>
               <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
                 <div>
                   <p className="text-sm text-gray-700">
-                    Showing {((page - 1) * limit) + 1} to {Math.min(page * limit, pagination.total)} of{' '}
-                    {pagination.total} results
+                    Mostrando {((page - 1) * limit) + 1} a {Math.min(page * limit, pagination.total)} de{' '}
+                    {pagination.total} resultados
                   </p>
                 </div>
                 <div>
@@ -873,7 +908,7 @@ export default function AssetsPage() {
                       disabled={page === 1}
                       className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50"
                     >
-                      {t('common.previous')}
+                      Anterior
                     </button>
                     
                     {/* Page numbers */}
@@ -899,7 +934,7 @@ export default function AssetsPage() {
                       disabled={page === pagination.totalPages}
                       className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50"
                     >
-                      {t('common.next')}
+                      Próximo
                     </button>
                   </nav>
                 </div>
