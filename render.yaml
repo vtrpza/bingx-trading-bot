@@ -11,8 +11,6 @@ services:
     numInstances: 1
     maxShutdownDelaySeconds: 30
     envVars:
-      - key: PORT
-        value: 3001
       - key: NODE_ENV
         value: production
       - key: DATABASE_URL
@@ -28,7 +26,7 @@ services:
       - key: DEFAULT_POSITION_SIZE
         value: "100"
       - key: FRONTEND_URL
-        value: https://bingx-trading-bot-lu0z-frontend-rjhj.onrender.com
+        value: https://bingx-trading-bot-lu0z-frontend.onrender.com
       - key: REDIS_URL
         sync: false
       - key: AUTO_START_BOT
