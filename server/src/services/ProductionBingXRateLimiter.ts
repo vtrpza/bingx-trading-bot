@@ -62,11 +62,11 @@ interface CacheEntry {
 }
 
 export class ProductionBingXRateLimiter {
-  private marketDataLimiter: Bottleneck;
-  private accountTradingLimiter: Bottleneck;
-  private circuitBreaker: EnhancedCircuitBreaker;
-  private cache: Map<string, CacheEntry>;
-  private metrics: RequestMetrics;
+  private marketDataLimiter!: Bottleneck;
+  private accountTradingLimiter!: Bottleneck;
+  private circuitBreaker!: EnhancedCircuitBreaker;
+  private cache!: Map<string, CacheEntry>;
+  private metrics!: RequestMetrics;
   private isRateLimited: boolean = false;
   private rateLimitRecoveryTime: number = 0;
   private recoveryTimeoutId: NodeJS.Timeout | null = null;

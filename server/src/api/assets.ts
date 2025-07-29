@@ -619,7 +619,6 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
     logger.info(`✅ DEDUPLICAÇÃO COMPLETA: ${contractsToProcessDeduped.length} contratos únicos serão processados`);
     
     // Update the processing array to use deduplicated contracts
-    const originalContractsToProcess = contractsToProcess;
     contractsToProcess.splice(0, contractsToProcess.length, ...contractsToProcessDeduped);
     
     // Send progress with total count - merge phase starting

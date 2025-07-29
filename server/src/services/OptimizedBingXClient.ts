@@ -12,9 +12,7 @@
  */
 
 import axios, { AxiosInstance } from 'axios';
-import crypto from 'crypto';
-import { logger, logToExternal } from '../utils/logger';
-import { productionBingXRateLimiter, RequestPriority } from './ProductionBingXRateLimiter';
+import { logger } from '../utils/logger';
 import dotenv from 'dotenv';
 import path from 'path';
 
@@ -27,68 +25,73 @@ interface BingXConfig {
   demoMode: boolean;
 }
 
-interface EndpointMetadata {
-  url: string;
-  successRate: number;
-  lastSuccess: number;
+interface ConnectionPoolStats {
+  activeConnections: number;
+  queuedRequests: number;
+  totalRequests: number;
   avgResponseTime: number;
-  totalCalls: number;
-  failures: number;
+  errorRate: number;
 }
 
-interface CachedEndpointData {
-  symbols: any[];
-  tickers: any[];
-  lastUpdate: number;
-  source: string;
+class Semaphore {
+  private count: number;
+  private waiting: (() => void)[] = [];
+
+  constructor(count: number) {
+    this.count = count;
+  }
+
+  async acquire(): Promise<void> {
+    return new Promise<void>((resolve) => {
+      if (this.count > 0) {
+        this.count--;
+        resolve();
+      } else {
+        this.waiting.push(resolve);
+      }
+    });
+  }
+
+  release(): void {
+    this.count++;
+    if (this.waiting.length > 0) {
+      const resolve = this.waiting.shift()!;
+      this.count--;
+      resolve();
+    }
+  }
 }
+
 
 export class OptimizedBingXClient {
-  private axios: AxiosInstance;
+  private axiosInstance!: AxiosInstance;
   private config: BingXConfig;
-  private endpointCache: Map<string, EndpointMetadata> = new Map();
-  private dataCache: CachedEndpointData | null = null;
+  private requestQueue: Map<string, Promise<any>> = new Map();
+  private metrics: any[] = [];
+  private symbolsCache: { data: any; timestamp: number } | null = null;
+  private tickersCache: { data: any; timestamp: number } | null = null;
+  private tickerCache: Map<string, { data: any; timestamp: number }> = new Map();
   private readonly CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
 
-  // Pre-validated endpoints based on research and testing
-  private readonly PROVEN_ENDPOINTS = {
-    symbols: [
-      '/openApi/swap/v2/quote/contracts',  // Primary endpoint - highest success rate
-      '/openApi/swap/v1/quote/contracts'   // Reliable fallback
-    ],
-    tickers: [
-      '/openApi/swap/v2/quote/ticker',     // All tickers without params
-      '/openApi/swap/v1/quote/ticker'      // v1 fallback
-    ]
+  private static readonly BATCH_CONFIG = {
+    maxBatchSize: 50,
+    concurrentBatches: 3,
+    batchDelay: 100
   };
 
-  constructor() {
-    super();
-    this.initializeConnectionPools();
-    this.setupPerformanceMonitoring();
+  constructor(config: BingXConfig) {
+    this.config = config;
+    this.initializeAxios();
   }
 
   /**
-   * Initialize optimized HTTP connection pools
+   * Initialize axios instance
    */
-  private initializeConnectionPools(): void {
-    // HTTP Agent for non-SSL connections
-    this.httpAgent = new http.Agent(OptimizedBingXClient.CONNECTION_POOL_CONFIG);
-
-    // HTTPS Agent for SSL connections (most BingX endpoints)
-    this.httpsAgent = new https.Agent({
-      ...OptimizedBingXClient.CONNECTION_POOL_CONFIG,
-      secureProtocol: 'TLSv1_2_method',
-      ciphers: 'ECDHE-RSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384',
-      honorCipherOrder: true
-    });
-
-    // Create optimized axios instance
-    this.optimizedAxios = axios.create({
-      baseURL: 'https://open-api-vst.bingx.com', // Use BingX demo API
-      timeout: 20000, // Increased timeout for batch operations
-      httpAgent: this.httpAgent,
-      httpsAgent: this.httpsAgent,
+  private initializeAxios(): void {
+    // Create axios instance
+    this.axiosInstance = axios.create({
+      baseURL: this.config.baseURL,
+      timeout: 20000,
       headers: {
         'Content-Type': 'application/json',
         'Connection': 'keep-alive',
@@ -98,7 +101,8 @@ export class OptimizedBingXClient {
       decompress: true
     });
 
-    logger.info('Optimized BingX client initialized with connection pooling');
+    this.setupPerformanceMonitoring();
+    logger.info('Optimized BingX client initialized');
   }
 
   /**
@@ -108,7 +112,7 @@ export class OptimizedBingXClient {
     // Clean up old metrics every 5 minutes
     setInterval(() => {
       const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
-      this.metrics = this.metrics.filter(m => m.timestamp > fiveMinutesAgo);
+      this.metrics = this.metrics.filter((m: any) => m.timestamp > fiveMinutesAgo);
     }, 5 * 60 * 1000);
   }
 
@@ -138,11 +142,10 @@ export class OptimizedBingXClient {
     const startTime = Date.now();
     
     // Try cache first
-    const cached = await redisCache.getSymbols();
-    if (cached) {
+    if (this.symbolsCache && (Date.now() - this.symbolsCache.timestamp) < this.CACHE_DURATION) {
       this.recordMetrics('/symbols/cached', 'GET', Date.now() - startTime, true, true);
       logger.debug('Returning cached symbols data');
-      return { code: 0, data: cached, msg: 'cached' };
+      return { code: 0, data: this.symbolsCache.data, msg: 'cached' };
     }
 
     // If not cached, use request deduplication to prevent multiple parallel requests
@@ -161,7 +164,7 @@ export class OptimizedBingXClient {
       
       // Cache successful results
       if (result.code === 0 && result.data) {
-        await redisCache.setSymbols(result.data);
+        this.symbolsCache = { data: result.data, timestamp: Date.now() };
       }
 
       this.recordMetrics('/symbols/fresh', 'GET', Date.now() - startTime, true, false);
@@ -185,7 +188,7 @@ export class OptimizedBingXClient {
 
     for (const endpoint of endpoints) {
       try {
-        const response = await this.optimizedAxios.get(endpoint);
+        const response = await this.axiosInstance.get(endpoint);
         
         if (response.data && response.data.code === 0) {
           logger.info(`Successfully fetched symbols from ${endpoint}: ${response.data.data?.length || 0} contracts`);
@@ -208,11 +211,10 @@ export class OptimizedBingXClient {
     const startTime = Date.now();
     
     // Try cache first
-    const cached = await redisCache.getAllTickers();
-    if (cached) {
+    if (this.tickersCache && (Date.now() - this.tickersCache.timestamp) < this.CACHE_DURATION) {
       this.recordMetrics('/tickers/cached', 'GET', Date.now() - startTime, true, true);
       logger.debug('Returning cached all tickers data');
-      return { code: 0, data: cached, msg: 'cached' };
+      return { code: 0, data: this.tickersCache.data, msg: 'cached' };
     }
 
     // Request deduplication
@@ -230,16 +232,14 @@ export class OptimizedBingXClient {
       
       // Cache successful results
       if (result.code === 0 && result.data) {
-        await redisCache.setAllTickers(result.data);
+        this.tickersCache = { data: result.data, timestamp: Date.now() };
         
         // Also cache individual tickers for faster single lookups
-        const tickerMap = new Map();
         result.data.forEach((ticker: any) => {
           if (ticker.symbol) {
-            tickerMap.set(ticker.symbol, ticker);
+            this.tickerCache.set(ticker.symbol, { data: ticker, timestamp: Date.now() });
           }
         });
-        await redisCache.setMultipleTickers(tickerMap);
       }
 
       this.recordMetrics('/tickers/fresh', 'GET', Date.now() - startTime, true, false);
@@ -261,7 +261,7 @@ export class OptimizedBingXClient {
 
     for (const endpoint of endpoints) {
       try {
-        const response = await this.optimizedAxios.get(endpoint);
+        const response = await this.axiosInstance.get(endpoint);
         
         if (response.data && response.data.code === 0 && Array.isArray(response.data.data)) {
           logger.info(`Successfully fetched ${response.data.data.length} tickers from ${endpoint}`);
@@ -287,9 +287,17 @@ export class OptimizedBingXClient {
     const startTime = Date.now();
     
     // First, try to get cached tickers
-    const cachedTickers = await redisCache.getMultipleTickers(symbols);
-    const cachedSymbols = new Set(cachedTickers.keys());
-    const uncachedSymbols = symbols.filter(s => !cachedSymbols.has(s));
+    const cachedTickers = new Map<string, any>();
+    const uncachedSymbols: string[] = [];
+    
+    symbols.forEach(symbol => {
+      const cached = this.tickerCache.get(symbol);
+      if (cached && (Date.now() - cached.timestamp) < this.CACHE_DURATION) {
+        cachedTickers.set(symbol, cached.data);
+      } else {
+        uncachedSymbols.push(symbol);
+      }
+    });
 
     logger.debug(`Ticker cache: ${cachedTickers.size} cached, ${uncachedSymbols.length} to fetch`);
 
@@ -305,7 +313,9 @@ export class OptimizedBingXClient {
       
       // Cache the fresh tickers
       if (freshTickers.size > 0) {
-        await redisCache.setMultipleTickers(freshTickers);
+        freshTickers.forEach((ticker, symbol) => {
+          this.tickerCache.set(symbol, { data: ticker, timestamp: Date.now() });
+        });
       }
 
       // Combine cached and fresh results
@@ -368,7 +378,7 @@ export class OptimizedBingXClient {
 
     // Try batch endpoint first (if supported by BingX)
     try {
-      const response = await this.optimizedAxios.get('/openApi/swap/v2/quote/ticker', {
+      const response = await this.axiosInstance.get('/openApi/swap/v2/quote/ticker', {
         params: { symbols: symbols.join(',') }
       });
 
@@ -407,19 +417,19 @@ export class OptimizedBingXClient {
     const startTime = Date.now();
     
     // Try cache first
-    const cached = await redisCache.getTicker(symbol);
-    if (cached) {
+    const cached = this.tickerCache.get(symbol);
+    if (cached && (Date.now() - cached.timestamp) < this.CACHE_DURATION) {
       this.recordMetrics(`/ticker/${symbol}/cached`, 'GET', Date.now() - startTime, true, true);
-      return { code: 0, data: cached, msg: 'cachedticker' };
+      return { code: 0, data: cached.data, msg: 'cached' };
     }
 
     // Fetch fresh data
     try {
-      const result = await super.getTicker(symbol);
+      const result = await this.fetchSingleTicker(symbol);
       
       // Cache successful results
       if (result && result.code === 0 && result.data) {
-        await redisCache.setTicker(symbol, result.data);
+        this.tickerCache.set(symbol, { data: result.data, timestamp: Date.now() });
       }
 
       this.recordMetrics(`/ticker/${symbol}/fresh`, 'GET', Date.now() - startTime, true, false);
@@ -428,6 +438,33 @@ export class OptimizedBingXClient {
       this.recordMetrics(`/ticker/${symbol}/error`, 'GET', Date.now() - startTime, false, false);
       throw error;
     }
+  }
+
+  /**
+   * Fetch single ticker data
+   */
+  private async fetchSingleTicker(symbol: string): Promise<any> {
+    try {
+      const response = await this.axiosInstance.get(`/openApi/swap/v2/quote/ticker`, {
+        params: { symbol }
+      });
+      
+      if (response.data && response.data.code === 0) {
+        return response.data;
+      } else {
+        throw new Error(`API returned code ${response.data?.code}: ${response.data?.msg}`);
+      }
+    } catch (error) {
+      logger.error(`Failed to fetch ticker for ${symbol}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Simple delay utility
+   */
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
   }
 
   /**
@@ -453,18 +490,10 @@ export class OptimizedBingXClient {
   }
 
   /**
-   * Get active connection count from agents
+   * Get active connection count - simplified for basic axios
    */
   private getActiveConnections(): number {
-    const httpSockets = this.httpAgent.sockets ? Object.keys(this.httpAgent.sockets).reduce((count, key) => {
-      return count + (this.httpAgent.sockets[key]?.length || 0);
-    }, 0) : 0;
-
-    const httpsSockets = this.httpsAgent.sockets ? Object.keys(this.httpsAgent.sockets).reduce((count, key) => {
-      return count + (this.httpsAgent.sockets[key]?.length || 0);
-    }, 0) : 0;
-
-    return httpSockets + httpsSockets;
+    return this.requestQueue.size;
   }
 
   /**
@@ -508,21 +537,10 @@ export class OptimizedBingXClient {
   }
 
   /**
-   * Simple delay utility
-   */
-  private delay(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
-  }
-
-  /**
    * Clean up resources when shutting down
    */
   async cleanup(): Promise<void> {
     logger.info('Cleaning up OptimizedBingXClient resources...');
-    
-    // Destroy connection pools
-    this.httpAgent.destroy();
-    this.httpsAgent.destroy();
     
     // Clear request queue
     this.requestQueue.clear();
@@ -530,41 +548,21 @@ export class OptimizedBingXClient {
     // Clear metrics
     this.metrics.length = 0;
     
+    // Clear caches
+    this.symbolsCache = null;
+    this.tickersCache = null;
+    this.tickerCache.clear();
+    
     logger.info('OptimizedBingXClient cleanup completed');
   }
 }
 
-/**
- * Simple semaphore implementation for controlling concurrency
- */
-class Semaphore {
-  private counter: number;
-  private waiting: (() => void)[] = [];
+// Create and export a default instance
+const defaultConfig: BingXConfig = {
+  apiKey: process.env.BINGX_API_KEY || '',
+  secretKey: process.env.BINGX_SECRET_KEY || '',
+  baseURL: process.env.DEMO_MODE === 'true' ? 'https://open-api-vst.bingx.com' : 'https://open-api.bingx.com',
+  demoMode: process.env.DEMO_MODE === 'true'
+};
 
-  constructor(max: number) {
-    this.counter = max;
-  }
-
-  async acquire(): Promise<void> {
-    if (this.counter > 0) {
-      this.counter--;
-      return;
-    }
-
-    return new Promise(resolve => {
-      this.waiting.push(resolve);
-    });
-  }
-
-  release(): void {
-    this.counter++;
-    if (this.waiting.length > 0) {
-      this.counter--;
-      const resolve = this.waiting.shift();
-      resolve?.();
-    }
-  }
-}
-
-// Export optimized client instance
-export const optimizedBingXClient = new OptimizedBingXClient();
+export const optimizedBingXClient = new OptimizedBingXClient(defaultConfig);

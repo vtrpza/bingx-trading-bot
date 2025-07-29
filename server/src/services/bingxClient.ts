@@ -76,7 +76,7 @@ export class BingXClient {
             message: error.response?.data?.msg
           });
           
-          await productionBingXRateLimiter.handleRateLimit(error, originalRequest._retryCount || 1);
+          // Rate limiting is handled internally by the rate limiter
           originalRequest._retryCount = (originalRequest._retryCount || 1) + 1;
           
           // Retry the original request
@@ -271,82 +271,7 @@ export class BingXClient {
     }
   }
   
-  // Método auxiliar para extrair contratos de diferentes formatos de resposta
-  private extractContractsFromResponse(data: any): any[] {
-    if (!data) return [];
-    
-    // Tentar diferentes estruturas de resposta
-    const possiblePaths = [
-      data.data,           // { data: [...] }
-      data.symbols,        // { symbols: [...] }
-      data.result,         // { result: [...] }
-      data.contracts,      // { contracts: [...] }
-      data.tickers,        // { tickers: [...] }
-      data,                // Direto como array
-    ];
-    
-    for (const path of possiblePaths) {
-      if (Array.isArray(path) && path.length > 0) {
-        // Verificar se parece com contratos (tem símbolo)
-        if (path[0]?.symbol || path[0]?.contractName || path[0]?.pair) {
-          return path;
-        }
-      }
-    }
-    
-    return [];
-  }
   
-  // Método auxiliar para agrupar contratos por fonte
-  private groupContractsBySource(contracts: any[]): Record<string, number> {
-    const groups: Record<string, number> = {};
-    contracts.forEach(contract => {
-      const source = contract._source_endpoint || 'unknown';
-      groups[source] = (groups[source] || 0) + 1;
-    });
-    return groups;
-  }
-  
-  // Método para tentar paginação exaustiva
-  private async tryExhaustivePagination(contractsMap: Map<string, any>): Promise<void> {
-    // Implementar paginação nos endpoints que mostraram ter mais dados
-    const paginationEndpoints = [
-      '/openApi/swap/v2/quote/contracts',
-      '/openApi/swap/v2/quote/tickers',
-      '/openApi/swap/v1/quote/contracts'
-    ];
-    
-    for (const endpoint of paginationEndpoints) {
-      for (let page = 1; page <= 50; page++) { // Até 50 páginas
-        try {
-          const params = { page, limit: 1000 };
-          const response = await this.axios.get(endpoint, { params });
-          const contracts = this.extractContractsFromResponse(response.data);
-          
-          if (contracts.length === 0) break; // Não há mais páginas
-          
-          let newContracts = 0;
-          contracts.forEach((contract: any) => {
-            if (contract.symbol && !contractsMap.has(contract.symbol)) {
-              contractsMap.set(contract.symbol, {
-                ...contract,
-                _source_endpoint: endpoint,
-                _source_params: params
-              });
-              newContracts++;
-            }
-          });
-          
-          logger.info(`📄 ${endpoint} página ${page}: +${newContracts} novos contratos`);
-          
-          if (newContracts === 0) break; // Todos já eram conhecidos
-          
-        } catch (error) {
-          break; // Erro na paginação, tentar próximo endpoint
-        }
-      }
-    }
-  }
 
 
   async getTicker(symbol: string) {

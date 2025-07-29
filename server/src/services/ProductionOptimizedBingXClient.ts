@@ -628,8 +628,8 @@ export class ProductionOptimizedBingXClient {
       ...rateLimiterStatus,
       client: {
         endpointCache: Array.from(this.endpointCache.entries()).map(([url, metrics]) => ({
-          url,
           ...metrics,
+          url,
           lastSuccessAge: Date.now() - metrics.lastSuccess
         })),
         dataCache: this.dataCache ? {
@@ -739,11 +739,6 @@ export class ProductionOptimizedBingXClient {
       logger.error(`Failed to close position ${symbol}:`, error);
       throw error;
     }
-  }
-
-  // Normalize symbol method for compatibility
-  private normalizeSymbol(symbol: string): string {
-    return symbol.replace(/-/g, '');
   }
 }
 
