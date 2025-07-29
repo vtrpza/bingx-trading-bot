@@ -1,4 +1,4 @@
-import axios from 'axios'
+import axios, { AxiosRequestConfig, CancelTokenSource } from 'axios'
 import type { 
   Asset, 
   Trade, 
@@ -13,10 +13,52 @@ import type {
   ActivityEvent
 } from '../types'
 
+// Request deduplication cache
+const requestCache = new Map<string, Promise<any>>()
+const cancelTokens = new Map<string, CancelTokenSource>()
+
+// Performance optimized axios instance
 const axiosInstance = axios.create({
   baseURL: '/api',
-  timeout: 300000, // 5 minutes for refresh operations
+  timeout: 30000, // Reduced from 5 minutes to 30 seconds
+  headers: {
+    'Accept': 'application/json',
+    'Content-Type': 'application/json',
+    'Accept-Encoding': 'gzip, deflate, br'
+  },
+  // Enable compression
+  decompress: true,
 })
+
+// Request deduplication helper
+function createCacheKey(url: string, params?: any): string {
+  return `${url}${params ? JSON.stringify(params) : ''}`
+}
+
+// Retry configuration
+const RETRY_CONFIG = {
+  maxRetries: 3,
+  baseDelay: 1000,
+  maxDelay: 5000,
+  backoffFactor: 2,
+}
+
+// Exponential backoff retry helper
+async function withRetry<T>(fn: () => Promise<T>, retries = RETRY_CONFIG.maxRetries): Promise<T> {
+  try {
+    return await fn()
+  } catch (error: any) {
+    if (retries > 0 && error.response?.status >= 500) {
+      const delay = Math.min(
+        RETRY_CONFIG.baseDelay * Math.pow(RETRY_CONFIG.backoffFactor, RETRY_CONFIG.maxRetries - retries),
+        RETRY_CONFIG.maxDelay
+      )
+      await new Promise(resolve => setTimeout(resolve, delay))
+      return withRetry(fn, retries - 1)
+    }
+    throw error
+  }
+}
 
 // Configuration for SSE - can be disabled if problematic
 const SSE_CONFIG = {
@@ -29,9 +71,21 @@ const SSE_CONFIG = {
 // Track SSE errors to auto-disable if problematic
 let sseErrorCount = 0
 
-// Request interceptor
+// Performance optimized request interceptor
 axiosInstance.interceptors.request.use(
   (config) => {
+    // Add request timestamp for performance monitoring
+    config.metadata = { startTime: Date.now() }
+    
+    // Set appropriate timeout based on endpoint
+    if (config.url?.includes('/refresh')) {
+      config.timeout = 120000 // 2 minutes for refresh operations
+    } else if (config.url?.includes('/trades/history')) {
+      config.timeout = 15000 // 15 seconds for history
+    } else {
+      config.timeout = 10000 // 10 seconds for regular requests
+    }
+    
     return config
   },
   (error) => {
@@ -39,31 +93,83 @@ axiosInstance.interceptors.request.use(
   }
 )
 
-// Response interceptor
+// Performance optimized response interceptor
 axiosInstance.interceptors.response.use(
   (response) => {
+    // Log performance metrics
+    const duration = Date.now() - response.config.metadata?.startTime
+    if (duration > 5000) {
+      console.warn(`Slow API request: ${response.config.url} took ${duration}ms`)
+    }
+    
+    // Clean up cache entry
+    const cacheKey = createCacheKey(response.config.url || '', response.config.params)
+    requestCache.delete(cacheKey)
+    
     // For API responses with format { success: true, data: {...} }, return the data field directly
     if (response.data && response.data.success && response.data.data !== undefined) {
-      // Preserve axios response structure but replace data content
       return {
         ...response,
         data: response.data.data
       }
     }
-    // For other responses, return as-is
     return response
   },
   (error) => {
+    // Clean up cache and cancel tokens on error
+    const cacheKey = createCacheKey(error.config?.url || '', error.config?.params)
+    requestCache.delete(cacheKey)
+    cancelTokens.delete(cacheKey)
+    
+    // Enhanced error handling with retry logic for 5xx errors
     const message = error.response?.data?.error?.message || 
                    error.response?.data?.msg || 
                    error.message || 
                    'An error occurred'
-    throw new Error(message)
+    
+    // Add context to error
+    const enhancedError = new Error(message)
+    enhancedError.status = error.response?.status
+    enhancedError.url = error.config?.url
+    
+    throw enhancedError
   }
 )
 
+// Request deduplication wrapper
+function deduplicateRequest<T>(key: string, requestFn: () => Promise<T>): Promise<T> {
+  if (requestCache.has(key)) {
+    return requestCache.get(key)!
+  }
+  
+  const promise = requestFn().finally(() => {
+    requestCache.delete(key)
+  })
+  
+  requestCache.set(key, promise)
+  return promise
+}
+
+// Cancellable request wrapper
+function makeCancellableRequest<T>(key: string, config: AxiosRequestConfig): Promise<T> {
+  // Cancel previous request with same key if exists
+  const existingToken = cancelTokens.get(key)
+  if (existingToken) {
+    existingToken.cancel('Replaced by newer request')
+  }
+  
+  // Create new cancel token
+  const source = axios.CancelToken.source()
+  cancelTokens.set(key, source)
+  
+  return axiosInstance({ ...config, cancelToken: source.token })
+    .finally(() => {
+      cancelTokens.delete(key)
+    })
+}
+
 export const api = {
-  // Assets
+  // Assets - Optimized with caching and deduplication
   async getAssets(params?: {
     page?: number
     limit?: number
@@ -72,7 +178,10 @@ export const api = {
     search?: string
     status?: string
   }): Promise<PaginatedResponse<Asset>> {
-    return axiosInstance.get('/assets', { params })
+    const cacheKey = createCacheKey('/assets', params)
+    return deduplicateRequest(cacheKey, () => 
+      withRetry(() => axiosInstance.get('/assets', { params }))
+    )
   },
 
   async getAllAssets(params?: {
@@ -86,11 +195,17 @@ export const api = {
     executionTime: string
     lastUpdated: string
   }> {
-    return axiosInstance.get('/assets/all', { params })
+    const cacheKey = createCacheKey('/assets/all', params)
+    return deduplicateRequest(cacheKey, () => 
+      withRetry(() => axiosInstance.get('/assets/all', { params }))
+    )
   },
 
   async getAsset(symbol: string): Promise<Asset> {
-    return axiosInstance.get(`/assets/${symbol}`)
+    const cacheKey = createCacheKey(`/assets/${symbol}`)
+    return deduplicateRequest(cacheKey, () => 
+      withRetry(() => axiosInstance.get(`/assets/${symbol}`))
+    )
   },
 
   async refreshAssetsDelta(onProgress?: (data: any) => void): Promise<{ message: string; created: number; updated: number; total: number; processed: number; skipped: number; sessionId: string; deltaMode?: string }> {
@@ -343,10 +458,13 @@ export const api = {
     }
   },
 
-  // Trading Bot
+  // Trading Bot - Optimized with cancellation support
   async getBotStatus(): Promise<any> {
-    // The response interceptor already extracts the data field for us
-    return axiosInstance.get('/trading/parallel-bot/status')
+    const cacheKey = '/trading/parallel-bot/status'
+    return makeCancellableRequest(cacheKey, {
+      method: 'GET',
+      url: '/trading/parallel-bot/status'
+    })
   },
 
   async startBot(): Promise<{ message: string }> {
@@ -410,11 +528,20 @@ export const api = {
   },
 
   async getPositions(): Promise<Position[]> {
-    return axiosInstance.get('/trading/positions')
+    const cacheKey = '/trading/positions'
+    return makeCancellableRequest(cacheKey, {
+      method: 'GET',
+      url: '/trading/positions'
+    })
   },
 
   async getOpenOrders(symbol?: string): Promise<any[]> {
-    return axiosInstance.get('/trading/orders/open', { params: { symbol } })
+    const cacheKey = createCacheKey('/trading/orders/open', { symbol })
+    return makeCancellableRequest(cacheKey, {
+      method: 'GET',
+      url: '/trading/orders/open',
+      params: { symbol }
+    })
   },
 
   async getTradeHistory(params?: {
@@ -460,7 +587,10 @@ export const api = {
       immediateExecution?: boolean
     }
   }> {
-    return axiosInstance.get('/trading/stats', { params: { period } })
+    const cacheKey = createCacheKey('/trading/stats', { period })
+    return deduplicateRequest(cacheKey, () => 
+      withRetry(() => axiosInstance.get('/trading/stats', { params: { period } }))
+    )
   },
 
   async placeOrder(orderData: {
@@ -554,15 +684,22 @@ export const api = {
     return axiosInstance.get('/trading/parallel-bot/enhanced-stats', { params: { period } })
   },
 
-  // Market Data
+  // Market Data - Optimized with short-term caching
   async getTicker(symbol: string): Promise<MarketData> {
-    return axiosInstance.get(`/market-data/ticker/${symbol}`)
+    const cacheKey = `/market-data/ticker/${symbol}`
+    return makeCancellableRequest(cacheKey, {
+      method: 'GET',
+      url: `/market-data/ticker/${symbol}`
+    })
   },
 
   async getKlines(symbol: string, interval?: string, limit?: number): Promise<Candle[]> {
-    return axiosInstance.get(`/market-data/klines/${symbol}`, {
-      params: { interval, limit }
-    })
+    const cacheKey = createCacheKey(`/market-data/klines/${symbol}`, { interval, limit })
+    return deduplicateRequest(cacheKey, () => 
+      withRetry(() => axiosInstance.get(`/market-data/klines/${symbol}`, {
+        params: { interval, limit }
+      }))
+    )
   },
 
   async getDepth(symbol: string, limit?: number): Promise<{
@@ -592,7 +729,10 @@ export const api = {
   },
 
   async getSignal(symbol: string, interval?: string, limit?: number): Promise<TradingSignal> {
-    return axiosInstance.get(`/market-data/signal/${symbol}`, {
+    const cacheKey = createCacheKey(`/market-data/signal/${symbol}`, { interval, limit })
+    return makeCancellableRequest(cacheKey, {
+      method: 'GET',
+      url: `/market-data/signal/${symbol}`,
       params: { interval, limit }
     })
   },
@@ -622,4 +762,38 @@ export const api = {
   }): Promise<{ message: string; subscription: any }> {
     return axiosInstance.post('/market-data/unsubscribe', subscription)
   },
+}
+
+// API cleanup utilities
+export const apiUtils = {
+  // Clear all cached requests
+  clearCache(): void {
+    requestCache.clear()
+  },
+  
+  // Cancel all pending requests
+  cancelAllRequests(): void {
+    cancelTokens.forEach((source) => {
+      source.cancel('Component unmounted or cleanup requested')
+    })
+    cancelTokens.clear()
+  },
+  
+  // Cancel specific request by key
+  cancelRequest(url: string, params?: any): void {
+    const key = createCacheKey(url, params)
+    const source = cancelTokens.get(key)
+    if (source) {
+      source.cancel('Request cancelled')
+      cancelTokens.delete(key)
+    }
+  },
+  
+  // Get cache statistics
+  getCacheStats(): { cacheSize: number; pendingRequests: number } {
+    return {
+      cacheSize: requestCache.size,
+      pendingRequests: cancelTokens.size
+    }
+  }
 }

@@ -93,7 +93,7 @@
     @apply bg-blue-100 text-blue-800;
   }
 
-  /* Trading Dashboard Grid Layout - Design Hierárquico com Tamanhos Automáticos */
+  /* Trading Dashboard Grid Layout - Performance Optimized */
   .trading-dashboard-grid {
     display: grid;
     grid-template-columns: repeat(12, 1fr);
@@ -108,6 +108,10 @@
     min-height: 100vh;
     overflow-y: auto;
     overflow-x: hidden;
+    /* Performance optimizations */
+    contain: layout style;
+    will-change: scroll-position;
+    transform: translateZ(0); /* Force hardware acceleration */
   }
 
   /* Hierarquia Visual: Sinais → Pipeline → Posições → Resto */
@@ -119,6 +123,8 @@
     display: flex;
     flex-direction: column;
     min-height: 500px; /* Altura mínima generosa */
+    contain: layout style paint;
+    transform: translateZ(0);
   }
 
   /* 2. SEGUNDO DESTAQUE - Pipeline de Trading (tamanho automático) */
@@ -128,6 +134,8 @@
     display: flex;
     flex-direction: column;
     min-height: 400px; /* Altura mínima generosa */
+    contain: layout style paint;
+    transform: translateZ(0);
   }
 
   /* 3. TERCEIRO DESTAQUE - Posições Abertas (tamanho automático) */
@@ -137,6 +145,8 @@
     display: flex;
     flex-direction: column;
     min-height: 300px; /* Altura mínima generosa */
+    contain: layout style paint;
+    transform: translateZ(0);
   }
 
   /* 4. COMPONENTES SECUNDÁRIOS (tamanho automático) */
@@ -146,6 +156,8 @@
     display: flex;
     flex-direction: column;
     min-height: 250px; /* Altura mínima generosa */
+    contain: layout style paint;
+    transform: translateZ(0);
   }
 
   .grid-area-tracker {
@@ -154,6 +166,8 @@
     display: flex;
     flex-direction: column;
     min-height: 250px; /* Altura mínima generosa */
+    contain: layout style paint;
+    transform: translateZ(0);
   }
 
   .grid-area-feed {
@@ -162,6 +176,8 @@
     display: flex;
     flex-direction: column;
     min-height: 250px; /* Altura mínima generosa */
+    contain: layout style paint;
+    transform: translateZ(0);
   }
 
   /* Responsive Design - Mobile e Tablet */

@@ -1,11 +1,10 @@
-import { useEffect } from 'react'
+import { useEffect, useCallback, useMemo, lazy, Suspense } from 'react'
 import { useQuery, useMutation, useQueryClient } from 'react-query'
 import { toast } from 'react-hot-toast'
-import { api } from '../services/api'
+import { api, apiUtils } from '../services/api'
 import BotControls from '../components/BotControls'
 import PositionsTable from '../components/PositionsTable'
 import TradingStats from '../components/TradingStats'
-import TradeHistory from '../components/TradeHistory'
 import RealTimeSignals from '../components/RealTimeSignals'
 // import BarraMetricasTrading from '../components/BarraMetricasTrading'
 import PainelFluxoTrading from '../components/PainelFluxoTrading'
@@ -15,190 +14,176 @@ import type { BotStatus2, BotConfig } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { useLocalStorage } from '../hooks/useLocalStorage'
 
+// Lazy load heavy modal component
+const TradeHistory = lazy(() => import('../components/TradeHistory'))
+
+// Query keys constants for better cache management
+const QUERY_KEYS = {
+  BOT_STATUS: ['parallel-bot-status'] as const,
+  TRADING_STATS: ['trading-stats'] as const,
+  BLACKLIST: ['parallel-bot-blacklist'] as const,
+  OPEN_ORDERS: ['open-orders'] as const,
+} as const
+
 export default function TradingPage() {
   // Removendo tabs - agora é um dashboard unificado
   const [showHistoryModal, setShowHistoryModal] = useLocalStorage('tradingPageShowHistory', false)
   const [selectedSymbol] = useLocalStorage<string | null>('tradingPageSelectedSymbol', null)
   const queryClient = useQueryClient()
 
-  // Get parallel bot status
-  const { data: botStatus, isLoading } = useQuery<BotStatus2>(
-    'parallel-bot-status',
-    () => fetch('/api/trading/parallel-bot/status').then(res => res.json()).then(data => data.data),
-    {
-      refetchInterval: 3000,
-    }
-  )
+  // Optimized queries with consistent keys and better performance settings
+  const { data: botStatus, isLoading } = useQuery<BotStatus2>({
+    queryKey: QUERY_KEYS.BOT_STATUS,
+    queryFn: () => fetch('/api/trading/parallel-bot/status').then(res => res.json()).then(data => data.data),
+    refetchInterval: 5000, // Increased from 3s to 5s to reduce API load
+    staleTime: 2000, // Consider data fresh for 2 seconds
+    cacheTime: 10000, // Keep in cache for 10 seconds
+  })
 
-  // Get parallel bot performance data
-  // const { data: performanceData } = useQuery(
-  //   'parallel-bot-performance',
-  //   () => fetch('/api/trading/parallel-bot/performance?minutes=30').then(res => res.json()).then(data => data.data),
-  //   { 
-  //     enabled: botStatus?.isRunning,
-  //     refetchInterval: 10000 
-  //   }
-  // )
-  // // Get parallel bot activity events
-  // const { data: activityEvents } = useQuery(
-  //   'parallel-bot-activity',
-  //   () => fetch('/api/trading/parallel-bot/activity?limit=50').then(res => res.json()).then(data => data.data),
-  //   { 
-  //     refetchInterval: 5000 
-  //   }
-  // )
+  // Get trading statistics - Optimized with conditional fetching
+  const { data: tradingStats } = useQuery({
+    queryKey: QUERY_KEYS.TRADING_STATS,
+    queryFn: () => api.getTradingStats('24h'),
+    refetchInterval: 15000, // Increased from 10s to 15s
+    staleTime: 5000,
+    cacheTime: 30000,
+  })
 
-  // // Get rate limit status
-  // const { data: rateLimitStatus } = useQuery(
-  //   'parallel-bot-rate-limit',
-  //   () => fetch('/api/trading/parallel-bot/rate-limit').then(res => res.json()).then(data => data.data),
-  //   { 
-  //     refetchInterval: 2000 
-  //   }
-  // )
+  // Get blacklisted symbols - Optimized with longer intervals
+  const { data: blacklistedSymbols } = useQuery({
+    queryKey: QUERY_KEYS.BLACKLIST,
+    queryFn: () => fetch('/api/trading/parallel-bot/blacklist').then(res => res.json()).then(data => data.data),
+    refetchInterval: 60000, // Increased from 30s to 60s
+    staleTime: 30000,
+    cacheTime: 120000,
+  })
 
-  // Get trading statistics
-  const { data: tradingStats } = useQuery(
-    'trading-stats',
-    () => api.getTradingStats('24h'),
-    {
-      refetchInterval: 10000,
-    }
-  )
-
-  // Get blacklisted symbols
-  const { data: blacklistedSymbols } = useQuery(
-    'parallel-bot-blacklist',
-    () => fetch('/api/trading/parallel-bot/blacklist').then(res => res.json()).then(data => data.data),
-    { 
-      refetchInterval: 30000 // Check every 30 seconds
-    }
-  )
-
-  // WebSocket for real-time updates
+  // WebSocket for real-time updates - Optimized with useCallback
   const { lastMessage } = useWebSocket('/ws')
 
-  useEffect(() => {
-    if (lastMessage) {
-      const data = JSON.parse(lastMessage.data)
+  // Memoized WebSocket message handler to prevent unnecessary re-renders
+  const handleWebSocketMessage = useCallback((message: string) => {
+    try {
+      const data = JSON.parse(message)
       
       // Handle different message types
       switch (data.type) {
         case 'signal':
-          // New trading signal received
+          // New trading signal received - no action needed
           break
         case 'tradeExecuted':
           toast.success(`Trade ${data.data.side} executado para ${data.data.symbol}`)
-          queryClient.invalidateQueries('parallel-bot-status')
-          queryClient.invalidateQueries('trading-stats')
+          // Batch invalidations for better performance
+          queryClient.invalidateQueries({ queryKey: QUERY_KEYS.BOT_STATUS })
+          queryClient.invalidateQueries({ queryKey: QUERY_KEYS.TRADING_STATS })
           break
         case 'positionClosed':
           toast(`Posição fechada para ${data.data.symbol}`)
-          queryClient.invalidateQueries('parallel-bot-status')
+          queryClient.invalidateQueries({ queryKey: QUERY_KEYS.BOT_STATUS })
           break
         case 'orderUpdate':
-          queryClient.invalidateQueries('open-orders')
+          queryClient.invalidateQueries({ queryKey: QUERY_KEYS.OPEN_ORDERS })
           break
       }
+    } catch (error) {
+      console.warn('Failed to parse WebSocket message:', error)
     }
-  }, [lastMessage, queryClient])
+  }, [queryClient])
 
-  // Start parallel bot mutation
-  const startBotMutation = useMutation(
-    () => fetch('/api/trading/parallel-bot/start', {
+  useEffect(() => {
+    if (lastMessage?.data) {
+      handleWebSocketMessage(lastMessage.data)
+    }
+  }, [lastMessage, handleWebSocketMessage])
+
+  // Optimized mutations with consistent query key usage
+  const startBotMutation = useMutation({
+    mutationFn: () => fetch('/api/trading/parallel-bot/start', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({})
     }).then(res => res.json()),
-    {
-      onSuccess: () => {
-        toast.success('Bot de Trading Paralelo iniciado com sucesso')
-        queryClient.invalidateQueries('parallel-bot-status')
-      },
-      onError: (error: any) => {
-        toast.error(error.message || 'Falha ao iniciar o bot')
-      },
-    }
-  )
+    onSuccess: () => {
+      toast.success('Bot de Trading Paralelo iniciado com sucesso')
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.BOT_STATUS })
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Falha ao iniciar o bot')
+    },
+  })
 
-  // Stop parallel bot mutation  
-  const stopBotMutation = useMutation(
-    () => fetch('/api/trading/parallel-bot/stop', { method: 'POST' }).then(res => res.json()),
-    {
-      onSuccess: () => {
-        toast.success('Bot de Trading Paralelo parado')
-        queryClient.invalidateQueries('parallel-bot-status')
-      },
-      onError: (error: any) => {
-        toast.error(error.message || 'Falha ao parar o bot')
-      },
-    }
-  )
+  const stopBotMutation = useMutation({
+    mutationFn: () => fetch('/api/trading/parallel-bot/stop', { method: 'POST' }).then(res => res.json()),
+    onSuccess: () => {
+      toast.success('Bot de Trading Paralelo parado')
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.BOT_STATUS })
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Falha ao parar o bot')
+    },
+  })
 
-  // Update config mutation
-  const updateConfigMutation = useMutation(
-    (config: Partial<BotConfig>) => fetch('/api/trading/parallel-bot/config', {
+  const updateConfigMutation = useMutation({
+    mutationFn: (config: Partial<BotConfig>) => fetch('/api/trading/parallel-bot/config', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ config })
     }).then(res => res.json()),
-    {
-      onSuccess: () => {
-        toast.success('Configuração atualizada com sucesso')
-        queryClient.invalidateQueries('parallel-bot-status')
-      },
-      onError: (error: any) => {
-        toast.error(error.message || 'Falha ao atualizar configuração')
-      },
-    }
-  )
+    onSuccess: () => {
+      toast.success('Configuração atualizada com sucesso')
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.BOT_STATUS })
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Falha ao atualizar configuração')
+    },
+  })
 
-  // Clear blacklist mutation
-  const clearBlacklistMutation = useMutation(
-    () => fetch('/api/trading/parallel-bot/blacklist/clear', { method: 'POST' }).then(res => res.json()),
-    {
-      onSuccess: () => {
-        toast.success('Lista negra de símbolos limpa com sucesso')
-        queryClient.invalidateQueries('parallel-bot-blacklist')
-      },
-      onError: (error: any) => {
-        toast.error(error.message || 'Falha ao limpar lista negra')
-      },
-    }
-  )
+  const clearBlacklistMutation = useMutation({
+    mutationFn: () => fetch('/api/trading/parallel-bot/blacklist/clear', { method: 'POST' }).then(res => res.json()),
+    onSuccess: () => {
+      toast.success('Lista negra de símbolos limpa com sucesso')
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.BLACKLIST })
+    },
+    onError: (error: any) => {
+      toast.error(error.message || 'Falha ao limpar lista negra')
+    },
+  })
 
-  // Force scan mutation (commented out for now as not used)
-  // const forceScanMutation = useMutation(
-  //   (symbols?: string[]) => fetch('/api/trading/parallel-bot/scan', {
-  //     method: 'POST',
-  //     headers: { 'Content-Type': 'application/json' },
-  //     body: JSON.stringify({ symbols })
-  //   }).then(res => res.json()),
-  //   {
-  //     onSuccess: () => {
-  //       toast.success('Signal scan initiated')
-  //     },
-  //     onError: (error: any) => {
-  //       toast.error(error.message || 'Failed to initiate scan')
-  //     },
-  //   }
-  // )
-
-  const handleStartBot = () => {
+  // Memoized event handlers to prevent child component re-renders
+  const handleStartBot = useCallback(() => {
     if (window.confirm('Tem certeza que deseja iniciar o bot de trading?')) {
       startBotMutation.mutate()
     }
-  }
+  }, [startBotMutation])
 
-  const handleStopBot = () => {
+  const handleStopBot = useCallback(() => {
     if (window.confirm('Tem certeza que deseja parar o bot de trading?')) {
       stopBotMutation.mutate()
     }
-  }
+  }, [stopBotMutation])
 
-  const handleUpdateConfig = (config: Partial<BotConfig>) => {
+  const handleUpdateConfig = useCallback((config: Partial<BotConfig>) => {
     updateConfigMutation.mutate(config)
-  }
+  }, [updateConfigMutation])
+
+  // Memoized derived data to prevent unnecessary calculations
+  const activePositions = useMemo(() => botStatus?.activePositions || [], [botStatus?.activePositions])
+  const isConnected = useMemo(() => Boolean(botStatus), [botStatus])
+  const isDemoMode = useMemo(() => Boolean(botStatus?.demoMode), [botStatus?.demoMode])
+  
+  // Memoized blacklist data with slice optimization
+  const displayedBlacklistedSymbols = useMemo(() => 
+    blacklistedSymbols?.slice(0, 6) || [], 
+    [blacklistedSymbols]
+  )
+
+  // Cleanup on component unmount
+  useEffect(() => {
+    return () => {
+      // Cancel pending requests and clear cache when component unmounts
+      apiUtils.cancelAllRequests()
+    }
+  }, [])
 
 
   if (isLoading) {
@@ -225,22 +210,22 @@ export default function TradingPage() {
               </h1>
             </div>
             <div className="flex items-center space-x-4">
-              {/* Connection Status */}
+              {/* Connection Status - Optimized with memoized data */}
               <div className="flex items-center space-x-2">
-                <div className="w-3 h-3 rounded-full bg-green-500 animate-pulse" />
-                <span className="text-sm text-gray-600">Conectado</span>
+                <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`} />
+                <span className="text-sm text-gray-600">{isConnected ? 'Conectado' : 'Desconectado'}</span>
               </div>
               
-              {/* Demo Mode Indicator */}
-              {botStatus?.demoMode && (
+              {/* Demo Mode Indicator - Optimized with memoized check */}
+              {isDemoMode && (
                 <span className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-yellow-100 text-yellow-800">
                   Modo Demo (VST)
                 </span>
               )}
               
-              {/* History Button */}
+              {/* History Button - Memoized callback */}
               <button
-                onClick={() => setShowHistoryModal(true)}
+                onClick={useCallback(() => setShowHistoryModal(true), [setShowHistoryModal])}
                 className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50"
               >
                 📜 Histórico
@@ -282,7 +267,7 @@ export default function TradingPage() {
             {/* 📊 TERCEIRO DESTAQUE - Posições Abertas (20% da tela - linha completa) */}
             <div className="grid-area-positions">
               <div className="bg-gradient-to-r from-orange-50 to-amber-50 p-1 rounded-lg border-2 border-orange-200 h-full">
-                <PositionsTable positions={botStatus?.activePositions || []} />
+                <PositionsTable positions={activePositions} />
               </div>
             </div>
 
@@ -326,7 +311,7 @@ export default function TradingPage() {
                 </button>
               </div>
               <div className="grid grid-cols-6 gap-2">
-                {blacklistedSymbols.slice(0, 6).map((item: any) => (
+                {displayedBlacklistedSymbols.map((item: any) => (
                   <div key={item.symbol} className="flex items-center justify-between bg-white p-2 rounded border border-yellow-300">
                     <span className="font-medium text-gray-900">{item.symbol}</span>
                     <div className="text-xs text-gray-600">
@@ -341,14 +326,14 @@ export default function TradingPage() {
         </div>
       </div>
 
-      {/* Modal de Histórico */}
+      {/* Modal de Histórico - Lazy loaded for better performance */}
       {showHistoryModal && (
         <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl max-w-6xl w-full max-h-[90vh] overflow-hidden">
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
               <h2 className="text-xl font-semibold text-gray-900">Histórico de Trades</h2>
               <button
-                onClick={() => setShowHistoryModal(false)}
+                onClick={useCallback(() => setShowHistoryModal(false), [setShowHistoryModal])}
                 className="text-gray-400 hover:text-gray-600"
               >
                 <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -357,7 +342,13 @@ export default function TradingPage() {
               </button>
             </div>
             <div className="p-6 overflow-y-auto max-h-[calc(90vh-80px)]">
-              <TradeHistory />
+              <Suspense fallback={
+                <div className="flex items-center justify-center h-64">
+                  <div className="text-lg text-gray-600">Carregando histórico...</div>
+                </div>
+              }>
+                <TradeHistory />
+              </Suspense>
             </div>
           </div>
         </div>
