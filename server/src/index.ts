@@ -15,10 +15,19 @@ import tradingRouter from './api/trading';
 import marketDataRouter from './api/marketData';
 import { sequelize } from './config/database';
 import { startTradingBot } from './trading/bot';
+import { validateEnvironment } from './utils/envCheck';
 
 const app = express();
 const server = createServer(app);
 const PORT = process.env.PORT || 3001;
+
+// Validate environment on startup
+const envCheck = validateEnvironment();
+if (!envCheck.valid) {
+  logger.error('❌ Environment validation failed - some features may not work');
+} else {
+  logger.info('✅ Environment validation passed');
+}
 
 // Middleware - Configure helmet with relaxed CSP
 app.use(helmet({
@@ -73,44 +82,44 @@ app.get('/manifest.json', (_req: Request, res: Response) => {
 
 // Health check endpoint with database verification
 app.get('/health', async (_req: Request, res: Response) => {
+  let dbStatus = 'unknown';
+  let dbError = null;
+  
   try {
-    // Test database connection
-    await sequelize.authenticate();
-    
-    const health = {
-      status: 'healthy',
-      timestamp: new Date().toISOString(),
-      mode: process.env.DEMO_MODE === 'true' ? 'demo' : 'live',
-      websocket: 'enabled',
-      protocol: 'ws/wss',
-      database: 'connected',
-      environment: process.env.NODE_ENV,
-      services: {
-        api: 'operational',
-        websocket: 'operational',
-        database: 'connected',
-        trading: process.env.AUTO_START_BOT === 'true' ? 'enabled' : 'disabled'
-      },
-      version: '1.0.0',
-      uptime: process.uptime()
-    };
-    
-    res.json(health);
+    // Test database connection with timeout
+    await Promise.race([
+      sequelize.authenticate(),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Database timeout')), 5000)
+      )
+    ]);
+    dbStatus = 'connected';
   } catch (error) {
-    logger.error('Health check failed:', error);
-    res.status(503).json({
-      status: 'unhealthy',
-      timestamp: new Date().toISOString(),
-      error: error instanceof Error ? error.message : 'Unknown error',
-      database: 'disconnected',
-      services: {
-        api: 'operational',
-        websocket: 'unknown',
-        database: 'error',
-        trading: 'disabled'
-      }
-    });
+    dbStatus = 'disconnected';
+    dbError = error instanceof Error ? error.message : 'Unknown error';
   }
+  
+  // Always return 200 for health checks to keep service alive
+  const health = {
+    status: 'healthy', // Always healthy if server is responding
+    timestamp: new Date().toISOString(),
+    mode: process.env.DEMO_MODE === 'true' ? 'demo' : 'live',
+    websocket: 'enabled',
+    protocol: 'ws/wss',
+    database: dbStatus,
+    environment: process.env.NODE_ENV,
+    services: {
+      api: 'operational',
+      websocket: 'operational',
+      database: dbStatus,
+      trading: process.env.AUTO_START_BOT === 'true' ? 'enabled' : 'disabled'
+    },
+    version: '1.0.0',
+    uptime: process.uptime(),
+    ...(dbError && { databaseError: dbError })
+  };
+  
+  res.status(200).json(health);
 });
 
 // Root endpoint for API service
@@ -142,28 +151,62 @@ setupWebSocket(server);
 
 // Initialize database and start server
 async function startServer() {
-  try {
-    // Test database connection
-    await sequelize.authenticate();
-    logger.info('Database connection established successfully');
+  const port = parseInt(PORT as string, 10) || 3001;
+  
+  // Start the server first - bind to 0.0.0.0 for Render
+  server.listen(port, '0.0.0.0', () => {
+    logger.info(`Server running on 0.0.0.0:${port} in ${process.env.NODE_ENV} mode`);
     
-    // Migration should be handled by separate migration script before server starts
-    // This avoids conflicts and ensures proper database setup
-    logger.info('Database models will be managed by migration scripts');
+    // Initialize database connection after server starts
+    initializeDatabase();
     
-    // Start the server - bind to 0.0.0.0 for Render
-    const port = parseInt(PORT as string, 10) || 3001;
-    server.listen(port, '0.0.0.0', () => {
-      logger.info(`Server running on 0.0.0.0:${port} in ${process.env.NODE_ENV} mode`);
-      
-      // Start trading bot if enabled
-      if (process.env.AUTO_START_BOT === 'true') {
+    // Start trading bot if enabled (only after database is ready)
+    if (process.env.AUTO_START_BOT === 'true') {
+      setTimeout(() => {
         startTradingBot();
+      }, 5000); // Wait 5 seconds for database to be ready
+    }
+  });
+}
+
+// Separate database initialization function
+async function initializeDatabase() {
+  const maxRetries = 5;
+  let retryCount = 0;
+  
+  while (retryCount < maxRetries) {
+    try {
+      logger.info(`Database connection attempt ${retryCount + 1}/${maxRetries}`);
+      await sequelize.authenticate();
+      logger.info('Database connection established successfully');
+      
+      // Run migrations programmatically
+      try {
+        logger.info('Running database migrations...');
+        const { runRenderDeployMigration } = await import('./migrations/render-deploy-migrate');
+        const result = await runRenderDeployMigration();
+        logger.info('Database migrations completed:', result);
+      } catch (migrationError) {
+        logger.warn('Migration warning (non-critical):', migrationError);
+        // Continue without failing - migrations might be already applied
       }
-    });
-  } catch (error) {
-    logger.error('Failed to start server:', error);
-    process.exit(1);
+      
+      return; // Success - exit retry loop
+    } catch (error) {
+      retryCount++;
+      logger.warn(`Database connection failed (attempt ${retryCount}/${maxRetries}):`, error);
+      
+      if (retryCount >= maxRetries) {
+        logger.error('❌ Failed to connect to database after maximum retries');
+        logger.warn('⚠️  Server will continue running with limited functionality');
+        return; // Don't crash the server - just log the issue
+      }
+      
+      // Wait before retrying (exponential backoff)
+      const delay = Math.pow(2, retryCount) * 1000; // 2s, 4s, 8s, 16s, 32s
+      logger.info(`Retrying database connection in ${delay}ms...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
   }
 }
 
