@@ -400,17 +400,10 @@ export default function AssetsPage() {
                 : 'bg-purple-600 text-white hover:bg-purple-700 border border-purple-600'
             }`}
           >
-            {isUpdatingNames ? (
-              <>
-                <div className="w-4 h-4 border-2 border-purple-300 border-t-purple-600 rounded-full animate-spin"></div>
-                <span>🪙 Atualizando...</span>
-              </>
-            ) : (
-              <>
-                <span>🪙</span>
-                <span>Atualizar Nomes</span>
-              </>
-            )}
+            <>
+              <span>🪙</span>
+              <span>Atualizar Nomes</span>
+            </>
           </button>
            */}
           <button
@@ -442,9 +435,9 @@ export default function AssetsPage() {
           
           <button
             onClick={handleSmartRefresh}
-            disabled={isRefreshing || isClearing || isUpdatingNames}
+            disabled={isRefreshing || isClearing}
             className={`btn flex items-center gap-2 px-6 py-3 rounded-lg font-medium transition-all ${
-              isRefreshing || isClearing || isUpdatingNames
+              isRefreshing || isClearing
                 ? 'bg-green-100 text-green-700 border border-green-300 cursor-not-allowed' 
                 : 'bg-green-600 text-white hover:bg-green-700 border border-green-600'
             }`}
@@ -464,9 +457,9 @@ export default function AssetsPage() {
           
           <button
             onClick={handleRefresh}
-            disabled={isRefreshing || isClearing || isUpdatingNames}
+            disabled={isRefreshing || isClearing}
             className={`btn flex items-center gap-2 px-4 py-3 rounded-lg font-medium transition-all ${
-              isRefreshing || isClearing || isUpdatingNames
+              isRefreshing || isClearing
                 ? 'bg-blue-100 text-blue-700 border border-blue-300 cursor-not-allowed' 
                 : 'bg-blue-600 text-white hover:bg-blue-700 border border-blue-600'
             }`}

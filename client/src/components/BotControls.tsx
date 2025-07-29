@@ -179,7 +179,6 @@ const InputField = ({
   error?: string
   currency?: string
 }) => {
-  const { t } = useTranslation()
   const rules = VALIDATION_RULES[field as keyof typeof VALIDATION_RULES]
   const tooltip = t(`trading.config.tooltips.${field}`)
   
@@ -222,7 +221,6 @@ export default function BotControls({
   isStopping,
   isUpdatingConfig
 }: BotControlsProps) {
-  const { t } = useTranslation()
   const [showConfig, setShowConfig] = useState(false)
   const [activeTab, setActiveTab] = useState('basic')
   const [config, setConfig] = useState({
@@ -276,7 +274,7 @@ export default function BotControls({
   }
 
   const applyProfile = (profileKey: string) => {
-    const profiles = getTradingProfiles(t)
+    const profiles = getTradingProfiles()
     const profile = profiles[profileKey as keyof typeof profiles]
     setConfig({ ...config, ...profile.config })
     setValidationErrors({}) // Limpar erros de validação ao aplicar um perfil
@@ -560,7 +558,7 @@ export default function BotControls({
             {/* Profile Selector */}
             <div className="flex items-center space-x-2">
               <span className="text-sm text-gray-600">Configuração Rápida:</span>
-              {Object.entries(getTradingProfiles(t)).map(([key, profile]) => (
+              {Object.entries(getTradingProfiles()).map(([key, profile]) => (
                 <button
                   key={key}
                   type="button"
