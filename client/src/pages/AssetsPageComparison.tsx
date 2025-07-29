@@ -60,7 +60,10 @@ export default function AssetsPageComparison() {
       {/* Render the appropriate version */}
       <React.Profiler
         id={showOptimized ? 'assets-optimized' : 'assets-original'}
-        onRender={showOptimized ? optimizedPerf.onRenderCallback : originalPerf.onRenderCallback}
+        onRender={(id, phase, actualDuration, baseDuration, startTime, commitTime) => {
+          const callback = showOptimized ? optimizedPerf.onRenderCallback : originalPerf.onRenderCallback;
+          callback(id, phase as 'mount' | 'update' | 'nested-update', actualDuration, baseDuration, startTime, commitTime);
+        }}
       >
         {showOptimized ? <AssetsPageOptimized /> : <AssetsPage />}
       </React.Profiler>

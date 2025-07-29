@@ -8,6 +8,7 @@ import type { Asset, PaginatedResponse } from '../types'
 import debounce from 'lodash/debounce'
 
 // Performance monitoring HOC
+/*
 const withPerformanceMonitoring = (name: string, fn: Function) => {
   return (...args: any[]) => {
     const start = performance.now()
@@ -19,6 +20,7 @@ const withPerformanceMonitoring = (name: string, fn: Function) => {
     return result
   }
 }
+*/
 
 // Memoized table row component
 const AssetRow = React.memo(({ 
@@ -101,7 +103,7 @@ const AssetRow = React.memo(({
 
 // Virtual row renderer for large datasets
 const VirtualRow = React.memo(({ index, style, data }: any) => {
-  const { assets, formatPercent, formatNumber, formatDate } = data
+  const { assets, formatPercent, formatNumber } = data
   const asset = assets[index]
   
   return (
@@ -150,7 +152,7 @@ export default function AssetsPageOptimized() {
     current: ''
   })
   const [lastUpdateTime, setLastUpdateTime] = useState<string>('')
-  const [statusBreakdown, setStatusBreakdown] = useState<any>(null)
+  // const [statusBreakdown, setStatusBreakdown] = useState<any>(null)
   
   const queryClient = useQueryClient()
   const toastIdRef = useRef<string>('')
@@ -385,7 +387,7 @@ export default function AssetsPageOptimized() {
       )
       
       setLastUpdateTime('')
-      setStatusBreakdown(null)
+      // setStatusBreakdown(null)
       
       // Batch invalidate all asset queries
       queryClient.invalidateQueries({ 
@@ -453,7 +455,7 @@ export default function AssetsPageOptimized() {
       return (
         <div style={{ height: '600px' }}>
           <AutoSizer>
-            {({ height, width }) => (
+            {({ height, width }: { height: number; width: number }) => (
               <List
                 height={height}
                 itemCount={assets.length}

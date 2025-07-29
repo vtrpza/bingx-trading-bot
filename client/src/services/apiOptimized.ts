@@ -19,7 +19,7 @@ class OptimizedAPI {
   private cache: Map<string, CacheEntry> = new Map()
   private batchQueue: Map<string, BatchRequest[]> = new Map()
   private batchTimeout: number = 50 // ms
-  private batchTimer: NodeJS.Timeout | null = null
+  private batchTimer: number | null = null
   private requestDeduplication: Map<string, Promise<any>> = new Map()
   
   // Performance metrics
@@ -113,7 +113,7 @@ class OptimizedAPI {
   private async getCached<T>(
     key: string, 
     fetcher: () => Promise<T>, 
-    ttl?: number
+    _ttl?: number
   ): Promise<T> {
     const cached = this.cache.get(key)
     

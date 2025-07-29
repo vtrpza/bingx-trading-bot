@@ -9,7 +9,7 @@ interface PerformanceMetrics {
 }
 
 interface RenderInfo {
-  phase: 'mount' | 'update'
+  phase: 'mount' | 'update' | 'nested-update'
   actualDuration: number
   baseDuration: number
   startTime: number
@@ -60,8 +60,8 @@ export function usePerformanceMonitor(componentName: string) {
 
   // Profiler callback for React DevTools
   const onRenderCallback = useCallback((
-    id: string,
-    phase: 'mount' | 'update',
+    _id: string,
+    phase: 'mount' | 'update' | 'nested-update',
     actualDuration: number,
     baseDuration: number,
     startTime: number,
