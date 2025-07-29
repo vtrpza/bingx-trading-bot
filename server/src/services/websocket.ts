@@ -339,7 +339,7 @@ export function setupWebSocket(server: Server) {
       const origin = info.origin || info.req.headers.origin;
       const allowedOrigins = [
         'http://localhost:3000',
-        'https://bingx-trading-bot-lu0z-frontend-rjhj.onrender.com',
+        'https://bingx-trading-bot-lu0z-frontend.onrender.com',
         process.env.FRONTEND_URL
       ].filter(Boolean);
       
