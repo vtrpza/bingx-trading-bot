@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import { useQuery } from 'react-query'
-import { api } from '../services/api'
+// import { api } from '../services/api' // Removed unused import
 import { useTranslation } from '../hooks/useTranslation'
 import type { BotStatus } from '../types'
 
@@ -22,42 +22,87 @@ export default function Layout({ children }: LayoutProps) {
         const response = await fetch('/api/trading/parallel-bot/status')
         const result = await response.json()
         
-        // Always return in the expected format with data object
-        if (result.success) {
+        // Return in BotStatus format which expects data property
+        if (result.success && result.data) {
           return result // Already has {success: true, data: {...}} format
         } else {
-          // If direct data, wrap it in the expected format
+          // If direct data, wrap it in the expected BotStatus format
           return {
-            success: true,
-            data: result
+            data: result.success ? result.data : result
           }
         }
       } catch (error) {
         console.error('Bot status error in Layout:', error)
-        // Return safe default in expected format
+        // Return safe default in BotStatus format
         return {
-          success: true,
           data: {
             isRunning: false,
             demoMode: true,
             activePositions: [],
             architecture: 'parallel',
-            balance: { balance: '0' }
+            balance: { balance: '0' },
+            config: {
+              enabled: true,
+              maxConcurrentTrades: 3,
+              defaultPositionSize: 50,
+              scanInterval: 30000,
+              symbolsToScan: [],
+              stopLossPercent: 3,
+              takeProfitPercent: 5,
+              trailingStopPercent: 1,
+              minVolumeUSDT: 100000,
+              rsiOversold: 30,
+              rsiOverbought: 70,
+              volumeSpikeThreshold: 2,
+              minSignalStrength: 0.6,
+              confirmationRequired: true,
+              ma1Period: 9,
+              ma2Period: 21,
+              riskRewardRatio: 2,
+              maxDrawdownPercent: 10,
+              maxDailyLossUSDT: 100,
+              maxPositionSizePercent: 10
+            },
+            symbolsCount: 0,
+            scannedSymbols: []
           }
         }
       }
     },
     refetchInterval: 5000,
     retry: false,
-    // Provide initial data in expected format
+    // Provide initial data in BotStatus format
     initialData: {
-      success: true,
       data: {
         isRunning: false,
         demoMode: true,
         activePositions: [],
         architecture: 'parallel',
-        balance: { balance: '0' }
+        balance: { balance: '0' },
+        config: {
+          enabled: true,
+          maxConcurrentTrades: 3,
+          defaultPositionSize: 50,
+          scanInterval: 30000,
+          symbolsToScan: [],
+          stopLossPercent: 3,
+          takeProfitPercent: 5,
+          trailingStopPercent: 1,
+          minVolumeUSDT: 100000,
+          rsiOversold: 30,
+          rsiOverbought: 70,
+          volumeSpikeThreshold: 2,
+          minSignalStrength: 0.6,
+          confirmationRequired: true,
+          ma1Period: 9,
+          ma2Period: 21,
+          riskRewardRatio: 2,
+          maxDrawdownPercent: 10,
+          maxDailyLossUSDT: 100,
+          maxPositionSizePercent: 10
+        },
+        symbolsCount: 0,
+        scannedSymbols: []
       }
     }
   })

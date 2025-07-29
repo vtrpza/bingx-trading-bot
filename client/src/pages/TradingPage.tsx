@@ -32,33 +32,54 @@ export default function TradingPage() {
   const queryClient = useQueryClient()
 
   // Optimized queries with consistent keys and better performance settings
-  const { data: botStatusResponse, isLoading } = useQuery<{success: boolean, data: BotStatus2}>({
+  const { data: botStatusResponse, isLoading } = useQuery<{data: BotStatus2}>({
     queryKey: QUERY_KEYS.BOT_STATUS,
     queryFn: async () => {
       try {
         const response = await fetch('/api/trading/parallel-bot/status')
         const result = await response.json()
         
-        // Always return in the expected format with data object
-        if (result.success) {
-          return result // Already has {success: true, data: {...}} format
+        // Return in format expected by BotStatus2 wrapper
+        if (result.success && result.data) {
+          return { data: result.data }
         } else {
-          // If direct data, wrap it in the expected format
+          // If direct data, wrap it properly
           return {
-            success: true,
-            data: result
+            data: result.success ? result.data : result
           }
         }
       } catch (error) {
         console.error('Bot status error in TradingPage:', error)
         // Return safe default in expected format
         return {
-          success: true,
           data: {
             isRunning: false,
             demoMode: true,
             activePositions: [],
-            config: {},
+            config: {
+              enabled: true,
+              maxConcurrentTrades: 3,
+              defaultPositionSize: 50,
+              scanInterval: 30000,
+              symbolsToScan: [],
+              stopLossPercent: 3,
+              takeProfitPercent: 5,
+              trailingStopPercent: 1,
+              minVolumeUSDT: 100000,
+              rsiOversold: 30,
+              rsiOverbought: 70,
+              volumeSpikeThreshold: 2,
+              minSignalStrength: 0.6,
+              confirmationRequired: true,
+              ma1Period: 9,
+              ma2Period: 21,
+              riskRewardRatio: 2,
+              maxDrawdownPercent: 10,
+              maxDailyLossUSDT: 100,
+              maxPositionSizePercent: 10
+            },
+            symbolsCount: 0,
+            scannedSymbols: [],
             architecture: 'parallel'
           }
         }
@@ -69,12 +90,34 @@ export default function TradingPage() {
     cacheTime: 10000, // Keep in cache for 10 seconds
     // Provide initial data in expected format
     initialData: {
-      success: true,
       data: {
         isRunning: false,
         demoMode: true,
         activePositions: [],
-        config: {},
+        config: {
+          enabled: true,
+          maxConcurrentTrades: 3,
+          defaultPositionSize: 50,
+          scanInterval: 30000,
+          symbolsToScan: [],
+          stopLossPercent: 3,
+          takeProfitPercent: 5,
+          trailingStopPercent: 1,
+          minVolumeUSDT: 100000,
+          rsiOversold: 30,
+          rsiOverbought: 70,
+          volumeSpikeThreshold: 2,
+          minSignalStrength: 0.6,
+          confirmationRequired: true,
+          ma1Period: 9,
+          ma2Period: 21,
+          riskRewardRatio: 2,
+          maxDrawdownPercent: 10,
+          maxDailyLossUSDT: 100,
+          maxPositionSizePercent: 10
+        },
+        symbolsCount: 0,
+        scannedSymbols: [],
         architecture: 'parallel'
       }
     }
