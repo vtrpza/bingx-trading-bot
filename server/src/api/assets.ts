@@ -422,8 +422,23 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
       logger.warn('⚠️  Optimized fetch failed, trying individual calls:', optimizedError.message);
       
       // Check if it's a rate limiter stopped error and restart
-      if (optimizedError.message?.includes('limiter has been stopped')) {
-        logger.error('🚨 Rate limiter stopped error detected, restarting limiters...');
+      if (optimizedError.message?.includes('limiter has been stopped') || 
+          optimizedError.message?.includes('BingX rate limit active')) {
+        logger.error('🚨 BingX rate limit detected:', optimizedError.message);
+        
+        if (optimizedError.message?.includes('minutes remaining')) {
+          // Extract remaining time from error message
+          const match = optimizedError.message.match(/(\d+) minutes remaining/);
+          const remainingMinutes = match ? match[1] : 'unknown';
+          
+          await sendProgress(sessionId, {
+            type: 'error',
+            message: `⏳ BingX rate limit active. Please wait ${remainingMinutes} minutes before trying again.`
+          });
+          
+          throw new AppError(`BingX rate limit active. Recovery in ${remainingMinutes} minutes.`, 429);
+        }
+        
         bingxClient.clearCache(); // This now also restarts limiters
         
         await sendProgress(sessionId, {
@@ -448,12 +463,25 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
         }
       } catch (contractError: any) {
         // Check if it's still a rate limiter error
-        if (contractError.message?.includes('limiter has been stopped')) {
+        if (contractError.message?.includes('limiter has been stopped') ||
+            contractError.message?.includes('BingX rate limit active')) {
+          
+          if (contractError.message?.includes('minutes remaining')) {
+            const match = contractError.message.match(/(\d+) minutes remaining/);
+            const remainingMinutes = match ? match[1] : 'unknown';
+            
+            await sendProgress(sessionId, {
+              type: 'error',
+              message: `⏳ BingX rate limit active. Please wait ${remainingMinutes} minutes before trying again.`
+            });
+            throw new AppError(`BingX rate limit active. Recovery in ${remainingMinutes} minutes.`, 429);
+          }
+          
           await sendProgress(sessionId, {
             type: 'error',
-            message: 'Rate limiter issue detected. Please try refreshing again in a few seconds.'
+            message: 'BingX rate limit detected. Please wait up to 10 minutes before trying again.'
           });
-          throw new AppError('Rate limiter needs restart. Please try again.', 503);
+          throw new AppError('BingX rate limit active. Please try again later.', 429);
         }
         
         await sendProgress(sessionId, {
@@ -1250,6 +1278,22 @@ router.delete('/clear', asyncHandler(async (_req: Request, res: Response) => {
     console.error('❌ CLEAR ENDPOINT ERROR:', error);
     throw new AppError('Failed to clear assets from database', 500);
   }
+}));
+
+// Rate limiter status endpoint
+router.get('/debug/rate-limit-status', asyncHandler(async (_req: Request, res: Response) => {
+  const status = bingxClient.getRateLimitStatus();
+  
+  res.json({
+    success: true,
+    data: {
+      ...status,
+      timestamp: new Date().toISOString(),
+      recommendation: status.rateLimitStatus.isRateLimited 
+        ? `Wait ${status.rateLimitStatus.remainingMinutes} minutes before making requests`
+        : 'Rate limiter is operational'
+    }
+  });
 }));
 
 // Debug endpoint for production troubleshooting

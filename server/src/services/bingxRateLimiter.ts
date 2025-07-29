@@ -10,6 +10,9 @@ export class BingXRateLimiter {
   private tradingLimiter: Bottleneck;
   private circuitBreaker: CircuitBreaker;
   private cache: Map<string, CacheEntry>;
+  private isRateLimited: boolean = false;
+  private rateLimitRecoveryTime: number = 0;
+  private recoveryTimeoutId: NodeJS.Timeout | null = null;
 
   constructor() {
     // Market Data Limiter: 100 requests/10 seconds per IP (BingX official limit)
@@ -72,6 +75,17 @@ export class BingXRateLimiter {
     requestFn: () => Promise<T>,
     cacheSeconds: number = 5
   ): Promise<T> {
+    // Check if we're in rate limit recovery period
+    if (this.isRateLimited) {
+      const remainingTime = this.rateLimitRecoveryTime - Date.now();
+      if (remainingTime > 0) {
+        throw new Error(`BingX rate limit active. ${Math.ceil(remainingTime / 60000)} minutes remaining until recovery.`);
+      } else {
+        // Recovery time passed but not cleared - recover now
+        this.recoverFromRateLimit();
+      }
+    }
+
     // Check cache first
     const cached = this.getFromCache(key, cacheSeconds * 1000);
     if (cached) {
@@ -155,6 +169,17 @@ export class BingXRateLimiter {
   async executeTradingRequest<T>(
     requestFn: () => Promise<T>
   ): Promise<T> {
+    // Check if we're in rate limit recovery period
+    if (this.isRateLimited) {
+      const remainingTime = this.rateLimitRecoveryTime - Date.now();
+      if (remainingTime > 0) {
+        throw new Error(`BingX rate limit active. ${Math.ceil(remainingTime / 60000)} minutes remaining until recovery.`);
+      } else {
+        // Recovery time passed but not cleared - recover now
+        this.recoverFromRateLimit();
+      }
+    }
+
     try {
       return await this.circuitBreaker.execute(async () => {
         return this.tradingLimiter.schedule(requestFn);
@@ -203,29 +228,68 @@ export class BingXRateLimiter {
   }
 
   /**
-   * Handle 429 errors with exponential backoff
+   * Handle 429 errors with BingX-specific 10-minute recovery
    */
-  async handleRateLimit(error: any, attempt: number = 1): Promise<void> {
-    if (error.response?.status === 429) {
-      const retryAfter = error.response.headers['retry-after'];
-      const baseDelay = retryAfter ? parseInt(retryAfter) * 1000 : 10000;
-      const jitteredDelay = baseDelay + Math.random() * 5000;
-      const exponentialDelay = Math.min(jitteredDelay * Math.pow(2, attempt - 1), 60000);
-
-      logger.warn(`🚦 Rate limited, waiting ${exponentialDelay}ms (attempt ${attempt})`);
+  async handleRateLimit(error: any, _attempt: number = 1): Promise<void> {
+    if (error.response?.status === 429 || error.response?.data?.code === 109400) {
+      // BingX rate limit: 10-minute automatic recovery
+      const BINGX_RATE_LIMIT_RECOVERY_MS = 10 * 60 * 1000; // 10 minutes
       
-      // Don't stop the limiters - just wait and let them handle the rate limiting
-      // Stopping them causes "limiter has been stopped" errors
-      await new Promise(resolve => setTimeout(resolve, exponentialDelay));
+      this.isRateLimited = true;
+      this.rateLimitRecoveryTime = Date.now() + BINGX_RATE_LIMIT_RECOVERY_MS;
+      
+      const retryAfter = error.response.headers['retry-after'];
+      const customDelay = retryAfter ? parseInt(retryAfter) * 1000 : BINGX_RATE_LIMIT_RECOVERY_MS;
+      
+      logger.error(`🚨 BingX RATE LIMIT HIT - Entering 10-minute recovery period`, {
+        recoveryTime: new Date(this.rateLimitRecoveryTime).toISOString(),
+        waitTimeMinutes: Math.ceil(customDelay / 60000),
+        errorCode: error.response?.data?.code,
+        errorMessage: error.response?.data?.msg
+      });
 
-      logger.info(`✅ Rate limit cooldown completed, resuming operations`);
+      // Schedule automatic recovery
+      if (this.recoveryTimeoutId) {
+        clearTimeout(this.recoveryTimeoutId);
+      }
+      
+      this.recoveryTimeoutId = setTimeout(() => {
+        this.recoverFromRateLimit();
+      }, customDelay);
+
+      // Don't stop limiters - just wait and let the recovery handle it
+      await new Promise(resolve => setTimeout(resolve, Math.min(customDelay, 30000))); // Max 30s wait per call
+      
+      // Throw error to stop current operations during rate limit period
+      throw new Error(`BingX rate limit active. Recovery at ${new Date(this.rateLimitRecoveryTime).toISOString()}`);
     }
+  }
+
+  /**
+   * Recover from BingX rate limit after 10-minute period
+   */
+  private recoverFromRateLimit(): void {
+    logger.info('🎉 BingX rate limit recovery period completed - resuming operations');
+    
+    this.isRateLimited = false;
+    this.rateLimitRecoveryTime = 0;
+    this.recoveryTimeoutId = null;
+    
+    // Recreate limiters with fresh state
+    this.restartLimiters();
+    
+    // Clear cache to ensure fresh data after recovery
+    this.clearCache();
+    
+    logger.info('✅ Rate limiter fully recovered and operational');
   }
 
   /**
    * Get current limiter status for monitoring
    */
   getStatus() {
+    const remainingTime = this.isRateLimited ? this.rateLimitRecoveryTime - Date.now() : 0;
+    
     return {
       marketData: {
         running: this.marketDataLimiter.running(),
@@ -238,7 +302,12 @@ export class BingXRateLimiter {
         reservoir: (this.tradingLimiter as any).reservoir || 0
       },
       circuitBreaker: this.circuitBreaker.getState(),
-      cacheSize: this.cache.size
+      cacheSize: this.cache.size,
+      rateLimitStatus: {
+        isRateLimited: this.isRateLimited,
+        recoveryTime: this.isRateLimited ? new Date(this.rateLimitRecoveryTime).toISOString() : null,
+        remainingMinutes: this.isRateLimited ? Math.ceil(remainingTime / 60000) : 0
+      }
     };
   }
 
