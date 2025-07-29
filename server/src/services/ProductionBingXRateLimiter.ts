@@ -71,21 +71,21 @@ export class ProductionBingXRateLimiter {
   private rateLimitRecoveryTime: number = 0;
   private recoveryTimeoutId: NodeJS.Timeout | null = null;
 
-  // Production-grade configurations based on BingX official limits
+  // OFFICIAL BINGX RATE LIMITS (April 2024) - Strict Compliance
   private readonly MARKET_DATA_CONFIG: RateLimitConfig = {
     maxConcurrent: 2,      // Conservative concurrent requests
-    minTime: 120,          // 120ms = ~8.3 requests/second (buffer from 10/s limit)
-    reservoir: 80,         // Start with 80 tokens (buffer from 100 limit)
-    reservoirRefreshAmount: 80,
-    reservoirRefreshInterval: 10 * 1000 // 10 seconds
+    minTime: 105,          // 105ms = ~9.5 requests/second (safe buffer from 10/s burst)
+    reservoir: 95,         // Start with 95 tokens (5 token safety buffer from 100 limit)
+    reservoirRefreshAmount: 95,
+    reservoirRefreshInterval: 10 * 1000 // Exact 10 seconds per BingX spec
   };
 
   private readonly ACCOUNT_TRADING_CONFIG: RateLimitConfig = {
-    maxConcurrent: 5,      // Higher concurrency for trading operations
-    minTime: 15,           // 15ms = ~66 requests/second (buffer from 100/s limit)
-    reservoir: 800,        // Start with 800 tokens (buffer from 1000 limit)
-    reservoirRefreshAmount: 800,
-    reservoirRefreshInterval: 10 * 1000 // 10 seconds
+    maxConcurrent: 3,      // Reduced for safety - BingX has per-endpoint sub-limits
+    minTime: 12,           // 12ms = ~83 requests/second (safe buffer from 100/s burst)
+    reservoir: 950,        // Start with 950 tokens (50 token safety buffer from 1000 limit)
+    reservoirRefreshAmount: 950,
+    reservoirRefreshInterval: 10 * 1000 // Exact 10 seconds per BingX spec
   };
 
   constructor() {
@@ -374,65 +374,117 @@ export class ProductionBingXRateLimiter {
   private async handleRateLimit(error: any): Promise<void> {
     this.metrics.rateLimitHits++;
     
-    // Intelligent recovery based on error headers
-    const retryAfter = error.response?.headers['retry-after'];
-    const customDelay = retryAfter ? parseInt(retryAfter) * 1000 : 60000; // Default 60s
+    // BingX OFFICIAL: Parse rate limit details from response
+    const retryAfter = error.response?.headers['retry-after'] || error.response?.headers['Retry-After'];
+    const rateLimitRemaining = error.response?.headers['x-ratelimit-remaining'] || '0';
+    const rateLimitReset = error.response?.headers['x-ratelimit-reset'];
+    
+    // BingX COMPLIANCE: Minimum 10 second recovery for market data limits
+    let recoveryDelay = 10000; // Default 10s for BingX 10-second windows
+    
+    if (retryAfter) {
+      recoveryDelay = Math.max(parseInt(retryAfter) * 1000, 10000);
+    } else if (rateLimitReset) {
+      const resetTime = parseInt(rateLimitReset) * 1000;
+      recoveryDelay = Math.max(resetTime - Date.now(), 10000);
+    }
+    
+    // BingX SAFETY: Add buffer for production stability
+    if (process.env.NODE_ENV === 'production') {
+      recoveryDelay = Math.max(recoveryDelay * 1.2, 12000); // 20% buffer, minimum 12s
+    }
     
     this.isRateLimited = true;
-    this.rateLimitRecoveryTime = Date.now() + customDelay;
+    this.rateLimitRecoveryTime = Date.now() + recoveryDelay;
     
-    logger.error('🚨 BingX Rate Limit Hit - Initiating intelligent recovery', {
+    logger.error('🚨 BingX Rate Limit Hit - STRICT COMPLIANCE RECOVERY', {
       endpoint: error.config?.url,
       recoveryTime: new Date(this.rateLimitRecoveryTime).toISOString(),
-      waitTimeSeconds: Math.ceil(customDelay / 1000),
+      waitTimeSeconds: Math.ceil(recoveryDelay / 1000),
       errorCode: error.response?.data?.code,
-      errorMessage: error.response?.data?.msg
+      errorMessage: error.response?.data?.msg,
+      retryAfterHeader: retryAfter,
+      remainingRequests: rateLimitRemaining,
+      resetTime: rateLimitReset,
+      complianceMode: 'STRICT_10_SECOND_WINDOW'
     });
 
-    // Log to external monitoring in production
+    // BingX PRODUCTION: Enhanced monitoring
     if (process.env.NODE_ENV === 'production') {
-      await logToExternal('error', 'BingX Rate Limit Violation', {
+      await logToExternal('error', 'BingX Rate Limit - Strict Compliance Mode', {
         endpoint: error.config?.url,
-        waitTimeSeconds: Math.ceil(customDelay / 1000),
+        waitTimeSeconds: Math.ceil(recoveryDelay / 1000),
         rateLimitHits: this.metrics.rateLimitHits,
         totalRequests: this.metrics.totalRequests,
-        environment: 'production'
+        environment: 'production',
+        complianceLevel: 'strict_official_limits',
+        bingxWindow: '10_seconds'
       });
     }
 
-    // Schedule automatic recovery
+    // BingX RECOVERY: Aggressive limiter suspension
+    this.marketDataLimiter.stop({ dropWaitingJobs: false });
+    this.accountTradingLimiter.stop({ dropWaitingJobs: false });
+
+    // Schedule automatic recovery with limiter restart
     if (this.recoveryTimeoutId) {
       clearTimeout(this.recoveryTimeoutId);
     }
     
-    this.recoveryTimeoutId = setTimeout(() => {
-      this.recoverFromRateLimit();
-    }, customDelay);
+    this.recoveryTimeoutId = setTimeout(async () => {
+      await this.recoverFromRateLimit();
+    }, recoveryDelay);
 
-    // Send alert for critical rate limit violations
-    if (this.metrics.rateLimitHits > 3) {
-      await this.sendAlert('CRITICAL_RATE_LIMIT', {
+    // BingX ALERT: Critical rate limit violations
+    if (this.metrics.rateLimitHits > 2) { // More aggressive alerting
+      await this.sendAlert('CRITICAL_BINGX_RATE_LIMIT', {
         hits: this.metrics.rateLimitHits,
         totalRequests: this.metrics.totalRequests,
-        endpoint: error.config?.url
+        endpoint: error.config?.url,
+        recoverySeconds: Math.ceil(recoveryDelay / 1000),
+        complianceMode: 'strict'
       });
     }
   }
 
   private async recoverFromRateLimit(): Promise<void> {
-    logger.info('🎉 BingX rate limit recovery initiated - resuming operations');
+    logger.info('🎉 BingX STRICT COMPLIANCE RECOVERY - Restarting limiters');
     
-    this.isRateLimited = false;
-    this.rateLimitRecoveryTime = 0;
-    this.recoveryTimeoutId = null;
-    
-    // Reset circuit breaker on successful recovery
-    this.circuitBreaker.reset();
-    
-    // Clear cache to ensure fresh data after recovery
-    this.clearCache();
-    
-    logger.info('✅ Rate limiter fully recovered and operational');
+    try {
+      // BingX RECOVERY: Restart limiters with fresh token buckets
+      // Note: Bottleneck auto-starts when jobs are queued, no explicit start() needed
+      logger.info('🔄 BINGX: Limiters will auto-start on next request');
+      
+      // Reset rate limit state
+      this.isRateLimited = false;
+      this.rateLimitRecoveryTime = 0;
+      this.recoveryTimeoutId = null;
+      
+      // Reset circuit breaker on successful recovery
+      this.circuitBreaker.reset();
+      
+      // Clear cache to ensure fresh data after recovery
+      this.clearCache();
+      
+      logger.info('✅ BingX Rate Limiter STRICT COMPLIANCE Recovery Complete', {
+        marketDataRunning: this.marketDataLimiter.running(),
+        accountTradingRunning: this.accountTradingLimiter.running(),
+        marketDataQueued: this.marketDataLimiter.queued(),
+        accountTradingQueued: this.accountTradingLimiter.queued(),
+        complianceMode: 'strict_10_second_windows'
+      });
+      
+    } catch (error) {
+      logger.error('❌ BingX Rate Limiter Recovery Failed:', error);
+      
+      // Fallback: Complete restart if recovery fails
+      this.setupRateLimiters();
+      this.isRateLimited = false;
+      this.rateLimitRecoveryTime = 0;
+      this.recoveryTimeoutId = null;
+      
+      logger.warn('🔄 Performed fallback limiter restart due to recovery failure');
+    }
   }
 
   private async handleRequestError(error: any, key: string, endpointType: EndpointType): Promise<void> {

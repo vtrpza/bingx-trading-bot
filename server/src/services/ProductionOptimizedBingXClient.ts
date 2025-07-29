@@ -260,11 +260,13 @@ export class ProductionOptimizedBingXClient {
       };
     }
 
+    let lastRateLimitError: any = null;
+    
     // Try proven endpoints in order of success rate
     const bestEndpoint = this.selectBestEndpoint(this.PROVEN_ENDPOINTS.symbols);
     
     try {
-      logger.info(`🎯 Fetching symbols from optimized endpoint: ${bestEndpoint}`);
+      logger.info(`🎯 BINGX STRICT: Fetching symbols from endpoint: ${bestEndpoint}`);
       
       const response = await this.axios.get(bestEndpoint);
       
@@ -277,7 +279,7 @@ export class ProductionOptimizedBingXClient {
         this.dataCache.lastUpdate = Date.now();
         this.dataCache.source = bestEndpoint;
         
-        logger.info(`✅ Successfully fetched ${symbols.length} symbols from ${bestEndpoint}`);
+        logger.info(`✅ BINGX: Successfully fetched ${symbols.length} symbols from ${bestEndpoint}`);
         
         return {
           code: 0,
@@ -288,15 +290,31 @@ export class ProductionOptimizedBingXClient {
         };
       }
     } catch (error: any) {
-      logger.error(`❌ Primary endpoint failed: ${bestEndpoint}`, error.message);
+      // BingX RATE LIMIT: Check if this is a rate limit error
+      const isRateLimit = error.response?.status === 429 || 
+                         error.response?.data?.code === 100410 ||
+                         error.message?.includes('rate limit');
+                         
+      if (isRateLimit) {
+        lastRateLimitError = error;
+        logger.warn(`⚠️ BINGX RATE LIMIT: ${bestEndpoint} - Will try sequential fallback after delay`);
+        
+        // Wait before trying fallbacks (BingX compliance)
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      } else {
+        logger.error(`❌ BINGX: Endpoint failed (non-rate-limit): ${bestEndpoint}`, error.message);
+      }
     }
 
-    // Try fallback endpoint if primary fails
+    // Try fallback endpoints sequentially with delays (BingX compliance)
     const fallbackEndpoints = this.PROVEN_ENDPOINTS.symbols.filter(ep => ep !== bestEndpoint);
     
     for (const endpoint of fallbackEndpoints) {
       try {
-        logger.info(`🔄 Trying fallback endpoint: ${endpoint}`);
+        logger.info(`🔄 BINGX FALLBACK: Trying endpoint: ${endpoint}`);
+        
+        // BingX COMPLIANCE: Small delay between endpoint attempts
+        await new Promise(resolve => setTimeout(resolve, 1000));
         
         const response = await this.axios.get(endpoint);
         
@@ -309,7 +327,7 @@ export class ProductionOptimizedBingXClient {
           this.dataCache.lastUpdate = Date.now();
           this.dataCache.source = endpoint;
           
-          logger.info(`✅ Fallback successful: ${symbols.length} symbols from ${endpoint}`);
+          logger.info(`✅ BINGX FALLBACK SUCCESS: ${symbols.length} symbols from ${endpoint}`);
           
           return {
             code: 0,
@@ -320,13 +338,36 @@ export class ProductionOptimizedBingXClient {
           };
         }
       } catch (error: any) {
-        logger.debug(`❌ Fallback failed: ${endpoint}`, error.message);
+        const isRateLimit = error.response?.status === 429 || 
+                           error.response?.data?.code === 100410 ||
+                           error.message?.includes('rate limit');
+                           
+        if (isRateLimit) {
+          lastRateLimitError = error;
+          logger.warn(`⚠️ BINGX RATE LIMIT: Fallback ${endpoint} also rate limited`);
+        } else {
+          logger.debug(`❌ BINGX FALLBACK FAILED: ${endpoint}`, error.message);
+        }
         continue;
       }
     }
 
-    // If all endpoints fail, log error and throw
-    const errorMsg = 'All proven symbol endpoints failed';
+    // BingX RATE LIMIT HANDLING: If all failures were rate limits, throw specific error
+    if (lastRateLimitError) {
+      const retryAfter = lastRateLimitError.response?.headers['retry-after'] || '12';
+      const errorMsg = `BingX rate limit active on all symbol endpoints. Recovery in ${retryAfter} seconds.`;
+      
+      logger.error('🚨 BINGX RATE LIMIT: All symbol endpoints rate limited', {
+        triedEndpoints: this.PROVEN_ENDPOINTS.symbols,
+        retryAfterSeconds: retryAfter,
+        complianceMode: 'strict'
+      });
+      
+      throw new Error(errorMsg);
+    }
+
+    // If all endpoints fail with non-rate-limit errors
+    const errorMsg = 'All BingX symbol endpoints failed - API may be down';
     logger.error(errorMsg, {
       triedEndpoints: this.PROVEN_ENDPOINTS.symbols,
       endpointMetrics: Array.from(this.endpointCache.entries())
@@ -334,10 +375,11 @@ export class ProductionOptimizedBingXClient {
     
     // Log critical failure to external monitoring
     if (process.env.NODE_ENV === 'production') {
-      await logToExternal('critical', 'BingX Symbol Endpoints Failed', {
+      await logToExternal('critical', 'BingX Symbol Endpoints All Failed', {
         triedEndpoints: this.PROVEN_ENDPOINTS.symbols,
         environment: 'production',
-        impact: 'symbol_data_unavailable'
+        impact: 'symbol_data_unavailable',
+        lastError: lastRateLimitError ? 'rate_limit' : 'api_failure'
       });
     }
     
@@ -373,11 +415,13 @@ export class ProductionOptimizedBingXClient {
       };
     }
 
+    let lastRateLimitError: any = null;
+    
     // Try proven endpoints in order of success rate
     const bestEndpoint = this.selectBestEndpoint(this.PROVEN_ENDPOINTS.tickers);
     
     try {
-      logger.info(`🎯 Fetching tickers from optimized endpoint: ${bestEndpoint}`);
+      logger.info(`🎯 BINGX STRICT: Fetching tickers from endpoint: ${bestEndpoint}`);
       
       const response = await this.axios.get(bestEndpoint);
       
@@ -390,7 +434,7 @@ export class ProductionOptimizedBingXClient {
         this.dataCache.lastUpdate = Date.now();
         this.dataCache.source = bestEndpoint;
         
-        logger.info(`✅ Successfully fetched ${tickers.length} tickers from ${bestEndpoint}`);
+        logger.info(`✅ BINGX: Successfully fetched ${tickers.length} tickers from ${bestEndpoint}`);
         
         return {
           code: 0,
@@ -401,15 +445,31 @@ export class ProductionOptimizedBingXClient {
         };
       }
     } catch (error: any) {
-      logger.error(`❌ Primary ticker endpoint failed: ${bestEndpoint}`, error.message);
+      // BingX RATE LIMIT: Check if this is a rate limit error
+      const isRateLimit = error.response?.status === 429 || 
+                         error.response?.data?.code === 100410 ||
+                         error.message?.includes('rate limit');
+                         
+      if (isRateLimit) {
+        lastRateLimitError = error;
+        logger.warn(`⚠️ BINGX RATE LIMIT: Ticker ${bestEndpoint} - Will try sequential fallback after delay`);
+        
+        // Wait before trying fallbacks (BingX compliance)
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      } else {
+        logger.error(`❌ BINGX: Ticker endpoint failed (non-rate-limit): ${bestEndpoint}`, error.message);
+      }
     }
 
-    // Try fallback endpoint if primary fails
+    // Try fallback endpoints sequentially with delays (BingX compliance)
     const fallbackEndpoints = this.PROVEN_ENDPOINTS.tickers.filter(ep => ep !== bestEndpoint);
     
     for (const endpoint of fallbackEndpoints) {
       try {
-        logger.info(`🔄 Trying fallback ticker endpoint: ${endpoint}`);
+        logger.info(`🔄 BINGX TICKER FALLBACK: Trying endpoint: ${endpoint}`);
+        
+        // BingX COMPLIANCE: Small delay between endpoint attempts
+        await new Promise(resolve => setTimeout(resolve, 1000));
         
         const response = await this.axios.get(endpoint);
         
@@ -422,7 +482,7 @@ export class ProductionOptimizedBingXClient {
           this.dataCache.lastUpdate = Date.now();
           this.dataCache.source = endpoint;
           
-          logger.info(`✅ Ticker fallback successful: ${tickers.length} tickers from ${endpoint}`);
+          logger.info(`✅ BINGX TICKER FALLBACK SUCCESS: ${tickers.length} tickers from ${endpoint}`);
           
           return {
             code: 0,
@@ -433,13 +493,36 @@ export class ProductionOptimizedBingXClient {
           };
         }
       } catch (error: any) {
-        logger.debug(`❌ Ticker fallback failed: ${endpoint}`, error.message);
+        const isRateLimit = error.response?.status === 429 || 
+                           error.response?.data?.code === 100410 ||
+                           error.message?.includes('rate limit');
+                           
+        if (isRateLimit) {
+          lastRateLimitError = error;
+          logger.warn(`⚠️ BINGX RATE LIMIT: Ticker fallback ${endpoint} also rate limited`);
+        } else {
+          logger.debug(`❌ BINGX TICKER FALLBACK FAILED: ${endpoint}`, error.message);
+        }
         continue;
       }
     }
 
-    // If all endpoints fail, log error and throw
-    const errorMsg = 'All proven ticker endpoints failed';
+    // BingX RATE LIMIT HANDLING: If all failures were rate limits, throw specific error
+    if (lastRateLimitError) {
+      const retryAfter = lastRateLimitError.response?.headers['retry-after'] || '12';
+      const errorMsg = `BingX rate limit active on all ticker endpoints. Recovery in ${retryAfter} seconds.`;
+      
+      logger.error('🚨 BINGX RATE LIMIT: All ticker endpoints rate limited', {
+        triedEndpoints: this.PROVEN_ENDPOINTS.tickers,
+        retryAfterSeconds: retryAfter,
+        complianceMode: 'strict'
+      });
+      
+      throw new Error(errorMsg);
+    }
+
+    // If all endpoints fail with non-rate-limit errors
+    const errorMsg = 'All BingX ticker endpoints failed - API may be down';
     logger.error(errorMsg, {
       triedEndpoints: this.PROVEN_ENDPOINTS.tickers,
       endpointMetrics: Array.from(this.endpointCache.entries())
@@ -447,10 +530,11 @@ export class ProductionOptimizedBingXClient {
     
     // Log critical failure to external monitoring
     if (process.env.NODE_ENV === 'production') {
-      await logToExternal('critical', 'BingX Ticker Endpoints Failed', {
+      await logToExternal('critical', 'BingX Ticker Endpoints All Failed', {
         triedEndpoints: this.PROVEN_ENDPOINTS.tickers,
         environment: 'production',
-        impact: 'ticker_data_unavailable'
+        impact: 'ticker_data_unavailable',
+        lastError: lastRateLimitError ? 'rate_limit' : 'api_failure'
       });
     }
     
