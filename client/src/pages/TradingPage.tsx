@@ -36,17 +36,23 @@ export default function TradingPage() {
     queryKey: QUERY_KEYS.BOT_STATUS,
     queryFn: async () => {
       try {
+        console.log('🔄 Fetching bot status...')
         const response = await fetch('/api/trading/parallel-bot/status')
-        const result = await response.json()
+        console.log('📡 Response status:', response.status)
         
-        // Return in format expected by BotStatus2 wrapper
+        const result = await response.json()
+        console.log('📊 Raw API result:', JSON.stringify(result, null, 2))
+        
+        // API always returns {success: true/false, data: {...}}
         if (result.success && result.data) {
+          console.log('✅ Success response with data:', result.data)
           return { data: result.data }
+        } else if (result.success) {
+          console.log('✅ Success response without data field')
+          return { data: result }
         } else {
-          // If direct data, wrap it properly
-          return {
-            data: result.success ? result.data : result
-          }
+          console.error('❌ API returned error:', result)
+          throw new Error(result.error || 'API returned error')
         }
       } catch (error) {
         console.error('Bot status error in TradingPage:', error)
@@ -123,8 +129,28 @@ export default function TradingPage() {
     }
   })
 
-  // Extract botStatus from response for component use
-  const botStatus = botStatusResponse?.data
+  // Extract botStatus from response for component use with comprehensive safety
+  const botStatus = useMemo(() => {
+    try {
+      console.log('🔍 Extracting botStatus from response:', botStatusResponse)
+      
+      if (!botStatusResponse) {
+        console.warn('⚠️ botStatusResponse is null/undefined')
+        return null
+      }
+      
+      if (!botStatusResponse.data) {
+        console.warn('⚠️ botStatusResponse.data is null/undefined:', botStatusResponse)
+        return null
+      }
+      
+      console.log('✅ Extracted botStatus:', botStatusResponse.data)
+      return botStatusResponse.data
+    } catch (error) {
+      console.error('❌ Error extracting botStatus:', error)
+      return null
+    }
+  }, [botStatusResponse])
 
   // Get trading statistics - Optimized with conditional fetching
   const { data: tradingStats } = useQuery({
@@ -255,33 +281,55 @@ export default function TradingPage() {
   // Memoized derived data to prevent unnecessary calculations with safe defaults
   const activePositions = useMemo(() => {
     try {
-      console.log('TradingPage - activePositions calc, botStatusResponse:', botStatusResponse, 'botStatus:', botStatus)
-      return Array.isArray(botStatus?.activePositions) ? botStatus.activePositions : []
+      console.log('🔍 activePositions calc - botStatus:', botStatus, 'activePositions:', botStatus?.activePositions)
+      
+      if (!botStatus) {
+        console.log('🚫 botStatus is null, returning empty array')
+        return []
+      }
+      
+      if (!Array.isArray(botStatus.activePositions)) {
+        console.log('🚫 activePositions is not array:', typeof botStatus.activePositions)
+        return []
+      }
+      
+      console.log('✅ Returning activePositions:', botStatus.activePositions.length, 'items')
+      return botStatus.activePositions
     } catch (error) {
-      console.error('Error in activePositions calculation:', error)
+      console.error('❌ Error in activePositions calculation:', error)
       return []
     }
-  }, [botStatus?.activePositions])
+  }, [botStatus])
   
   const isConnected = useMemo(() => {
     try {
-      console.log('TradingPage - isConnected calc, botStatusResponse:', botStatusResponse, 'botStatus:', botStatus)
-      return Boolean(botStatus && typeof botStatus === 'object')
+      console.log('🔍 isConnected calc - botStatus:', botStatus)
+      const connected = Boolean(botStatus && typeof botStatus === 'object')
+      console.log('✅ isConnected result:', connected)
+      return connected
     } catch (error) {
-      console.error('Error in isConnected calculation:', error)
+      console.error('❌ Error in isConnected calculation:', error)
       return false
     }
   }, [botStatus])
   
   const isDemoMode = useMemo(() => {
     try {
-      console.log('TradingPage - isDemoMode calc, botStatusResponse:', botStatusResponse, 'botStatus:', botStatus, 'demoMode:', botStatus?.demoMode)
-      return Boolean(botStatus?.demoMode)
+      console.log('🔍 isDemoMode calc - botStatus:', botStatus, 'demoMode:', botStatus?.demoMode)
+      
+      if (!botStatus) {
+        console.log('🚫 botStatus is null, defaulting to demo mode')
+        return true
+      }
+      
+      const demoMode = Boolean(botStatus.demoMode)
+      console.log('✅ isDemoMode result:', demoMode)
+      return demoMode
     } catch (error) {
-      console.error('Error in isDemoMode calculation:', error, 'botStatusResponse:', botStatusResponse, 'botStatus:', botStatus)
+      console.error('❌ Error in isDemoMode calculation:', error, 'botStatus:', botStatus)
       return true // Default to demo mode for safety
     }
-  }, [botStatus?.demoMode])
+  }, [botStatus])
   
   // Memoized blacklist data with slice optimization
   const displayedBlacklistedSymbols = useMemo(() => 
@@ -306,12 +354,30 @@ export default function TradingPage() {
     )
   }
 
-  // Safety check for botStatus
-  if (!botStatusResponse?.data || typeof botStatusResponse.data !== 'object') {
+  // Safety check for botStatus with detailed logging
+  if (isLoading) {
+    console.log('🔄 Still loading bot status...')
+  } else if (!botStatusResponse) {
+    console.error('❌ No botStatusResponse received')
+  } else if (!botStatusResponse.data) {
+    console.error('❌ botStatusResponse has no data:', botStatusResponse)
+  } else {
+    console.log('✅ Bot status loaded successfully:', botStatusResponse.data)
+  }
+
+  if (!isLoading && (!botStatus || typeof botStatus !== 'object')) {
+    console.error('🚨 Rendering error state - botStatus:', botStatus)
     return (
       <div className="flex items-center justify-center h-64">
         <div className="text-lg text-red-600">
-          Erro ao carregar status do bot. Recarregue a página.
+          Erro ao carregar status do bot. Verifique o console para detalhes.
+          <br />
+          <button 
+            onClick={() => window.location.reload()} 
+            className="mt-2 px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
+          >
+            Recarregar Página
+          </button>
         </div>
       </div>
     )
