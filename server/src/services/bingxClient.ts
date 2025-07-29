@@ -1,7 +1,7 @@
 import axios, { AxiosInstance } from 'axios';
 import crypto from 'crypto';
 import { logger, logToExternal } from '../utils/logger';
-import { bingxRateLimiter } from './bingxRateLimiter';
+import { productionBingXRateLimiter, RequestPriority } from './ProductionBingXRateLimiter';
 import dotenv from 'dotenv';
 import path from 'path';
 dotenv.config({ path: path.resolve(__dirname, '../../.env') });
@@ -76,7 +76,7 @@ export class BingXClient {
             message: error.response?.data?.msg
           });
           
-          await bingxRateLimiter.handleRateLimit(error, originalRequest._retryCount || 1);
+          await productionBingXRateLimiter.handleRateLimit(error, originalRequest._retryCount || 1);
           originalRequest._retryCount = (originalRequest._retryCount || 1) + 1;
           
           // Retry the original request
@@ -173,18 +173,10 @@ export class BingXClient {
   // OPTIMIZED: Controlled parallel API calls with rate limiting
   async getSymbolsAndTickersOptimized() {
     
-    // Use rate limiter's batch execution for controlled parallelism
-    const results = await bingxRateLimiter.executeBatchMarketDataRequests([
-      {
-        key: 'symbols',
-        requestFn: () => this.fetchSymbolsFromAPI() as Promise<any>,
-        cacheSeconds: 60
-      },
-      {
-        key: 'all_tickers', 
-        requestFn: () => this.fetchTickersFromAPI() as Promise<any>,
-        cacheSeconds: 30
-      }
+    // Use production rate limiter's batch execution for controlled parallelism
+    const results = await Promise.all([
+      productionBingXRateLimiter.executeMarketDataRequest('symbols', () => this.fetchSymbolsFromAPI(), { cacheSeconds: 60 }),
+      productionBingXRateLimiter.executeMarketDataRequest('all_tickers', () => this.fetchTickersFromAPI(), { cacheSeconds: 30 })
     ]);
     
     const [symbolsResult, tickersResult] = results as [any, any];
@@ -204,190 +196,77 @@ export class BingXClient {
   async getSymbols() {
     const cacheKey = 'symbols';
     
-    return bingxRateLimiter.executeMarketDataRequest(
+    return productionBingXRateLimiter.executeMarketDataRequest(
       cacheKey,
       async () => this.fetchSymbolsFromAPI(),
-      60 // Cache for 1 minute (faster refresh)
+      { cacheSeconds: 60, priority: RequestPriority.MEDIUM }
     );
   }
   
   private async fetchSymbolsFromAPI() {
+    // PRODUCTION-OPTIMIZED: Use proven endpoints only to avoid rate limits
+    const PROVEN_ENDPOINTS = [
+      '/openApi/swap/v2/quote/contracts',  // Primary endpoint - highest success rate
+      '/openApi/swap/v1/quote/contracts'   // Reliable fallback
+    ];
     
     try {
-      logger.info('🔥 BUSCA EXAUSTIVA: Vasculhando TODOS os endpoints BingX...');
+      logger.info('🎯 Fetching symbols from production-optimized endpoints');
       
-      const allFoundContracts = new Map<string, any>(); // Usar Map para evitar duplicatas
-      let totalEndpointsTested = 0;
-      let successfulEndpoints = 0;
-      
-      // TODOS OS ENDPOINTS POSSÍVEIS DA BINGX
-      const ALL_POSSIBLE_ENDPOINTS = [
-        // Contratos Perpétuos (Swap)
-        '/openApi/swap/v1/quote/contracts',
-        '/openApi/swap/v2/quote/contracts', 
-        '/openApi/swap/v3/quote/contracts',
-        '/openApi/swap/v1/market/contracts',
-        '/openApi/swap/v2/market/contracts',
-        '/openApi/swap/v3/market/contracts',
-        
-        // Tickers e Preços
-        '/openApi/swap/v1/quote/tickers',
-        '/openApi/swap/v2/quote/tickers',
-        '/openApi/swap/v3/quote/tickers',
-        '/openApi/swap/v1/ticker/price',
-        '/openApi/swap/v2/ticker/price',
-        '/openApi/swap/v1/ticker/24hr',
-        '/openApi/swap/v2/ticker/24hr',
-        
-        // Exchange Info
-        '/openApi/swap/v1/exchangeInfo',
-        '/openApi/swap/v2/exchangeInfo',
-        '/openApi/swap/v3/exchangeInfo',
-        
-        // Símbolos e Mercados
-        '/openApi/swap/v1/symbols',
-        '/openApi/swap/v2/symbols',
-        '/openApi/swap/v1/market/symbols',
-        '/openApi/swap/v2/market/symbols',
-        
-        // Informações de Trading
-        '/openApi/swap/v1/quote/bookTicker',
-        '/openApi/swap/v2/quote/bookTicker',
-        '/openApi/swap/v1/quote/ticker',
-        '/openApi/swap/v2/quote/ticker',
-        
-        // Spot (caso tenham contratos spot)
-        '/openApi/spot/v1/symbols',
-        '/openApi/spot/v2/symbols',
-        '/openApi/spot/v1/ticker/24hr',
-        '/openApi/spot/v2/ticker/24hr',
-        
-        // Futuros Delivery
-        '/openApi/future/v1/symbols',
-        '/openApi/future/v2/symbols',
-        '/openApi/future/v1/contracts',
-        '/openApi/future/v2/contracts',
-        
-        // API Pública Geral
-        '/api/v1/exchangeInfo',
-        '/api/v2/exchangeInfo', 
-        '/api/v3/exchangeInfo',
-        '/api/v1/ticker/24hr',
-        '/api/v2/ticker/24hr',
-        '/api/v3/ticker/24hr'
-      ];
-      
-      logger.info(`🎯 Testando ${ALL_POSSIBLE_ENDPOINTS.length} endpoints diferentes...`);
-      
-      // Testar TODOS os endpoints com TODAS as combinações de parâmetros
-      for (const endpoint of ALL_POSSIBLE_ENDPOINTS) {
-        totalEndpointsTested++;
-        
-        // Diferentes combinações de parâmetros para cada endpoint
-        const paramCombinations = [
-          {}, // Sem parâmetros
-          { limit: 1000 },
-          { limit: 5000 },
-          { size: 1000 },
-          { size: 5000 },
-          { page: 1, limit: 1000 },
-          { page: 1, size: 1000 },
-          { offset: 0, limit: 1000 },
-          { start: 0, limit: 1000 },
-          { from: 0, to: 1000 }
-        ];
-        
-        for (const params of paramCombinations) {
-          try {
-            logger.debug(`🔍 Testando: ${endpoint} com params:`, params);
+      // Try proven endpoints in order
+      for (const endpoint of PROVEN_ENDPOINTS) {
+        try {
+          logger.debug(`🔍 Trying endpoint: ${endpoint}`);
+          
+          const response = await this.axios.get(endpoint);
+          
+          if (response.data && response.data.code === 0 && Array.isArray(response.data.data)) {
+            const contracts = response.data.data;
             
-            const response = await this.axios.get(endpoint, { params });
-            const contracts = this.extractContractsFromResponse(response.data);
+            logger.info(`✅ Successfully fetched ${contracts.length} symbols from ${endpoint}`);
             
-            if (contracts.length > 0) {
-              successfulEndpoints++;
-              logger.info(`✅ SUCESSO: ${endpoint} retornou ${contracts.length} contratos`, {
-                params,
-                sampleContract: contracts[0]?.symbol || 'N/A',
-                responseStructure: Object.keys(response.data || {})
-              });
-              
-              // Adicionar todos os contratos únicos ao Map
-              contracts.forEach((contract: any) => {
-                if (contract.symbol && !allFoundContracts.has(contract.symbol)) {
-                  allFoundContracts.set(contract.symbol, {
-                    ...contract,
-                    _source_endpoint: endpoint,
-                    _source_params: params
-                  });
-                }
-              });
-              
-              break; // Se funcionou com estes params, não testar outros para este endpoint
-            }
-            
-          } catch (error: any) {
-            logger.debug(`❌ Falhou: ${endpoint} - ${error.message}`);
-            
-            // Log critical failures to external service for production debugging
-            if (process.env.NODE_ENV === 'production' && (error.code === 'ECONNABORTED' || error.response?.status >= 400)) {
-              await logToExternal('debug', `BingX endpoint failed: ${endpoint}`, {
-                error: error.message,
-                code: error.code,
-                status: error.response?.status,
-                timeout: error.code === 'ECONNABORTED',
-                params: params
-              });
-            }
+            return {
+              code: 0,
+              data: contracts,
+              msg: 'success',
+              source: endpoint,
+              total: contracts.length,
+              timestamp: Date.now()
+            };
           }
+        } catch (error: any) {
+          logger.warn(`❌ Endpoint failed: ${endpoint}`, error.message);
+          
+          // Log to external monitoring for production debugging
+          if (process.env.NODE_ENV === 'production') {
+            await logToExternal('warn', `BingX symbol endpoint failed: ${endpoint}`, {
+              error: error.message,
+              code: error.code,
+              status: error.response?.status,
+              timeout: error.code === 'ECONNABORTED'
+            });
+          }
+          
+          continue; // Try next endpoint
         }
       }
       
-      const uniqueContracts = Array.from(allFoundContracts.values());
+      // If all endpoints fail
+      const errorMsg = 'All proven symbol endpoints failed';
+      logger.error(errorMsg);
       
-      logger.info(`🏆 RESULTADO FINAL DA BUSCA EXAUSTIVA:`, {
-        totalEndpointsTested,
-        successfulEndpoints,
-        totalUniqueContracts: uniqueContracts.length,
-        contractsBySource: this.groupContractsBySource(uniqueContracts)
-      });
-
-      // Enhanced logging for production debugging
       if (process.env.NODE_ENV === 'production') {
-        await logToExternal('info', 'BingX exhaustive search completed', {
-          totalEndpointsTested,
-          successfulEndpoints,
-          totalUniqueContracts: uniqueContracts.length,
-          environment: 'render',
-          issue: uniqueContracts.length === 0 ? 'ALL_ENDPOINTS_RETURNED_ZERO_CONTRACTS' : null
+        await logToExternal('error', 'BingX Symbol Endpoints Critical Failure', {
+          triedEndpoints: PROVEN_ENDPOINTS,
+          environment: 'production',
+          impact: 'symbol_data_unavailable'
         });
       }
       
-      // Se ainda não encontramos muitos contratos, tentar paginação nos endpoints que funcionaram
-      if (uniqueContracts.length < 1000) {
-        logger.info('🔄 Tentando PAGINAÇÃO EXAUSTIVA nos endpoints que funcionaram...');
-        await this.tryExhaustivePagination(allFoundContracts);
-      }
-      
-      const finalContracts = Array.from(allFoundContracts.values());
-      
-      logger.info(`🎉 BUSCA COMPLETA FINALIZADA: ${finalContracts.length} contratos únicos encontrados`);
-      
-      return {
-        code: 0,
-        data: finalContracts,
-        msg: 'exhaustive_search_complete',
-        total: finalContracts.length,
-        metadata: {
-          endpointsTested: totalEndpointsTested,
-          successfulEndpoints,
-          searchType: 'exhaustive',
-          timestamp: Date.now()
-        }
-      };
+      throw new Error(errorMsg);
       
     } catch (error) {
-      logger.error('Failed exhaustive search:', error);
+      logger.error('Failed to fetch symbols:', error);
       throw error;
     }
   }
@@ -473,7 +352,7 @@ export class BingXClient {
   async getTicker(symbol: string) {
     const cacheKey = `ticker:${symbol}`;
     
-    return bingxRateLimiter.executeMarketDataRequest(
+    return productionBingXRateLimiter.executeMarketDataRequest(
       cacheKey,
       async () => {
         const apiSymbol = symbol;
@@ -482,39 +361,32 @@ export class BingXClient {
         });
         return response.data;
       },
-      30 // Cache for 30 seconds
+      { cacheSeconds: 30, priority: RequestPriority.MEDIUM }
     );
   }
 
   async getAllTickers() {
     const cacheKey = 'all_tickers';
     
-    return bingxRateLimiter.executeMarketDataRequest(
+    return productionBingXRateLimiter.executeMarketDataRequest(
       cacheKey,
       async () => this.fetchTickersFromAPI(),
-      30 // Cache for 30 seconds
+      { cacheSeconds: 30, priority: RequestPriority.MEDIUM }
     );
   }
   
   private async fetchTickersFromAPI() {
+    // PRODUCTION-OPTIMIZED: Use proven endpoints only to avoid rate limits
+    const PROVEN_TICKER_ENDPOINTS = [
+      '/openApi/swap/v2/quote/ticker',    // All tickers without symbol param - primary
+      '/openApi/swap/v1/quote/ticker'     // v1 fallback
+    ];
     
     try {
-      logger.info('🎯 Fetching ALL market data from BingX...');
+      logger.info('🎯 Fetching ticker data from production-optimized endpoints');
       
-      // Try different endpoints for getting all tickers
-      const tickerEndpoints = [
-        '/openApi/swap/v2/quote/ticker',    // All tickers without symbol param
-        '/openApi/swap/v1/quote/ticker',    // v1 fallback
-        '/openApi/swap/v2/ticker/24hr',     // 24hr stats
-        '/openApi/swap/v1/ticker/24hr',     // v1 24hr stats
-        '/openApi/swap/v2/quote/tickers',   // Plural form
-        '/openApi/swap/v1/quote/tickers'    // v1 plural
-      ];
-      
-      let allTickers: any[] = [];
-      let successfulEndpoint = '';
-      
-      for (const endpoint of tickerEndpoints) {
+      // Try proven endpoints in order
+      for (const endpoint of PROVEN_TICKER_ENDPOINTS) {
         try {
           logger.debug(`🔍 Trying ticker endpoint: ${endpoint}`);
           
@@ -524,41 +396,49 @@ export class BingXClient {
             const tickers = response.data.data;
             
             if (Array.isArray(tickers) && tickers.length > 0) {
-              allTickers = tickers;
-              successfulEndpoint = endpoint;
               logger.info(`✅ Successfully fetched ${tickers.length} tickers from ${endpoint}`);
-              break;
+              
+              return {
+                code: 0,
+                data: tickers,
+                msg: 'success',
+                endpoint: endpoint,
+                count: tickers.length,
+                timestamp: Date.now()
+              };
             }
           }
           
         } catch (error: any) {
-          logger.debug(`❌ Failed to fetch from ${endpoint}: ${error.message}`);
+          logger.warn(`❌ Ticker endpoint failed: ${endpoint}`, error.message);
+          
           // Log to external service for production debugging
-          await logToExternal('error', `BingX ticker endpoint failed: ${endpoint}`, {
-            error: error.message,
-            code: error.code,
-            status: error.response?.status,
-            timeout: error.code === 'ECONNABORTED'
-          });
-          continue;
+          if (process.env.NODE_ENV === 'production') {
+            await logToExternal('warn', `BingX ticker endpoint failed: ${endpoint}`, {
+              error: error.message,
+              code: error.code,
+              status: error.response?.status,
+              timeout: error.code === 'ECONNABORTED'
+            });
+          }
+          
+          continue; // Try next endpoint
         }
       }
       
-      if (allTickers.length === 0) {
-        throw new Error('No ticker endpoints returned valid market data');
+      // If all endpoints fail
+      const errorMsg = 'All proven ticker endpoints failed';
+      logger.error(errorMsg);
+      
+      if (process.env.NODE_ENV === 'production') {
+        await logToExternal('error', 'BingX Ticker Endpoints Critical Failure', {
+          triedEndpoints: PROVEN_TICKER_ENDPOINTS,
+          environment: 'production',
+          impact: 'ticker_data_unavailable'
+        });
       }
       
-      const response = {
-        code: 0,
-        data: allTickers,
-        msg: 'success',
-        endpoint: successfulEndpoint,
-        count: allTickers.length
-      };
-      
-      logger.info(`🎉 All tickers fetched successfully: ${allTickers.length} symbols from ${successfulEndpoint}`);
-      
-      return response;
+      throw new Error(errorMsg);
       
     } catch (error) {
       logger.error('Failed to get all tickers:', error);
@@ -569,7 +449,7 @@ export class BingXClient {
   async getKlines(symbol: string, interval: string, limit: number = 500) {
     const cacheKey = `klines:${symbol}:${interval}:${limit}`;
     
-    return bingxRateLimiter.executeMarketDataRequest(
+    return productionBingXRateLimiter.executeMarketDataRequest(
       cacheKey,
       async () => {
         const apiSymbol = symbol;
@@ -578,14 +458,14 @@ export class BingXClient {
         });
         return response.data;
       },
-      30 // Cache for 30 seconds (faster updates)
+      { cacheSeconds: 30, priority: RequestPriority.MEDIUM }
     );
   }
 
   async getDepth(symbol: string, limit: number = 20) {
     const cacheKey = `depth:${symbol}:${limit}`;
     
-    return bingxRateLimiter.executeMarketDataRequest(
+    return productionBingXRateLimiter.executeMarketDataRequest(
       cacheKey,
       async () => {
         const apiSymbol = symbol;
@@ -594,7 +474,7 @@ export class BingXClient {
         });
         return response.data;
       },
-      5 // Cache for 5 seconds
+      { cacheSeconds: 5, priority: RequestPriority.MEDIUM }
     );
   }
 
@@ -610,7 +490,9 @@ export class BingXClient {
     takeProfit?: number;
     stopLoss?: number;
   }) {
-    return bingxRateLimiter.executeTradingRequest(async () => {
+    return productionBingXRateLimiter.executeAccountRequest(
+      `place_order:${orderData.symbol}:${Date.now()}`,
+      async () => {
       // VST mode (DEMO_MODE=true) sends real orders to BingX with virtual balance
       const orderParams: any = {
         symbol: orderData.symbol,
@@ -645,22 +527,34 @@ export class BingXClient {
       });
       
       return response.data;
-    });
+      },
+      { 
+        priority: RequestPriority.CRITICAL,
+        maxRetries: 3
+      }
+    );
   }
 
   async cancelOrder(symbol: string, orderId: string) {
-    return bingxRateLimiter.executeTradingRequest(async () => {
-      const response = await this.axios.delete('/openApi/swap/v2/trade/order', {
-        params: { symbol, orderId }
-      });
-      return response.data;
-    });
+    return productionBingXRateLimiter.executeAccountRequest(
+      `cancel_order:${symbol}:${orderId}`,
+      async () => {
+        const response = await this.axios.delete('/openApi/swap/v2/trade/order', {
+          params: { symbol, orderId }
+        });
+        return response.data;
+      },
+      { 
+        priority: RequestPriority.CRITICAL,
+        maxRetries: 3
+      }
+    );
   }
 
   async getPositions(symbol?: string) {
     const cacheKey = `positions:${symbol || 'all'}`;
     
-    return bingxRateLimiter.executeMarketDataRequest(
+    return productionBingXRateLimiter.executeAccountRequest(
       cacheKey,
       async () => {
         const params: any = {};
@@ -670,14 +564,14 @@ export class BingXClient {
         const response = await this.axios.get('/openApi/swap/v2/user/positions', { params });
         return response.data;
       },
-      10 // Cache for 10 seconds
+      { cacheSeconds: 10, priority: RequestPriority.HIGH }
     );
   }
 
   async getOpenOrders(symbol?: string) {
     const cacheKey = `open_orders:${symbol || 'all'}`;
     
-    return bingxRateLimiter.executeMarketDataRequest(
+    return productionBingXRateLimiter.executeAccountRequest(
       cacheKey,
       async () => {
         const params: any = {};
@@ -687,56 +581,66 @@ export class BingXClient {
         const response = await this.axios.get('/openApi/swap/v2/trade/openOrders', { params });
         return response.data;
       },
-      5 // Cache for 5 seconds
+      { cacheSeconds: 5, priority: RequestPriority.MEDIUM }
     );
   }
 
   async getBalance() {
     const cacheKey = 'balance';
     
-    return bingxRateLimiter.executeMarketDataRequest(
+    return productionBingXRateLimiter.executeAccountRequest(
       cacheKey,
       async () => {
         const response = await this.axios.get('/openApi/swap/v2/user/balance');
         return response.data;
       },
-      30 // Cache for 30 seconds (faster balance updates)
+      { cacheSeconds: 30, priority: RequestPriority.HIGH }
     );
   }
 
   // Listen Key for WebSocket
   async createListenKey() {
-    try {
-      const response = await this.axios.post('/openApi/user/auth/userDataStream');
-      return response.data;
-    } catch (error) {
-      logger.error('Failed to create listen key:', error);
-      throw error;
-    }
+    return productionBingXRateLimiter.executeAccountRequest(
+      'create_listen_key',
+      async () => {
+        const response = await this.axios.post('/openApi/user/auth/userDataStream');
+        return response.data;
+      },
+      { 
+        priority: RequestPriority.HIGH,
+        maxRetries: 3
+      }
+    );
   }
 
   async keepAliveListenKey(listenKey: string) {
-    try {
-      const response = await this.axios.put('/openApi/user/auth/userDataStream', {
-        listenKey
-      });
-      return response.data;
-    } catch (error) {
-      logger.error('Failed to keep alive listen key:', error);
-      throw error;
-    }
+    return productionBingXRateLimiter.executeAccountRequest(
+      `keep_alive_listen_key:${listenKey}`,
+      async () => {
+        const response = await this.axios.put('/openApi/user/auth/userDataStream', {
+          listenKey
+        });
+        return response.data;
+      },
+      { 
+        priority: RequestPriority.HIGH
+      }
+    );
   }
 
   async closeListenKey(listenKey: string) {
-    try {
-      const response = await this.axios.delete('/openApi/user/auth/userDataStream', {
-        params: { listenKey }
-      });
-      return response.data;
-    } catch (error) {
-      logger.error('Failed to close listen key:', error);
-      throw error;
-    }
+    return productionBingXRateLimiter.executeAccountRequest(
+      `close_listen_key:${listenKey}`,
+      async () => {
+        const response = await this.axios.delete('/openApi/user/auth/userDataStream', {
+          params: { listenKey }
+        });
+        return response.data;
+      },
+      { 
+        priority: RequestPriority.MEDIUM
+      }
+    );
   }
 
   // Close Position
@@ -846,15 +750,13 @@ export class BingXClient {
 
   // Rate Limit Status
   getRateLimitStatus() {
-    return bingxRateLimiter.getStatus();
+    return productionBingXRateLimiter.getStatus();
   }
   
   // Clear rate limiter cache
   clearCache() {
-    bingxRateLimiter.clearCache();
-    // Also restart limiters in case they were stopped
-    bingxRateLimiter.restartLimiters();
-    logger.info('BingX client cache cleared and limiters restarted');
+    productionBingXRateLimiter.restart();
+    logger.info('BingX client cache cleared and production rate limiter restarted');
   }
 }
 

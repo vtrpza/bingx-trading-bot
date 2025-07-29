@@ -1,52 +1,65 @@
-import axios from 'axios';
-import https from 'https';
-import http from 'http';
-import { logger } from '../utils/logger';
-import { redisCache } from './RedisCache';
-import { BingXClient } from './bingxClient';
-
-interface ConnectionPoolStats {
-  activeConnections: number;
-  queuedRequests: number;
-  totalRequests: number;
-  avgResponseTime: number;
-  errorRate: number;
-}
-
-interface ApiCallMetrics {
-  endpoint: string;
-  method: string;
-  responseTime: number;
-  success: boolean;
-  cached: boolean;
-  timestamp: number;
-}
-
 /**
- * High-performance BingX client with connection pooling, intelligent caching,
- * and optimized batch operations for financial market data
+ * Production-Optimized BingX Client
+ * 
+ * Replaces aggressive endpoint testing with intelligent, cached endpoint discovery.
+ * Eliminates rate limit violations through strategic endpoint selection and caching.
+ * 
+ * Key Optimizations:
+ * - Smart endpoint selection based on historical success
+ * - Persistent endpoint caching to avoid redundant testing
+ * - Fallback strategy with minimal API calls
+ * - Production-grade error handling and recovery
  */
-export class OptimizedBingXClient extends BingXClient {
-  private httpAgent!: http.Agent;
-  private httpsAgent!: https.Agent;
-  private optimizedAxios!: any;
-  private metrics: ApiCallMetrics[] = [];
-  private requestQueue: Map<string, Promise<any>> = new Map();
 
-  // Performance configuration
-  private static readonly CONNECTION_POOL_CONFIG = {
-    maxSockets: 50,        // Maximum concurrent connections
-    maxFreeSockets: 10,    // Keep alive connections
-    timeout: 30000,        // Connection timeout
-    freeSocketTimeout: 30000, // Keep alive timeout
-    keepAlive: true,
-    keepAliveMsecs: 1000
-  };
+import axios, { AxiosInstance } from 'axios';
+import crypto from 'crypto';
+import { logger, logToExternal } from '../utils/logger';
+import { productionBingXRateLimiter, RequestPriority } from './ProductionBingXRateLimiter';
+import dotenv from 'dotenv';
+import path from 'path';
 
-  private static readonly BATCH_CONFIG = {
-    maxBatchSize: 50,      // Maximum symbols per batch request
-    batchDelay: 100,       // Delay between batches (ms)
-    concurrentBatches: 5   // Maximum concurrent batch requests
+dotenv.config({ path: path.resolve(__dirname, '../../.env') });
+
+interface BingXConfig {
+  apiKey: string;
+  secretKey: string;
+  baseURL: string;
+  demoMode: boolean;
+}
+
+interface EndpointMetadata {
+  url: string;
+  successRate: number;
+  lastSuccess: number;
+  avgResponseTime: number;
+  totalCalls: number;
+  failures: number;
+}
+
+interface CachedEndpointData {
+  symbols: any[];
+  tickers: any[];
+  lastUpdate: number;
+  source: string;
+}
+
+export class OptimizedBingXClient {
+  private axios: AxiosInstance;
+  private config: BingXConfig;
+  private endpointCache: Map<string, EndpointMetadata> = new Map();
+  private dataCache: CachedEndpointData | null = null;
+  private readonly CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+
+  // Pre-validated endpoints based on research and testing
+  private readonly PROVEN_ENDPOINTS = {
+    symbols: [
+      '/openApi/swap/v2/quote/contracts',  // Primary endpoint - highest success rate
+      '/openApi/swap/v1/quote/contracts'   // Reliable fallback
+    ],
+    tickers: [
+      '/openApi/swap/v2/quote/ticker',     // All tickers without params
+      '/openApi/swap/v1/quote/ticker'      // v1 fallback
+    ]
   };
 
   constructor() {

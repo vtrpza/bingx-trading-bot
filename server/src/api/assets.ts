@@ -1291,7 +1291,7 @@ router.get('/debug/rate-limit-status', asyncHandler(async (_req: Request, res: R
       ...status,
       timestamp: new Date().toISOString(),
       recommendation: status.rateLimitStatus.isRateLimited 
-        ? `Wait ${status.rateLimitStatus.remainingMinutes} minutes before making requests`
+        ? `Wait ${Math.ceil(status.rateLimitStatus.remainingSeconds / 60)} minutes before making requests`
         : 'Rate limiter is operational'
     }
   });

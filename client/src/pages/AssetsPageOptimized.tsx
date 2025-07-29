@@ -2,23 +2,25 @@ import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { useQuery, useQueryClient } from 'react-query'
 import { api } from '../services/api'
 import { toast } from 'react-hot-toast'
+import { FixedSizeList as List } from 'react-window'
+import AutoSizer from 'react-virtualized-auto-sizer'
 import type { Asset, PaginatedResponse } from '../types'
+import debounce from 'lodash/debounce'
 
-// Simple debounce utility function
-function debounce<T extends (...args: any[]) => any>(
-  func: T,
-  wait: number
-) {
-  let timeout: ReturnType<typeof setTimeout>
-  const debounced = (...args: Parameters<T>) => {
-    clearTimeout(timeout)
-    timeout = setTimeout(() => func(...args), wait)
+// Performance monitoring HOC
+const withPerformanceMonitoring = (name: string, fn: Function) => {
+  return (...args: any[]) => {
+    const start = performance.now()
+    const result = fn(...args)
+    const duration = performance.now() - start
+    if (duration > 16) { // Log if takes more than 1 frame (16ms)
+      console.warn(`[PERF] ${name} took ${duration.toFixed(2)}ms`)
+    }
+    return result
   }
-  debounced.cancel = () => clearTimeout(timeout)
-  return debounced
 }
 
-// Memoized table row component for performance
+// Memoized table row component
 const AssetRow = React.memo(({ 
   asset, 
   formatPercent, 
@@ -97,7 +99,38 @@ const AssetRow = React.memo(({
   )
 })
 
-export default function AssetsPage() {
+// Virtual row renderer for large datasets
+const VirtualRow = React.memo(({ index, style, data }: any) => {
+  const { assets, formatPercent, formatNumber, formatDate } = data
+  const asset = assets[index]
+  
+  return (
+    <div style={style} className="flex items-center border-b border-gray-200 hover:bg-gray-50">
+      <div className="flex-1 px-6 py-4">
+        <div className="font-medium text-gray-900">{asset.symbol}</div>
+        <div className="text-sm text-gray-500">{asset.baseCurrency}/{asset.quoteCurrency}</div>
+      </div>
+      <div className="flex-1 px-6 py-4 text-sm">${Number(asset.lastPrice).toFixed(4)}</div>
+      <div className="flex-1 px-6 py-4">
+        <span className={`text-sm font-medium ${
+          asset.priceChangePercent >= 0 ? 'text-green-600' : 'text-red-600'
+        }`}>
+          {formatPercent(asset.priceChangePercent)}
+        </span>
+      </div>
+      <div className="flex-1 px-6 py-4 text-sm">${formatNumber(asset.quoteVolume24h)}</div>
+      <div className="w-32 px-6 py-4">
+        <span className={`inline-flex items-center px-2 py-1 text-xs font-semibold rounded-full ${
+          asset.status === 'TRADING' ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'
+        }`}>
+          {asset.status}
+        </span>
+      </div>
+    </div>
+  )
+})
+
+export default function AssetsPageOptimized() {
   const [page, setPage] = useState(1)
   const [limit] = useState(20)
   const [sortBy, setSortBy] = useState('quoteVolume24h')
@@ -146,7 +179,7 @@ export default function AssetsPage() {
     allAssets: ['all-assets'] as const
   }), [page, limit, sortBy, sortOrder, debouncedSearch, status])
 
-  // Get assets data with pagination - optimized with debounced search
+  // Get assets data with pagination - optimized stale time
   const { data: assetsData, isLoading, refetch } = useQuery<PaginatedResponse<Asset>>(
     queryKeys.assets,
     () => api.getAssets({ 
@@ -165,7 +198,7 @@ export default function AssetsPage() {
       refetchOnReconnect: 'always'
     }
   )
-  
+
   // Get asset statistics with proper caching
   const { data: statsResponse } = useQuery(
     queryKeys.stats, 
@@ -178,8 +211,6 @@ export default function AssetsPage() {
   )
   
   const stats = (statsResponse as any)?.data || statsResponse
-
-
   const assets = (assetsData as any)?.data?.assets || []
   const pagination = (assetsData as any)?.data?.pagination
 
@@ -323,123 +354,16 @@ export default function AssetsPage() {
     }
   }, [queryClient, refetch])
 
-  // Handle full refresh (legacy)
-  const handleRefresh = async () => {
-    setIsRefreshing(true)
-    
-    // Loading inicial simples
-    setRefreshProgress({ 
-      progress: 0, 
-      message: 'Iniciando atualização...', 
-      processed: 0, 
-      total: 0,
-      executionTime: '',
-      performance: '',
-      current: ''
-    })
-    
-    toast.loading('Atualizando ativos da BingX...', { id: 'refresh-assets' })
-    
-    try {
-      await api.refreshAssets((progressData) => {
-        
-        // Update progress state com animação suave
-        setRefreshProgress({
-          progress: progressData.progress || 0,
-          message: progressData.message || '',
-          processed: progressData.processed || 0,
-          total: progressData.total || 0,
-          executionTime: progressData.executionTime || '',
-          performance: progressData.performance || '',
-          current: progressData.current || ''
-        })
-        
-        // Update toast with progress
-        if (progressData.type === 'progress') {
-          const emoji = progressData.progress < 30 ? '🔄' : 
-                        progressData.progress < 60 ? '⚡' : 
-                        progressData.progress < 90 ? '🚀' : '🏁'
-          
-          toast.loading(
-            `${emoji} ${progressData.message || 'Processando...'}\n📊 Progresso: ${progressData.progress || 0}%`,
-            { id: 'refresh-assets' }
-          )
-        } else if (progressData.type === 'completed') {
-          const performancePart = progressData.executionTime ? 
-            `\nConcluído em ${progressData.executionTime} (${progressData.performance || ''})` : '';
-          
-          const statusPart = progressData.statusDistribution ? 
-            `\n📊 Status: ${progressData.statusDistribution.TRADING || 0} ativos, ${progressData.statusDistribution.SUSPENDED || 0} suspensos, ${progressData.statusDistribution.DELISTED || 0} removidos` : '';
-          
-          toast.success(
-            `Todos os contratos sincronizados!\n${progressData.created || 0} criados, ${progressData.updated || 0} atualizados\n${progressData.processed || 0} contratos processados de ${progressData.total || 0} totais${statusPart}${performancePart}`,
-            { 
-              id: 'refresh-assets',
-              duration: 10000 
-            }
-          )
-          
-          // Update last update time and status breakdown
-          setLastUpdateTime(new Date().toLocaleString('pt-BR', {
-            timeZone: 'America/Sao_Paulo',
-            day: '2-digit',
-            month: '2-digit',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit',
-            second: '2-digit'
-          }))
-          
-          // Store status breakdown for display
-          if (progressData.statusDistribution) {
-            setStatusBreakdown(progressData.statusDistribution)
-          }
-          
-          // Invalidate and refetch all related queries after completion
-          queryClient.invalidateQueries(['assets'])
-          queryClient.invalidateQueries(['all-assets'])
-          queryClient.invalidateQueries('asset-stats')
-        } else if (progressData.type === 'error') {
-          toast.error(progressData.message || 'Erro durante a atualização', { id: 'refresh-assets' })
-        }
-      })
-      
-      // Additional manual refetch as backup
-      await refetch()
-      
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Falha ao atualizar ativos'
-      toast.error(errorMessage, { id: 'refresh-assets' })
-    } finally {
-      setIsRefreshing(false)
-      setRefreshProgress({ 
-        progress: 0, 
-        message: '', 
-        processed: 0, 
-        total: 0, 
-        executionTime: '', 
-        performance: '',
-        current: ''
-      })
-      
-      // Ensure cache invalidation happens even on error for consistency
-      queryClient.invalidateQueries(['assets'])
-      queryClient.invalidateQueries(['all-assets'])
-      queryClient.invalidateQueries('asset-stats')
-    }
-  }
-
-
   // Optimized clear database handler
   const handleClearDatabase = useCallback(async () => {
     const confirmed = window.confirm(
-      '⚠️ ATENÇÃO!\n\nEsta ação irá REMOVER TODOS OS ATIVOS do banco de dados.\n\nVocê tem certeza que deseja continuar?\n\nClique OK para confirmar ou Cancelar para abortar.'
+      '⚠️ ATENÇÃO!\\n\\nEsta ação irá REMOVER TODOS OS ATIVOS do banco de dados.\\n\\nVocê tem certeza que deseja continuar?\\n\\nClique OK para confirmar ou Cancelar para abortar.'
     )
     
     if (!confirmed) return
     
     const doubleConfirm = window.confirm(
-      '🚨 CONFIRMAÇÃO FINAL\n\nEsta é sua última chance!\n\nTodos os dados de ativos serão PERMANENTEMENTE REMOVIDOS.\n\nTem ABSOLUTA CERTEZA?'
+      '🚨 CONFIRMAÇÃO FINAL\\n\\nEsta é sua última chance!\\n\\nTodos os dados de ativos serão PERMANENTEMENTE REMOVIDOS.\\n\\nTem ABSOLUTA CERTEZA?'
     )
     
     if (!doubleConfirm) return
@@ -453,7 +377,7 @@ export default function AssetsPage() {
       const deletedCount = result?.deletedCount || 0
       
       toast.success(
-        `🎉 Banco de dados limpo com sucesso!\n${deletedCount} ativos removidos`,
+        `🎉 Banco de dados limpo com sucesso!\\n${deletedCount} ativos removidos`,
         { 
           id: 'clear-assets',
           duration: 5000 
@@ -479,7 +403,7 @@ export default function AssetsPage() {
     }
   }, [queryClient])
 
-  // Memoized progress bar component for better performance
+  // Memoized progress bar component
   const ProgressBar = useMemo(() => {
     if (!isRefreshing) return null
     
@@ -517,53 +441,75 @@ export default function AssetsPage() {
                 style={{ width: `${refreshProgress.progress || 0}%` }}
               />
             </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs text-blue-600 mt-3">
-              <div className="text-center">
-                <div className="font-semibold text-blue-800">📊 Progresso</div>
-                <div className="font-mono">
-                  {refreshProgress.processed || 0}/{refreshProgress.total || '?'} contratos
-                </div>
-              </div>
-              
-              {refreshProgress.performance && (
-                <div className="text-center">
-                  <div className="font-semibold text-green-700">⚡ Performance</div>
-                  <div className="font-mono text-green-600">
-                    {refreshProgress.performance} contratos/seg
-                  </div>
-                </div>
-              )}
-              
-              {refreshProgress.executionTime && (
-                <div className="text-center">
-                  <div className="font-semibold text-purple-700">⏱️ Tempo</div>
-                  <div className="font-mono text-purple-600">
-                    {refreshProgress.executionTime}s
-                  </div>
-                </div>
-              )}
-            </div>
-            
-            {refreshProgress.current && (
-              <div className="mt-2 text-center">
-                <div className="text-xs text-blue-500">
-                  Processando: <span className="font-mono font-medium text-blue-700">{refreshProgress.current}</span>
-                </div>
-              </div>
-            )}
           </div>
         </div>
       </div>
     )
   }, [isRefreshing, refreshProgress])
 
+  // Virtualized table for large datasets
+  const virtualizedTable = useMemo(() => {
+    if (assets.length > 100) {
+      return (
+        <div style={{ height: '600px' }}>
+          <AutoSizer>
+            {({ height, width }) => (
+              <List
+                height={height}
+                itemCount={assets.length}
+                itemSize={60}
+                width={width}
+                itemData={{
+                  assets,
+                  formatPercent,
+                  formatNumber,
+                  formatDate
+                }}
+              >
+                {VirtualRow}
+              </List>
+            )}
+          </AutoSizer>
+        </div>
+      )
+    }
+    
+    // Regular table for smaller datasets
+    return (
+      <tbody className="bg-white divide-y divide-gray-200">
+        {isLoading ? (
+          <tr>
+            <td colSpan={10} className="px-6 py-4 text-center text-gray-500">
+              Carregando ativos...
+            </td>
+          </tr>
+        ) : assets.length === 0 ? (
+          <tr>
+            <td colSpan={10} className="px-6 py-4 text-center text-gray-500">
+              Nenhum ativo encontrado
+            </td>
+          </tr>
+        ) : (
+          assets.map((asset: Asset) => (
+            <AssetRow 
+              key={asset.id}
+              asset={asset}
+              formatPercent={formatPercent}
+              formatNumber={formatNumber}
+              formatDate={formatDate}
+            />
+          ))
+        )}
+      </tbody>
+    )
+  }, [assets, isLoading, formatPercent, formatNumber, formatDate])
+
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex justify-between items-center">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Análise de Ativos</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Análise de Ativos (Otimizada)</h1>
           {lastUpdateTime && (
             <p className="text-sm text-gray-600 mt-1">
               🕒 Última atualização: <span className="font-medium text-blue-600">{lastUpdateTime}</span> (UTC-3)
@@ -571,21 +517,6 @@ export default function AssetsPage() {
           )}
         </div>
         <div className="flex gap-3">
-          {/* <button
-            onClick={handleUpdateCoinNames}
-            disabled={isRefreshing || isClearing}
-            className={`btn flex items-center gap-2 px-4 py-3 rounded-lg font-medium transition-all ${
-              isRefreshing || isClearing
-                ? 'bg-purple-100 text-purple-700 border border-purple-300 cursor-not-allowed' 
-                : 'bg-purple-600 text-white hover:bg-purple-700 border border-purple-600'
-            }`}
-          >
-            <>
-              <span>🪙</span>
-              <span>Atualizar Nomes</span>
-            </>
-          </button>
-           */}
           <button
             onClick={handleClearDatabase}
             disabled={isClearing || isRefreshing}
@@ -629,93 +560,11 @@ export default function AssetsPage() {
               </>
             )}
           </button>
-          
-          <button
-            onClick={handleRefresh}
-            disabled={isRefreshing || isClearing}
-            className={`btn flex items-center gap-2 px-4 py-3 rounded-lg font-medium transition-all ${
-              isRefreshing || isClearing
-                ? 'bg-blue-100 text-blue-700 border border-blue-300 cursor-not-allowed' 
-                : 'bg-blue-600 text-white hover:bg-blue-700 border border-blue-600'
-            }`}
-          >
-            {isRefreshing ? (
-              <>
-                <div className="w-4 h-4 border-2 border-blue-300 border-t-blue-600 rounded-full animate-spin"></div>
-                <span>🔄 Completo...</span>
-              </>
-            ) : (
-              <>
-                <span>🔄</span>
-                <span>Refresh Completo</span>
-              </>
-            )}
-          </button>
         </div>
       </div>
 
-      {/* Progress Bar - Memoized for Performance */}
+      {/* Progress Bar */}
       {ProgressBar}
-
-
-      {/* Contract Status Breakdown */}
-      {statusBreakdown && (
-        <div className="card p-6">
-          <h3 className="text-lg font-medium text-gray-900 mb-4">📊 Distribuição de Status dos Contratos</h3>
-          <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
-            <div className="text-center">
-              <div className="text-2xl font-bold text-green-600">{statusBreakdown.TRADING || 0}</div>
-              <div className="text-xs text-gray-500 flex items-center justify-center gap-1">
-                <span>🟢</span>
-                <span>Negociando</span>
-              </div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-yellow-600">{statusBreakdown.SUSPENDED || 0}</div>
-              <div className="text-xs text-gray-500 flex items-center justify-center gap-1">
-                <span>🟡</span>
-                <span>Suspenso</span>
-              </div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-red-600">{statusBreakdown.DELISTED || 0}</div>
-              <div className="text-xs text-gray-500 flex items-center justify-center gap-1">
-                <span>🔴</span>
-                <span>Removido</span>
-              </div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-blue-600">{statusBreakdown.MAINTENANCE || 0}</div>
-              <div className="text-xs text-gray-500 flex items-center justify-center gap-1">
-                <span>🔵</span>
-                <span>Manutenção</span>
-              </div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-purple-600">{statusBreakdown.INVALID || 0}</div>
-              <div className="text-xs text-gray-500 flex items-center justify-center gap-1">
-                <span>🟣</span>
-                <span>Inválido</span>
-              </div>
-            </div>
-            <div className="text-center">
-              <div className="text-2xl font-bold text-gray-600">{statusBreakdown.UNKNOWN || 0}</div>
-              <div className="text-xs text-gray-500 flex items-center justify-center gap-1">
-                <span>⚪</span>
-                <span>Desconhecido</span>
-              </div>
-            </div>
-          </div>
-          <div className="mt-4 pt-4 border-t border-gray-200">
-            <div className="text-center">
-              <div className="text-xl font-bold text-gray-800">
-                {Object.values(statusBreakdown).reduce((total: number, count: any) => total + (count || 0), 0)}
-              </div>
-              <div className="text-sm text-gray-600">Total de Ativos</div>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Statistics Cards */}
       {stats && (
@@ -736,10 +585,7 @@ export default function AssetsPage() {
             <input
               type="text"
               value={search}
-              onChange={(e) => {
-                setSearch(e.target.value)
-                setPage(1)
-              }}
+              onChange={(e) => setSearch(e.target.value)}
               placeholder="Buscar por símbolo ou nome..."
               className="input"
             />
@@ -775,135 +621,91 @@ export default function AssetsPage() {
 
       {/* Assets Table */}
       <div className={`card overflow-hidden ${isRefreshing ? 'ring-2 ring-blue-200 bg-blue-50/30' : ''}`}>
-        {isRefreshing && (
-          <div className="bg-gradient-to-r from-blue-100 to-blue-50 border-b border-blue-200 px-6 py-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2 text-blue-800">
-                <div className="w-3 h-3 border border-blue-400 border-t-blue-600 rounded-full animate-spin"></div>
-                <span className="text-sm font-medium">Base de dados sendo sincronizada...</span>
-              </div>
-              {refreshProgress.total > 0 && (
-                <div className="text-xs text-blue-700">
-                  {refreshProgress.processed}/{refreshProgress.total} ({refreshProgress.progress || 0}%)
-                </div>
-              )}
-            </div>
-          </div>
-        )}
         <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th 
-                  onClick={() => handleSort('symbol')}
-                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                >
-                  Símbolo {sortBy === 'symbol' && (sortOrder === 'ASC' ? '↑' : '↓')}
-                </th>
-                <th 
-                  onClick={() => handleSort('name')}
-                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                >
-                  Nome {sortBy === 'name' && (sortOrder === 'ASC' ? '↑' : '↓')}
-                </th>
-                <th 
-                  onClick={() => handleSort('lastPrice')}
-                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                >
-                  Preço {sortBy === 'lastPrice' && (sortOrder === 'ASC' ? '↑' : '↓')}
-                </th>
-                <th 
-                  onClick={() => handleSort('priceChangePercent')}
-                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                >
-                  Variação 24h {sortBy === 'priceChangePercent' && (sortOrder === 'ASC' ? '↑' : '↓')}
-                </th>
-                <th 
-                  onClick={() => handleSort('quoteVolume24h')}
-                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                >
-                  Volume (24h) {sortBy === 'quoteVolume24h' && (sortOrder === 'ASC' ? '↑' : '↓')}
-                </th>
-                <th 
-                  onClick={() => handleSort('highPrice24h')}
-                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                >
-                  Máxima 24h {sortBy === 'highPrice24h' && (sortOrder === 'ASC' ? '↑' : '↓')}
-                </th>
-                <th 
-                  onClick={() => handleSort('lowPrice24h')}
-                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                >
-                  Mínima 24h {sortBy === 'lowPrice24h' && (sortOrder === 'ASC' ? '↑' : '↓')}
-                </th>
-                <th 
-                  onClick={() => handleSort('maxLeverage')}
-                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                >
-                  Alavancagem Máx {sortBy === 'maxLeverage' && (sortOrder === 'ASC' ? '↑' : '↓')}
-                </th>
-                <th 
-                  onClick={() => handleSort('status')}
-                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                >
-                  Status {sortBy === 'status' && (sortOrder === 'ASC' ? '↑' : '↓')}
-                </th>
-                <th 
-                  onClick={() => handleSort('updatedAt')}
-                  className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
-                >
-                  Última Atualização {sortBy === 'updatedAt' && (sortOrder === 'ASC' ? '↑' : '↓')}
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {isLoading ? (
+          {assets.length <= 100 ? (
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
                 <tr>
-                  <td colSpan={10} className="px-6 py-4 text-center text-gray-500">
-                    Carregando ativos...
-                  </td>
+                  <th 
+                    onClick={() => handleSort('symbol')}
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                  >
+                    Símbolo {sortBy === 'symbol' && (sortOrder === 'ASC' ? '↑' : '↓')}
+                  </th>
+                  <th 
+                    onClick={() => handleSort('name')}
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                  >
+                    Nome {sortBy === 'name' && (sortOrder === 'ASC' ? '↑' : '↓')}
+                  </th>
+                  <th 
+                    onClick={() => handleSort('lastPrice')}
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                  >
+                    Preço {sortBy === 'lastPrice' && (sortOrder === 'ASC' ? '↑' : '↓')}
+                  </th>
+                  <th 
+                    onClick={() => handleSort('priceChangePercent')}
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                  >
+                    Variação 24h {sortBy === 'priceChangePercent' && (sortOrder === 'ASC' ? '↑' : '↓')}
+                  </th>
+                  <th 
+                    onClick={() => handleSort('quoteVolume24h')}
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                  >
+                    Volume (24h) {sortBy === 'quoteVolume24h' && (sortOrder === 'ASC' ? '↑' : '↓')}
+                  </th>
+                  <th 
+                    onClick={() => handleSort('highPrice24h')}
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                  >
+                    Máxima 24h {sortBy === 'highPrice24h' && (sortOrder === 'ASC' ? '↑' : '↓')}
+                  </th>
+                  <th 
+                    onClick={() => handleSort('lowPrice24h')}
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                  >
+                    Mínima 24h {sortBy === 'lowPrice24h' && (sortOrder === 'ASC' ? '↑' : '↓')}
+                  </th>
+                  <th 
+                    onClick={() => handleSort('maxLeverage')}
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                  >
+                    Alavancagem Máx {sortBy === 'maxLeverage' && (sortOrder === 'ASC' ? '↑' : '↓')}
+                  </th>
+                  <th 
+                    onClick={() => handleSort('status')}
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                  >
+                    Status {sortBy === 'status' && (sortOrder === 'ASC' ? '↑' : '↓')}
+                  </th>
+                  <th 
+                    onClick={() => handleSort('updatedAt')}
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                  >
+                    Última Atualização {sortBy === 'updatedAt' && (sortOrder === 'ASC' ? '↑' : '↓')}
+                  </th>
                 </tr>
-              ) : assets.length === 0 ? (
-                <tr>
-                  <td colSpan={10} className="px-6 py-4 text-center text-gray-500">
-                    Nenhum ativo encontrado
-                  </td>
-                </tr>
-              ) : (
-                assets.map((asset: Asset) => (
-                  <AssetRow 
-                    key={asset.id}
-                    asset={asset}
-                    formatPercent={formatPercent}
-                    formatNumber={formatNumber}
-                    formatDate={formatDate}
-                  />
-                ))
-              )}
-            </tbody>
-          </table>
+              </thead>
+              {virtualizedTable}
+            </table>
+          ) : (
+            <div>
+              <div className="bg-gray-50 px-6 py-3 border-b border-gray-200">
+                <h3 className="text-sm font-medium text-gray-700">
+                  Modo de visualização virtual ativado ({assets.length} ativos)
+                </h3>
+              </div>
+              {virtualizedTable}
+            </div>
+          )}
         </div>
 
         {/* Pagination */}
         {pagination && pagination.totalPages > 1 && (
           <div className="bg-white px-4 py-3 border-t border-gray-200 sm:px-6">
             <div className="flex items-center justify-between">
-              <div className="flex-1 flex justify-between sm:hidden">
-                <button
-                  onClick={() => setPage(Math.max(1, page - 1))}
-                  disabled={page === 1}
-                  className="btn btn-secondary"
-                >
-                  Anterior
-                </button>
-                <button
-                  onClick={() => setPage(Math.min(pagination.totalPages, page + 1))}
-                  disabled={page === pagination.totalPages}
-                  className="btn btn-secondary"
-                >
-                  Próximo
-                </button>
-              </div>
               <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
                 <div>
                   <p className="text-sm text-gray-700">
