@@ -7,9 +7,15 @@ export function validateEnvironment(): { valid: boolean; warnings: string[] } {
   const warnings: string[] = [];
   let valid = true;
 
+  const isDevelopment = process.env.NODE_ENV === 'development';
+
   // Critical environment variables
   const critical = [
-    'NODE_ENV',
+    'NODE_ENV'
+  ];
+
+  // Critical for production only
+  const productionCritical = [
     'DATABASE_URL'
   ];
 
@@ -25,6 +31,20 @@ export function validateEnvironment(): { valid: boolean; warnings: string[] } {
     if (!process.env[envVar]) {
       logger.error(`❌ Missing critical environment variable: ${envVar}`);
       valid = false;
+    } else {
+      logger.info(`✅ ${envVar} is configured`);
+    }
+  }
+
+  // Check production-critical variables
+  for (const envVar of productionCritical) {
+    if (!process.env[envVar]) {
+      if (isDevelopment) {
+        logger.warn(`⚠️  Production variable ${envVar} not set (using defaults for development)`);
+      } else {
+        logger.error(`❌ Missing critical production variable: ${envVar}`);
+        valid = false;
+      }
     } else {
       logger.info(`✅ ${envVar} is configured`);
     }
