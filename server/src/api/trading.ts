@@ -5,7 +5,7 @@ import { PerformanceMonitor } from '../trading/PerformanceMonitor';
 import { ultraPerformanceConfig, highFrequencyConfig, conservativeConfig, ConfigurationOptimizer } from '../trading/ParallelBotConfiguration';
 import { bingxClient } from '../services/bingxClient';
 import { apiRequestManager } from '../services/APIRequestManager';
-import { globalRateLimiter } from '../services/rateLimiter';
+import { bingxRateLimiter } from '../services/bingxRateLimiter';
 import Trade from '../models/Trade';
 import { AppError, asyncHandler } from '../utils/errorHandler';
 import { logger } from '../utils/logger';
@@ -785,35 +785,89 @@ function mapEventTypeToTimelineKey(eventType: string): string {
 
 // Get parallel bot status
 router.get('/parallel-bot/status', asyncHandler(async (_req: Request, res: Response) => {
-  const parallelBot = getParallelTradingBot();
-  const status = await parallelBot.getStatus();
-  
-  // Get account balance using APIRequestManager
-  let balance = null;
   try {
-    const balanceData: any = await apiRequestManager.getBalance();
-    if (balanceData.code === 0 && balanceData.data) {
-      balance = balanceData.data.balance;
-    }
+    logger.info('🤖 Parallel bot status request started');
+    
+    // Add timeout for the entire operation
+    const timeoutPromise = new Promise((_, reject) => {
+      setTimeout(() => reject(new Error('Parallel bot status timeout after 30 seconds')), 30000);
+    });
+    
+    const statusPromise = (async () => {
+      logger.info('🔄 Getting parallel bot instance...');
+      const parallelBot = getParallelTradingBot();
+      
+      logger.info('📊 Getting bot status...');
+      const status = await parallelBot.getStatus();
+      
+      // Get account balance with timeout
+      let balance = null;
+      try {
+        logger.info('💰 Getting balance...');
+        const balancePromise = apiRequestManager.getBalance();
+        const balanceTimeout = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Balance request timeout')), 10000);
+        });
+        
+        const balanceData: any = await Promise.race([balancePromise, balanceTimeout]);
+        if (balanceData.code === 0 && balanceData.data) {
+          balance = balanceData.data.balance;
+        }
+        logger.info('✅ Balance retrieved successfully');
+      } catch (error) {
+        logger.error('❌ Failed to get balance:', error);
+      }
+      
+      // Get position manager data with error handling
+      let managedPositions: any[] = [];
+      let positionMetrics: any = {};
+      
+      try {
+        logger.info('📈 Getting managed positions...');
+        managedPositions = parallelBot.getManagedPositions();
+        logger.info('📊 Getting position metrics...');
+        positionMetrics = parallelBot.getPositionMetrics();
+        logger.info('✅ Position data retrieved successfully');
+      } catch (error) {
+        logger.error('❌ Failed to get position data:', error);
+      }
+      
+      return {
+        success: true,
+        data: {
+          ...status,
+          balance,
+          demoMode: process.env.DEMO_MODE === 'true',
+          architecture: 'parallel',
+          managedPositions: managedPositions.length,
+          positionMetrics
+        }
+      };
+    })();
+    
+    const result = await Promise.race([statusPromise, timeoutPromise]);
+    logger.info('✅ Parallel bot status completed successfully');
+    res.json(result);
+    
   } catch (error) {
-    logger.error('Failed to get balance:', error);
+    logger.error('❌ Parallel bot status failed:', {
+      error: error instanceof Error ? error.message : error,
+      stack: error instanceof Error ? error.stack : undefined,
+      timeout: error instanceof Error && error.message.includes('timeout')
+    });
+    
+    // Return a basic status in case of errors
+    res.json({
+      success: false,
+      error: 'Parallel bot status unavailable',
+      data: {
+        isRunning: false,
+        architecture: 'parallel',
+        demoMode: process.env.DEMO_MODE === 'true',
+        error: error instanceof Error ? error.message : 'Unknown error'
+      }
+    });
   }
-  
-  // Get position manager data
-  const managedPositions = parallelBot.getManagedPositions();
-  const positionMetrics = parallelBot.getPositionMetrics();
-  
-  res.json({
-    success: true,
-    data: {
-      ...status,
-      balance,
-      demoMode: process.env.DEMO_MODE === 'true',
-      architecture: 'parallel',
-      managedPositions: managedPositions.length,
-      positionMetrics
-    }
-  });
 }));
 
 // Start parallel trading bot
@@ -853,7 +907,7 @@ router.post('/parallel-bot/start', asyncHandler(async (_req: Request, res: Respo
     message: 'Parallel trading bot started successfully',
     data: {
       config: startedStatus.config,
-      rateLimitStatus: globalRateLimiter.getStatus()
+      rateLimitStatus: bingxRateLimiter.getStatus()
     }
   });
 }));
@@ -1072,7 +1126,7 @@ router.get('/parallel-bot/realtime-info', asyncHandler(async (_req: Request, res
 router.get('/parallel-bot/rate-limit', asyncHandler(async (_req: Request, res: Response) => {
   res.json({
     success: true,
-    data: globalRateLimiter.getStatus()
+    data: bingxRateLimiter.getStatus()
   });
 }));
 
