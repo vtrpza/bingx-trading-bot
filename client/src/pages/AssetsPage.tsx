@@ -3,7 +3,6 @@ import { useQuery, useQueryClient } from 'react-query'
 import { api } from '../services/api'
 import { toast } from 'react-hot-toast'
 import type { Asset, PaginatedResponse } from '../types'
-import { useTranslation } from '../hooks/useTranslation'
 
 export default function AssetsPage() {
   const [page, setPage] = useState(1)
@@ -14,7 +13,6 @@ export default function AssetsPage() {
   const [status, setStatus] = useState('TRADING')
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [isClearing, setIsClearing] = useState(false)
-  const [isUpdatingNames, setIsUpdatingNames] = useState(false)
   const [refreshProgress, setRefreshProgress] = useState({ 
     progress: 0, 
     message: '', 
@@ -26,7 +24,6 @@ export default function AssetsPage() {
   })
   const [lastUpdateTime, setLastUpdateTime] = useState<string>('')
   const [statusBreakdown, setStatusBreakdown] = useState<any>(null)
-  const { t } = useTranslation()
   const queryClient = useQueryClient()
 
   // Get assets data with pagination
@@ -264,34 +261,6 @@ export default function AssetsPage() {
     }
   }
 
-  // Handle update coin names
-  const handleUpdateCoinNames = async () => {
-    setIsUpdatingNames(true)
-    toast.loading('🪙 Atualizando nomes das moedas...', { id: 'update-coin-names' })
-    
-    try {
-      const result = await api.updateCoinNames()
-      
-      toast.success(
-        `🎉 Nomes atualizados com sucesso!\n${result.updated} de ${result.totalAssets} ativos atualizados`,
-        { 
-          id: 'update-coin-names',
-          duration: 5000 
-        }
-      )
-      
-      // Invalidate cache to refresh UI
-      queryClient.invalidateQueries(['assets'])
-      queryClient.invalidateQueries(['all-assets'])
-      queryClient.invalidateQueries('asset-stats')
-      
-    } catch (error: any) {
-      const errorMessage = error?.message || 'Falha ao atualizar nomes das moedas'
-      toast.error(`❌ ${errorMessage}`, { id: 'update-coin-names', duration: 8000 })
-    } finally {
-      setIsUpdatingNames(false)
-    }
-  }
 
   // Handle clear database
   const handleClearDatabase = async () => {
@@ -424,9 +393,9 @@ export default function AssetsPage() {
         <div className="flex gap-3">
           {/* <button
             onClick={handleUpdateCoinNames}
-            disabled={isUpdatingNames || isRefreshing || isClearing}
+            disabled={isRefreshing || isClearing}
             className={`btn flex items-center gap-2 px-4 py-3 rounded-lg font-medium transition-all ${
-              isUpdatingNames || isRefreshing || isClearing
+              isRefreshing || isClearing
                 ? 'bg-purple-100 text-purple-700 border border-purple-300 cursor-not-allowed' 
                 : 'bg-purple-600 text-white hover:bg-purple-700 border border-purple-600'
             }`}
@@ -451,9 +420,9 @@ export default function AssetsPage() {
               console.log('🎯 isRefreshing:', isRefreshing)
               handleClearDatabase()
             }}
-            disabled={isClearing || isRefreshing || isUpdatingNames}
+            disabled={isClearing || isRefreshing}
             className={`btn flex items-center gap-2 px-4 py-3 rounded-lg font-medium transition-all ${
-              isClearing || isRefreshing || isUpdatingNames
+              isClearing || isRefreshing
                 ? 'bg-red-100 text-red-700 border border-red-300 cursor-not-allowed' 
                 : 'bg-red-600 text-white hover:bg-red-700 border border-red-600'
             }`}

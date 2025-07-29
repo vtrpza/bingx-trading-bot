@@ -22,7 +22,7 @@ const server = createServer(app);
 const PORT = process.env.PORT || 3001;
 
 // Validate environment on startup
-const envCheck = validateEnvironment();
+validateEnvironment();
 // Environment validation now logs its own status messages
 
 // Middleware - Configure helmet with relaxed CSP

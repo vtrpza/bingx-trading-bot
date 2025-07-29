@@ -78,7 +78,7 @@ const validateField = (field: string, value: number, config?: any): { isValid: b
 }
 
 // Perfis de trading predefinidos
-const getTradingProfiles = (t: any) => ({
+const getTradingProfiles = () => ({
   conservative: {
     name: 'Conservativo',
     description: 'Estratégia segura com baixo risco',

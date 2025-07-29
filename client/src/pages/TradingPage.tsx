@@ -14,14 +14,12 @@ import RastreadorExecucaoSinal from '../components/RastreadorExecucaoSinal'
 import type { BotStatus2, BotConfig } from '../types'
 import { useWebSocket } from '../hooks/useWebSocket'
 import { useLocalStorage } from '../hooks/useLocalStorage'
-import { useTranslation } from '../hooks/useTranslation'
 
 export default function TradingPage() {
   // Removendo tabs - agora é um dashboard unificado
   const [showHistoryModal, setShowHistoryModal] = useLocalStorage('tradingPageShowHistory', false)
   const [selectedSymbol] = useLocalStorage<string | null>('tradingPageSelectedSymbol', null)
   const queryClient = useQueryClient()
-  const { t } = useTranslation()
 
   // Get parallel bot status
   const { data: botStatus, isLoading } = useQuery<BotStatus2>(

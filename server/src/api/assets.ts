@@ -1438,7 +1438,7 @@ router.post('/update-coin-names', asyncHandler(async (_req: Request, res: Respon
     });
     
     if (assets.length === 0) {
-      return res.json({
+      res.json({
         success: false,
         message: 'No assets found in database',
         data: {
@@ -1447,6 +1447,7 @@ router.post('/update-coin-names', asyncHandler(async (_req: Request, res: Respon
           cacheInfo: CoinInfoService.getCacheInfo()
         }
       });
+      return;
     }
     
     // Extract symbols for API call
@@ -1480,6 +1481,7 @@ router.post('/update-coin-names', asyncHandler(async (_req: Request, res: Respon
         cacheInfo: CoinInfoService.getCacheInfo()
       }
     });
+    return;
     
   } catch (error: any) {
     logger.error('Error updating coin names:', error);
@@ -1488,6 +1490,7 @@ router.post('/update-coin-names', asyncHandler(async (_req: Request, res: Respon
       message: 'Failed to update coin names',
       error: error.message
     });
+    return;
   }
 }));
 

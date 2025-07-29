@@ -1,12 +1,6 @@
 import axios from 'axios';
 import { logger } from '../utils/logger';
 
-interface CoinGeckoSimpleResponse {
-  [key: string]: {
-    name: string;
-    symbol: string;
-  };
-}
 
 class CoinInfoService {
   private static coinCache = new Map<string, string>();
