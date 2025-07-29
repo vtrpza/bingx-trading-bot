@@ -51,10 +51,10 @@ if (databaseUrl && databaseUrl.includes('postgresql')) {
     },
     // Define hooks for connection monitoring
     hooks: {
-      beforeConnect: async (config) => {
+      beforeConnect: async () => {
         logger.info('Attempting to connect to PostgreSQL database...');
       },
-      afterConnect: async (connection, config) => {
+      afterConnect: async () => {
         logger.info('Successfully connected to PostgreSQL database');
       }
     }

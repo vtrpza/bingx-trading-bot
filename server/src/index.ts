@@ -154,8 +154,9 @@ async function startServer() {
     logger.info('Database models will be managed by migration scripts');
     
     // Start the server - bind to 0.0.0.0 for Render
-    server.listen(PORT, '0.0.0.0', () => {
-      logger.info(`Server running on 0.0.0.0:${PORT} in ${process.env.NODE_ENV} mode`);
+    const port = parseInt(PORT as string, 10) || 3001;
+    server.listen(port, '0.0.0.0', () => {
+      logger.info(`Server running on 0.0.0.0:${port} in ${process.env.NODE_ENV} mode`);
       
       // Start trading bot if enabled
       if (process.env.AUTO_START_BOT === 'true') {
