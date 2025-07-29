@@ -130,25 +130,25 @@ export default function TradingPage() {
   })
 
   // Extract botStatus from response for component use with comprehensive safety
-  const botStatus = useMemo(() => {
+  const botStatus = useMemo((): BotStatus2 | undefined => {
     try {
       console.log('🔍 Extracting botStatus from response:', botStatusResponse)
       
       if (!botStatusResponse) {
         console.warn('⚠️ botStatusResponse is null/undefined')
-        return null
+        return undefined
       }
       
       if (!botStatusResponse.data) {
         console.warn('⚠️ botStatusResponse.data is null/undefined:', botStatusResponse)
-        return null
+        return undefined
       }
       
       console.log('✅ Extracted botStatus:', botStatusResponse.data)
       return botStatusResponse.data
     } catch (error) {
       console.error('❌ Error extracting botStatus:', error)
-      return null
+      return undefined
     }
   }, [botStatusResponse])
 
@@ -284,7 +284,7 @@ export default function TradingPage() {
       console.log('🔍 activePositions calc - botStatus:', botStatus, 'activePositions:', botStatus?.activePositions)
       
       if (!botStatus) {
-        console.log('🚫 botStatus is null, returning empty array')
+        console.log('🚫 botStatus is undefined, returning empty array')
         return []
       }
       
@@ -318,7 +318,7 @@ export default function TradingPage() {
       console.log('🔍 isDemoMode calc - botStatus:', botStatus, 'demoMode:', botStatus?.demoMode)
       
       if (!botStatus) {
-        console.log('🚫 botStatus is null, defaulting to demo mode')
+        console.log('🚫 botStatus is undefined, defaulting to demo mode')
         return true
       }
       
