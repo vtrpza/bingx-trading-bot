@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { useTranslation } from '../hooks/useTranslation'
 import type { BotStatus2, BotConfig } from '../types'
 
 // Utility function for safe number parsing
