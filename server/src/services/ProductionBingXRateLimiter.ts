@@ -71,20 +71,20 @@ export class ProductionBingXRateLimiter {
   private rateLimitRecoveryTime: number = 0;
   private recoveryTimeoutId: NodeJS.Timeout | null = null;
 
-  // OFFICIAL BINGX RATE LIMITS (April 2024) - Strict Compliance
+  // OFFICIAL BINGX RATE LIMITS - RENDER OPTIMIZED CONFIGURATION
   private readonly MARKET_DATA_CONFIG: RateLimitConfig = {
-    maxConcurrent: 2,      // Conservative concurrent requests
-    minTime: 105,          // 105ms = ~9.5 requests/second (safe buffer from 10/s burst)
-    reservoir: 95,         // Start with 95 tokens (5 token safety buffer from 100 limit)
-    reservoirRefreshAmount: 95,
+    maxConcurrent: process.env.NODE_ENV === 'development' ? 1 : 2,      // More conservative on Render
+    minTime: process.env.NODE_ENV === 'development' ? 150 : 105,        // Slower on Render: ~6.7 req/s vs 9.5 req/s
+    reservoir: process.env.NODE_ENV === 'development' ? 80 : 95,        // Lower starting tokens on Render
+    reservoirRefreshAmount: process.env.NODE_ENV === 'development' ? 80 : 95,
     reservoirRefreshInterval: 10 * 1000 // Exact 10 seconds per BingX spec
   };
 
   private readonly ACCOUNT_TRADING_CONFIG: RateLimitConfig = {
-    maxConcurrent: 3,      // Reduced for safety - BingX has per-endpoint sub-limits
-    minTime: 12,           // 12ms = ~83 requests/second (safe buffer from 100/s burst)
-    reservoir: 950,        // Start with 950 tokens (50 token safety buffer from 1000 limit)
-    reservoirRefreshAmount: 950,
+    maxConcurrent: process.env.NODE_ENV === 'development' ? 2 : 3,      // More conservative on Render
+    minTime: process.env.NODE_ENV === 'development' ? 20 : 12,          // Slower on Render: ~50 req/s vs 83 req/s
+    reservoir: process.env.NODE_ENV === 'development' ? 800 : 950,      // Lower starting tokens on Render
+    reservoirRefreshAmount: process.env.NODE_ENV === 'development' ? 800 : 950,
     reservoirRefreshInterval: 10 * 1000 // Exact 10 seconds per BingX spec
   };
 
@@ -250,11 +250,18 @@ export class ProductionBingXRateLimiter {
     const startTime = Date.now();
     this.metrics.totalRequests++;
 
-    // Check rate limit recovery
+    // RENDER FIX: Intelligent rate limit recovery
     if (this.isRateLimited) {
       const remainingTime = this.rateLimitRecoveryTime - Date.now();
       if (remainingTime > 0) {
-        throw new Error(`BingX rate limit active. Recovery in ${Math.ceil(remainingTime / 1000)}s`);
+        // Instead of throwing immediately, wait for recovery if it's a short wait
+        if (remainingTime <= 15000) { // Wait up to 15 seconds
+          logger.info(`⏳ RENDER: Auto-waiting for rate limit recovery (${Math.ceil(remainingTime / 1000)}s)`);
+          await new Promise(resolve => setTimeout(resolve, remainingTime + 1000)); // Add 1s buffer
+          await this.recoverFromRateLimit();
+        } else {
+          throw new Error(`BingX rate limit active. Recovery in ${Math.ceil(remainingTime / 1000)}s`);
+        }
       } else {
         await this.recoverFromRateLimit();
       }

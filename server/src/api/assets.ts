@@ -549,22 +549,65 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
     let tickersResponse;
     
     try {
-      // RENDER CRITICAL: Add circuit breaker pattern for API calls
+      // RENDER CRITICAL: Add circuit breaker pattern for API calls with retry logic
       const apiStartTime = Date.now();
       logger.info('📡 RENDER: Starting BingX API calls with timeout protection...');
       
-      // Wrap API call with timeout and memory monitoring
-      const apiCallPromise = bingxClient.getSymbolsAndTickersOptimized();
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('RENDER_API_TIMEOUT: BingX API call exceeded 120 seconds')), 120000);
-      });
+      // Implement retry logic for rate limit errors
+      const maxRetries = 3;
+      let lastError;
       
-      parallelData = await Promise.race([apiCallPromise, timeoutPromise]) as any;
-      contractsResponse = parallelData.symbols;
-      tickersResponse = parallelData.tickers;
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          logger.info(`🚀 RENDER: API attempt ${attempt}/${maxRetries}`);
+          
+          // Wrap API call with timeout and memory monitoring
+          const apiCallPromise = bingxClient.getSymbolsAndTickersOptimized();
+          const timeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => reject(new Error('RENDER_API_TIMEOUT: BingX API call exceeded 120 seconds')), 120000);
+          });
+          
+          parallelData = await Promise.race([apiCallPromise, timeoutPromise]) as any;
+          contractsResponse = parallelData.symbols;
+          tickersResponse = parallelData.tickers;
+          
+          const apiDuration = Date.now() - apiStartTime;
+          logger.info(`✅ RENDER: BingX API calls completed in ${apiDuration}ms (attempt ${attempt})`);
+          break; // Success, exit retry loop
+          
+        } catch (retryError: any) {
+          lastError = retryError;
+          const isRateLimitError = retryError.message?.includes('rate limit') || retryError.message?.includes('BingX rate limit active');
+          
+          if (isRateLimitError && attempt < maxRetries) {
+            // Extract wait time from error message
+            const recoveryMatch = retryError.message.match(/Recovery in (\d+)s/);
+            const waitTime = recoveryMatch ? parseInt(recoveryMatch[1]) * 1000 : 5000;
+            const totalWaitTime = waitTime + 2000; // Add 2 second buffer
+            
+            logger.warn(`⏳ RENDER: Rate limit hit, waiting ${totalWaitTime/1000}s before retry ${attempt + 1}/${maxRetries}`);
+            
+            await sendProgress(sessionId, {
+              type: 'warning',
+              message: `⏳ RENDER: Sistema ocupado, aguardando ${Math.ceil(totalWaitTime/1000)}s... (Tentativa ${attempt + 1}/${maxRetries})`,
+              renderOptimized: true,
+              retryAttempt: attempt,
+              totalRetries: maxRetries
+            });
+            
+            await new Promise(resolve => setTimeout(resolve, totalWaitTime));
+            continue; // Retry
+          }
+          
+          // If not a rate limit error or out of retries, break and handle error below
+          break;
+        }
+      }
       
-      const apiDuration = Date.now() - apiStartTime;
-      logger.info(`✅ RENDER: BingX API calls completed in ${apiDuration}ms`);
+      // If we got here and parallelData is undefined, we failed all retries
+      if (!parallelData) {
+        throw lastError;
+      }
       
     } catch (optimizedError: any) {
       logger.warn('⚠️  Optimized fetch failed, trying individual calls:', optimizedError.message);
