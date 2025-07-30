@@ -108,7 +108,7 @@ axiosInstance.interceptors.request.use(
   }
 )
 
-// Performance optimized response interceptor
+// Performance optimized response interceptor with rate limit handling
 axiosInstance.interceptors.response.use(
   (response: AxiosResponse) => {
     // Log performance metrics
@@ -136,13 +136,29 @@ axiosInstance.interceptors.response.use(
     requestCache.delete(cacheKey)
     cancelTokens.delete(cacheKey)
     
-    // Enhanced error handling with retry logic for 5xx errors
+    // Enhanced error handling with rate limit detection
     const message = error.response?.data?.error?.message || 
                    error.response?.data?.msg || 
                    error.message || 
                    'An error occurred'
     
-    // Add context to error
+    // Check for rate limit errors and provide user-friendly messages
+    if (message.includes('BingX rate limit active') || message.includes('RENDER: BingX rate limit')) {
+      // Extract recovery time if available
+      const recoveryMatch = message.match(/Recovery in (\d+)s|(\d+) minutes/)
+      const recoveryTime = recoveryMatch ? (recoveryMatch[1] ? `${recoveryMatch[1]} segundos` : `${recoveryMatch[2]} minutos`) : 'alguns instantes'
+      
+      const enhancedError: ApiError = new Error(
+        `⏳ Sistema temporariamente ocupado. Tente novamente em ${recoveryTime}.\n\n` +
+        'Isso é normal durante períodos de alta atividade. ' +
+        'O sistema está protegendo contra sobrecarga da API da BingX.'
+      )
+      enhancedError.status = error.response?.status || 429
+      enhancedError.url = error.config?.url
+      throw enhancedError
+    }
+    
+    // Add context to other errors
     const enhancedError: ApiError = new Error(message)
     enhancedError.status = error.response?.status
     enhancedError.url = error.config?.url
