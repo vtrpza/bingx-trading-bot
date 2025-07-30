@@ -321,6 +321,10 @@ const gracefulShutdown = (signal: string) => {
     logger.info('HTTP server closed');
     
     try {
+      // Close BingX WebSocket connection first to avoid rate limit errors
+      const { wsManager } = await import('./services/websocket');
+      await wsManager.gracefulShutdown();
+      
       // Close database connections
       await sequelize.close();
       logger.info('Database connections closed');

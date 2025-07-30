@@ -553,7 +553,22 @@ export class BingXClient {
     );
   }
 
-  async closeListenKey(listenKey: string) {
+  async closeListenKey(listenKey: string, bypassRateLimit: boolean = false) {
+    if (bypassRateLimit) {
+      // Direct API call for cleanup during shutdown - avoid rate limiter
+      try {
+        const response = await this.axios.delete('/openApi/user/auth/userDataStream', {
+          params: { listenKey },
+          timeout: 5000 // Short timeout for cleanup
+        });
+        return response.data;
+      } catch (error: any) {
+        // Log but don't throw - cleanup should be non-blocking
+        logger.warn('Direct listen key cleanup failed (bypassed rate limiter):', error.message);
+        return null;
+      }
+    }
+
     return productionBingXRateLimiter.executeAccountRequest(
       `close_listen_key:${listenKey}`,
       async () => {

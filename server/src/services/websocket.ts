@@ -297,8 +297,17 @@ class BingXWebSocketManager extends EventEmitter {
     }
 
     if (this.listenKey) {
+      // First try normal cleanup
       bingxClient.closeListenKey(this.listenKey).catch(error => {
-        logger.error('Failed to close listen key:', error);
+        // If rate limited, try bypass method for graceful shutdown
+        if (error.message && error.message.includes('BingX rate limit active')) {
+          logger.warn('Rate limit hit during cleanup, attempting bypass method...');
+          bingxClient.closeListenKey(this.listenKey!, true).catch(bypassError => {
+            logger.warn('Listen key cleanup fully failed - this is acceptable during shutdown');
+          });
+        } else {
+          logger.error('Failed to close listen key:', error);
+        }
       });
       this.listenKey = null;
     }
@@ -310,6 +319,42 @@ class BingXWebSocketManager extends EventEmitter {
       this.ws.close();
       this.ws = null;
     }
+  }
+
+  // Graceful shutdown for deployment scenarios
+  async gracefulShutdown() {
+    logger.info('BingX WebSocket: Starting graceful shutdown...');
+    
+    // Clear intervals first
+    if (this.pingInterval) {
+      clearInterval(this.pingInterval);
+      this.pingInterval = null;
+    }
+
+    if (this.reconnectInterval) {
+      clearInterval(this.reconnectInterval);
+      this.reconnectInterval = null;
+    }
+
+    // Close WebSocket connection
+    if (this.ws) {
+      this.ws.close();
+      this.ws = null;
+    }
+
+    // Try to close listen key with bypass if needed
+    if (this.listenKey) {
+      try {
+        logger.info('Attempting to close listen key during graceful shutdown...');
+        await bingxClient.closeListenKey(this.listenKey, true); // Bypass rate limiter
+        logger.info('Listen key closed successfully during shutdown');
+      } catch (error: any) {
+        logger.warn('Listen key cleanup failed during shutdown (acceptable):', error.message);
+      }
+      this.listenKey = null;
+    }
+
+    logger.info('BingX WebSocket: Graceful shutdown completed');
   }
 }
 
