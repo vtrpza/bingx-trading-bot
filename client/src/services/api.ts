@@ -50,24 +50,53 @@ function createCacheKey(url: string, params?: any): string {
   return `${url}${params ? JSON.stringify(params) : ''}`
 }
 
-// Retry configuration
+// Retry configuration - Enhanced for Render deployment
 const RETRY_CONFIG = {
-  maxRetries: 3,
-  baseDelay: 1000,
-  maxDelay: 5000,
+  maxRetries: 5, // Increased for rate limit scenarios
+  baseDelay: 2000, // Longer initial delay for rate limits
+  maxDelay: 30000, // Extended max delay
   backoffFactor: 2,
+  rateLimitRetries: 3, // Specific retries for rate limit errors
+  rateLimitBaseDelay: 3000 // Base delay for rate limit retries
 }
 
-// Exponential backoff retry helper
+// Enhanced retry helper with rate limit handling
 async function withRetry<T>(fn: () => Promise<T>, retries = RETRY_CONFIG.maxRetries): Promise<T> {
   try {
     return await fn()
   } catch (error: any) {
-    if (retries > 0 && error.response?.status >= 500) {
-      const delay = Math.min(
-        RETRY_CONFIG.baseDelay * Math.pow(RETRY_CONFIG.backoffFactor, RETRY_CONFIG.maxRetries - retries),
-        RETRY_CONFIG.maxDelay
-      )
+    const errorMessage = error.message || ''
+    const isRateLimitError = errorMessage.includes('rate limit') || errorMessage.includes('Taxa de limite') || error.status === 429
+    const isServerError = error.response?.status >= 500
+    
+    if (retries > 0 && (isServerError || isRateLimitError)) {
+      let delay: number
+      
+      if (isRateLimitError) {
+        // Extract wait time from error message if available
+        const recoveryMatch = errorMessage.match(/Recovery in (\d+)s|(\d+) segundos/)
+        const extractedDelay = recoveryMatch ? parseInt(recoveryMatch[1]) * 1000 : null
+        
+        if (extractedDelay) {
+          // Use the exact recovery time plus a small buffer
+          delay = extractedDelay + 1000
+        } else {
+          // Use exponential backoff for rate limits
+          delay = Math.min(
+            RETRY_CONFIG.rateLimitBaseDelay * Math.pow(RETRY_CONFIG.backoffFactor, RETRY_CONFIG.rateLimitRetries - retries),
+            RETRY_CONFIG.maxDelay
+          )
+        }
+        
+        console.log(`🔄 Rate limit detected, retrying in ${delay}ms (${retries} attempts remaining)`)
+      } else {
+        // Regular server error retry
+        delay = Math.min(
+          RETRY_CONFIG.baseDelay * Math.pow(RETRY_CONFIG.backoffFactor, RETRY_CONFIG.maxRetries - retries),
+          RETRY_CONFIG.maxDelay
+        )
+      }
+      
       await new Promise(resolve => setTimeout(resolve, delay))
       return withRetry(fn, retries - 1)
     }
@@ -85,6 +114,66 @@ const SSE_CONFIG = {
 
 // Track SSE errors to auto-disable if problematic
 let sseErrorCount = 0
+
+// Special retry wrapper for refresh operations
+async function withRefreshRetry<T>(
+  fn: () => Promise<T>, 
+  onProgress?: (data: any) => void,
+  operation: string = 'refresh'
+): Promise<T> {
+  const maxRetries = RETRY_CONFIG.rateLimitRetries
+  
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn()
+    } catch (error: any) {
+      const errorMessage = error.message || ''
+      const isRateLimitError = errorMessage.includes('rate limit') || errorMessage.includes('Taxa de limite') || error.status === 429
+      
+      if (isRateLimitError && attempt < maxRetries) {
+        // Extract wait time from error message
+        const recoveryMatch = errorMessage.match(/Recovery in (\d+)s|(\d+) segundos/)
+        const waitTime = recoveryMatch ? parseInt(recoveryMatch[1]) * 1000 : RETRY_CONFIG.rateLimitBaseDelay
+        const totalWaitTime = waitTime + 1000 // Add 1 second buffer
+        
+        // Notify user about the retry
+        if (onProgress) {
+          onProgress({
+            type: 'warning',
+            message: `⏳ Sistema ocupado, tentando novamente em ${Math.ceil(totalWaitTime / 1000)} segundos... (Tentativa ${attempt}/${maxRetries})`,
+            progress: 0,
+            isRetrying: true,
+            retryAttempt: attempt,
+            totalRetries: maxRetries,
+            waitTime: totalWaitTime
+          })
+        }
+        
+        console.log(`🔄 ${operation}: Rate limit hit, waiting ${totalWaitTime}ms before retry ${attempt}/${maxRetries}`)
+        await new Promise(resolve => setTimeout(resolve, totalWaitTime))
+        
+        // Update progress after wait
+        if (onProgress) {
+          onProgress({
+            type: 'progress',
+            message: `🔄 Reiniciando ${operation}... (Tentativa ${attempt + 1}/${maxRetries})`,
+            progress: 5,
+            isRetrying: true,
+            retryAttempt: attempt + 1,
+            totalRetries: maxRetries
+          })
+        }
+        
+        continue // Try again
+      }
+      
+      // If it's not a rate limit error or we're out of retries, throw the error
+      throw error
+    }
+  }
+  
+  throw new Error(`Falha no ${operation} após ${maxRetries} tentativas`)
+}
 
 // Performance optimized request interceptor
 axiosInstance.interceptors.request.use(
@@ -312,11 +401,17 @@ export const api = {
         }
       }, SSE_CONFIG.timeout);
       
-      // Start delta refresh
+      // Start delta refresh with retry logic
       setTimeout(async () => {
         try {
           console.log('🚀 Starting delta refresh with sessionId:', sessionId);
-          const response = await axiosInstance.post('/assets/refresh/delta', { sessionId });
+          
+          const response = await withRefreshRetry(
+            () => axiosInstance.post('/assets/refresh/delta', { sessionId }),
+            onProgress,
+            'atualização inteligente'
+          );
+          
           console.log('✅ Delta refresh response:', response.data);
           clearTimeout(sseTimeout);
           eventSource?.close();
@@ -406,11 +501,17 @@ export const api = {
         }
       }, SSE_CONFIG.timeout);
       
-      // Wait a bit for SSE connection to establish, then start refresh
+      // Wait a bit for SSE connection to establish, then start refresh with retry logic
       setTimeout(async () => {
         try {
           console.log('🚀 Iniciando refresh com sessionId:', sessionId);
-          const response = await axiosInstance.post('/assets/refresh', { sessionId });
+          
+          const response = await withRefreshRetry(
+            () => axiosInstance.post('/assets/refresh', { sessionId }),
+            onProgress,
+            'refresh completo'
+          );
+          
           console.log('✅ Refresh response:', response.data);
           clearTimeout(sseTimeout);
           eventSource?.close();
