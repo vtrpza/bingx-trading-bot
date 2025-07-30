@@ -332,6 +332,9 @@ export const api = {
   async refreshAssetsDelta(onProgress?: (data: any) => void): Promise<{ message: string; created: number; updated: number; total: number; processed: number; skipped: number; sessionId: string; deltaMode?: string }> {
     const sessionId = `delta_refresh_${Date.now()}`;
     
+    // 🎯 CACHE FIX: Clear relevant caches before refresh
+    apiUtils.invalidateRefreshCaches()
+    
     return new Promise((resolve, reject) => {
       let eventSource: EventSource | null = null;
       
@@ -428,6 +431,9 @@ export const api = {
 
   async refreshAssets(onProgress?: (data: any) => void): Promise<{ message: string; created: number; updated: number; total: number; processed: number; skipped: number; sessionId: string }> {
     const sessionId = `refresh_${Date.now()}`;
+    
+    // 🎯 CACHE FIX: Clear relevant caches before refresh
+    apiUtils.invalidateRefreshCaches()
     
     return new Promise((resolve, reject) => {
       let eventSource: EventSource | null = null;
@@ -906,11 +912,12 @@ export const api = {
   },
 }
 
-// API cleanup utilities
+// Enhanced API cleanup utilities with comprehensive cache management
 export const apiUtils = {
   // Clear all cached requests
   clearCache(): void {
     requestCache.clear()
+    console.log('🗑️ Request cache cleared')
   },
   
   // Cancel all pending requests
@@ -919,6 +926,7 @@ export const apiUtils = {
       source.cancel('Component unmounted or cleanup requested')
     })
     cancelTokens.clear()
+    console.log('🚫 All pending requests cancelled')
   },
   
   // Cancel specific request by key
@@ -936,6 +944,135 @@ export const apiUtils = {
     return {
       cacheSize: requestCache.size,
       pendingRequests: cancelTokens.size
+    }
+  },
+
+  // 🎯 MAIN FIX: Clear all frontend caches - COMPREHENSIVE SOLUTION
+  clearAllCaches(): void {
+    try {
+      console.log('🧹 Starting comprehensive cache cleanup...')
+      
+      // 1. Clear axios request cache
+      requestCache.clear()
+      
+      // 2. Cancel all pending requests
+      cancelTokens.forEach((source) => {
+        source.cancel('Cache cleanup')
+      })
+      cancelTokens.clear()
+      
+      // 3. Clear localStorage (if used)
+      if (typeof localStorage !== 'undefined') {
+        const keysToRemove = []
+        for (let i = 0; i < localStorage.length; i++) {
+          const key = localStorage.key(i)
+          if (key && (key.includes('assets') || key.includes('trading') || key.includes('api') || key.includes('react-query'))) {
+            keysToRemove.push(key)
+          }
+        }
+        keysToRemove.forEach(key => localStorage.removeItem(key))
+        console.log(`🗑️ Removed ${keysToRemove.length} localStorage keys`)
+      }
+      
+      // 4. Clear sessionStorage (if used)
+      if (typeof sessionStorage !== 'undefined') {
+        const keysToRemove = []
+        for (let i = 0; i < sessionStorage.length; i++) {
+          const key = sessionStorage.key(i)
+          if (key && (key.includes('assets') || key.includes('trading') || key.includes('api') || key.includes('react-query'))) {
+            keysToRemove.push(key)
+          }
+        }
+        keysToRemove.forEach(key => sessionStorage.removeItem(key))
+        console.log(`🗑️ Removed ${keysToRemove.length} sessionStorage keys`)
+      }
+      
+      console.log('✅ All frontend caches cleared successfully')
+      
+    } catch (error) {
+      console.error('❌ Error clearing caches:', error)
+    }
+  },
+
+  // Smart cache invalidation for refresh operations
+  invalidateRefreshCaches(): void {
+    console.log('🔄 Invalidating refresh-related caches...')
+    
+    // Clear request cache entries related to assets and refresh
+    const keysToDelete = []
+    for (const [key] of requestCache.entries()) {
+      if (key.includes('/assets') || key.includes('refresh') || key.includes('stats')) {
+        keysToDelete.push(key)
+      }
+    }
+    keysToDelete.forEach(key => requestCache.delete(key))
+    
+    console.log(`🗑️ Invalidated ${keysToDelete.length} refresh-related cache entries`)
+  },
+
+  // Force reload with clean state
+  forceReload(): void {
+    this.clearAllCaches()
+    setTimeout(() => {
+      console.log('🔄 Forcing page reload for clean state...')
+      if (typeof window !== 'undefined') {
+        window.location.reload()
+      }
+    }, 1000)
+  },
+
+  // Cache diagnostic utility
+  diagnoseCacheHealth(): {
+    requestCacheSize: number
+    pendingRequests: number
+    localStorageKeys: number
+    sessionStorageKeys: number
+    recommendations: string[]
+  } {
+    const recommendations = []
+    
+    const requestCacheSize = requestCache.size
+    const pendingRequests = cancelTokens.size
+    
+    let localStorageKeys = 0
+    let sessionStorageKeys = 0
+    
+    if (typeof localStorage !== 'undefined') {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i)
+        if (key && (key.includes('assets') || key.includes('trading') || key.includes('api'))) {
+          localStorageKeys++
+        }
+      }
+    }
+    
+    if (typeof sessionStorage !== 'undefined') {
+      for (let i = 0; i < sessionStorage.length; i++) {
+        const key = sessionStorage.key(i)
+        if (key && (key.includes('assets') || key.includes('trading') || key.includes('api'))) {
+          sessionStorageKeys++
+        }
+      }
+    }
+    
+    if (requestCacheSize > 20) {
+      recommendations.push('Request cache is large - consider clearing')
+    }
+    
+    if (pendingRequests > 5) {
+      recommendations.push('Many pending requests - may cause issues')
+    }
+    
+    if (localStorageKeys > 10) {
+      recommendations.push('Many localStorage entries - may be stale')
+    }
+    
+    return {
+      requestCacheSize,
+      pendingRequests,
+      localStorageKeys,
+      sessionStorageKeys,
+      recommendations
     }
   }
 }

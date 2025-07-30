@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import { useQuery, useQueryClient } from 'react-query'
-import { api } from '../services/api'
+import { api, apiUtils } from '../services/api'
 import { toast } from 'react-hot-toast'
 import type { Asset, PaginatedResponse } from '../types'
 
@@ -138,6 +138,37 @@ export default function AssetsPage() {
       debouncedSearchHandler.cancel()
     }
   }, [search, debouncedSearchHandler])
+
+  // 🎯 CACHE FIX: Auto-detect cache issues on page load
+  useEffect(() => {
+    const checkCacheHealth = () => {
+      try {
+        const diagnosis = apiUtils.diagnoseCacheHealth()
+        
+        if (diagnosis.recommendations.length > 0) {
+          console.warn('⚠️ Cache health issues detected:', diagnosis)
+          
+          // Show warning if cache issues are detected
+          if (diagnosis.requestCacheSize > 30 || diagnosis.localStorageKeys > 15) {
+            toast(
+              '⚠️ Cache pode estar corrompido. Se você estiver tendo problemas com refresh, ' +
+              'tente usar o botão "Limpar Cache" para resolver.',
+              {
+                id: 'cache-warning',
+                duration: 8000,
+                icon: '🧹'
+              }
+            )
+          }
+        }
+      } catch (error) {
+        console.error('Error checking cache health:', error)
+      }
+    }
+    
+    // Check cache health after component mounts
+    setTimeout(checkCacheHealth, 2000)
+  }, [])
 
   // Optimized query key factory
   const queryKeys = useMemo(() => ({
@@ -440,6 +471,54 @@ export default function AssetsPage() {
   }
 
 
+  // 🎯 CACHE FIX: Clear frontend caches handler
+  const handleClearCache = useCallback(async () => {
+    const confirmed = window.confirm(
+      '🧹 LIMPAR CACHE DO FRONTEND\n\n' +
+      'Esta ação irá limpar todos os caches do navegador (localStorage, sessionStorage, etc.) ' +
+      'e recarregar a página para garantir estado limpo.\n\n' +
+      'Isso pode resolver problemas de cache corrompido.\n\n' +
+      'Continuar?'
+    )
+    
+    if (!confirmed) return
+    
+    toast.loading('🧹 Limpando todos os caches...', { id: 'clear-cache' })
+    
+    try {
+      // Diagnose cache health first
+      const diagnosis = apiUtils.diagnoseCacheHealth()
+      console.log('📊 Cache diagnosis:', diagnosis)
+      
+      if (diagnosis.recommendations.length > 0) {
+        console.log('💡 Cache recommendations:', diagnosis.recommendations)
+      }
+      
+      // Clear all caches
+      apiUtils.clearAllCaches()
+      
+      toast.success(
+        `✅ Cache limpo com sucesso!\n` +
+        `🗑️ ${diagnosis.requestCacheSize} requests em cache\n` +
+        `📦 ${diagnosis.localStorageKeys} itens localStorage\n` +
+        `🔄 Recarregando página...`,
+        { 
+          id: 'clear-cache',
+          duration: 3000 
+        }
+      )
+      
+      // Force reload after showing success message
+      setTimeout(() => {
+        apiUtils.forceReload()
+      }, 1000)
+      
+    } catch (error: any) {
+      const errorMessage = error?.message || 'Falha ao limpar cache'
+      toast.error(`❌ ${errorMessage}`, { id: 'clear-cache', duration: 8000 })
+    }
+  }, [])
+
   // Optimized clear database handler
   const handleClearDatabase = useCallback(async () => {
     const confirmed = window.confirm(
@@ -586,21 +665,20 @@ export default function AssetsPage() {
           )}
         </div>
         <div className="flex gap-3">
-          {/* <button
-            onClick={handleUpdateCoinNames}
+          <button
+            onClick={handleClearCache}
             disabled={isRefreshing || isClearing}
             className={`btn flex items-center gap-2 px-4 py-3 rounded-lg font-medium transition-all ${
               isRefreshing || isClearing
-                ? 'bg-purple-100 text-purple-700 border border-purple-300 cursor-not-allowed' 
-                : 'bg-purple-600 text-white hover:bg-purple-700 border border-purple-600'
+                ? 'bg-orange-100 text-orange-700 border border-orange-300 cursor-not-allowed' 
+                : 'bg-orange-600 text-white hover:bg-orange-700 border border-orange-600'
             }`}
+            title="Limpa todos os caches do frontend para resolver problemas de dados corrompidos"
           >
-            <>
-              <span>🪙</span>
-              <span>Atualizar Nomes</span>
-            </>
+            <span>🧹</span>
+            <span>Limpar Cache</span>
           </button>
-           */}
+          
           <button
             onClick={handleClearDatabase}
             disabled={isClearing || isRefreshing}
