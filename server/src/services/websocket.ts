@@ -302,7 +302,7 @@ class BingXWebSocketManager extends EventEmitter {
         // If rate limited, try bypass method for graceful shutdown
         if (error.message && error.message.includes('BingX rate limit active')) {
           logger.warn('Rate limit hit during cleanup, attempting bypass method...');
-          bingxClient.closeListenKey(this.listenKey!, true).catch(bypassError => {
+          bingxClient.closeListenKey(this.listenKey!, true).catch(() => {
             logger.warn('Listen key cleanup fully failed - this is acceptable during shutdown');
           });
         } else {
